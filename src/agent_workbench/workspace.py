@@ -54,15 +54,16 @@ def safe_path(root: Path, name: str) -> Path:
 
 def write_json(path: Path, value: dict, *, private: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    # Never write secret-bearing state with a permissive initial mode.
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-        json.dump(value, stream, ensure_ascii=False, indent=2)
-        stream.write("\n")
-    if not private:
-        temporary.chmod(0o600)
-    temporary.replace(path)
+    # A private, unpredictable temporary file cannot follow a persisted Agent-created link.
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def inventory(repo: Path, *, untracked: bool = True) -> dict:

@@ -12,7 +12,7 @@ import secrets
 import subprocess
 
 from .opencode import OpenCodeClient
-from .workspace import WorkbenchError, load_workspace, write_json
+from .workspace import WorkbenchError, load_workspace, safe_path, write_json
 
 
 def exclusive_workspace(function):
@@ -61,6 +61,11 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None) -> dict:
     network = f"awb-req-{requirement_suffix}"
     if (workspace / "runtime.json").exists():
         raise WorkbenchError("Runtime state already exists; stop the recorded runtime before starting another")
+    # Persisted Agent state is untrusted input when interpreted on the host.
+    home = safe_path(workspace, "agent-home")
+    config = safe_path(workspace, "agent-home/.config/opencode")
+    config_file = safe_path(workspace, "agent-home/.config/opencode/opencode.json")
+    staging = safe_path(workspace, "staging")
     found = docker("network", "inspect", network, check=False)
     if found.returncode:
         docker("network", "create", "--label", "awb.managed=true", network)
@@ -68,12 +73,9 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None) -> dict:
         labels = json.loads(found.stdout)[0].get("Labels") or {}
         if labels.get("awb.managed") != "true":
             raise WorkbenchError("Network name belongs to an unmanaged resource")
-    home = workspace / "agent-home"
-    config = home / ".config/opencode"
     config.mkdir(parents=True, exist_ok=True)
-    if not (config / "opencode.json").exists():
-        write_json(config / "opencode.json", {"plugin": ["/opt/superpowers"], "permission": "allow"})
-    staging = workspace / "staging"
+    if not config_file.exists():
+        write_json(config_file, {"plugin": ["/opt/superpowers"], "permission": "allow"})
     staging.mkdir(exist_ok=True)
     password = secrets.token_urlsafe(32)
     state = {"container": container, "network": network, "password": password,

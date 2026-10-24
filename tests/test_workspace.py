@@ -1,8 +1,10 @@
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from agent_workbench.workspace import WorkbenchError, create_workspace, git, snapshot
+from agent_workbench import runtime
+from agent_workbench.workspace import WorkbenchError, create_workspace, git, snapshot, write_json
 
 
 class WorkspaceTests(unittest.TestCase):
@@ -102,6 +104,28 @@ class WorkspaceTests(unittest.TestCase):
     def test_workspace_under_source_is_rejected(self):
         with self.assertRaises(WorkbenchError):
             create_workspace(self.source, self.source / "copies", "req-a", "backend")
+
+    def test_persisted_agent_config_symlink_is_rejected_before_docker(self):
+        repo = self.create()
+        home = repo.parent / "agent-home"
+        home.mkdir()
+        external = self.root / "outside-home"
+        external.mkdir()
+        (home / ".config").symlink_to(external, target_is_directory=True)
+        with patch("agent_workbench.runtime.docker") as docker:
+            with self.assertRaises(WorkbenchError):
+                runtime.start(repo.parent, "fixture-image")
+            docker.assert_not_called()
+        self.assertEqual(list(external.iterdir()), [])
+
+    def test_state_writer_does_not_follow_a_predictable_temporary_symlink(self):
+        victim = self.root / "victim.txt"
+        victim.write_text("preserve")
+        (self.root / "record.json.tmp").symlink_to(victim)
+        destination = self.root / "record.json"
+        write_json(destination, {"value": "saved"})
+        self.assertEqual(victim.read_text(), "preserve")
+        self.assertEqual(destination.stat().st_mode & 0o777, 0o600)
 
 
 if __name__ == "__main__":

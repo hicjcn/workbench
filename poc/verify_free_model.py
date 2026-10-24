@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -89,11 +90,14 @@ def main():
         report["agent_error_events"] = len(failures)
         after = snapshot(workspace / "repo")
         report["code_changed"] = before["tree_digest"] != after["tree_digest"]
+        before_files = {entry["path"]: entry["sha256"] for entry in before["files"]}
+        after_files = {entry["path"]: entry["sha256"] for entry in after["files"]}
+        report["regression_test_file_changed"] = before_files.get("server.test.mjs") != after_files.get("server.test.mjs")
         report["before_digest"] = before["tree_digest"]
         report["after_digest"] = after["tree_digest"]
         report["source_unchanged"] = snapshot(source)["tree_digest"] == report["source_tree_digest"]
         progress("verify-generated-code")
-        tests = runtime.docker("exec", state["container"], "node", "--test", "server.test.mjs", check=False)
+        tests = runtime.docker("exec", state["container"], "node", "--test", "--test-reporter=tap", "server.test.mjs", check=False)
         (root / "test-output.txt").write_text(tests.stdout + tests.stderr)
         behavior = runtime.docker(
             "exec", state["container"], "node", "--input-type=module", "-e",
@@ -103,8 +107,13 @@ def main():
             "assert.equal(greeting().message, 'hello world');", check=False,
         )
         report["tests_passed"] = tests.returncode == 0
+        count = re.search(r"^# tests (\d+)\s*$", tests.stdout, re.MULTILINE)
+        report["test_count"] = int(count.group(1)) if count else 0
         report["acceptance_behavior_passed"] = behavior.returncode == 0
-        if result.returncode == 0 and not failures and report["code_changed"] and report["source_unchanged"] and report["tests_passed"] and report["acceptance_behavior_passed"]:
+        if (result.returncode == 0 and not failures and report["code_changed"]
+                and report["regression_test_file_changed"] and report["test_count"] >= 4
+                and report["source_unchanged"] and report["tests_passed"]
+                and report["acceptance_behavior_passed"]):
             report["status"] = "PASSED_REAL_MODEL_TASK"
             exit_code = 0
         else:
@@ -122,10 +131,12 @@ def main():
             try:
                 runtime.stop(workspace)
                 report["runtime_stopped"] = True
-            except WorkbenchError:
+            except (WorkbenchError, subprocess.TimeoutExpired):
                 report["runtime_stopped"] = False
                 report["status"] = "NEEDS_CLEANUP"
                 exit_code = 1
+        if report["status"] == "RUNNING":
+            report["status"] = "FAILED"
         write_json(root / "report.json", report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return exit_code
