@@ -1,0 +1,52 @@
+{
+  "status": "PASSED_SQLITE_METADATA_UPGRADE",
+  "from": "0003",
+  "to": "0004",
+  "preserved_tables": {
+    "projects": {
+      "rows": 1,
+      "sha256": "9f9c5f0fdba42fd71e111aa622635aee6700b13388cae784d421b9d4934aafb2"
+    },
+    "requirements": {
+      "rows": 2,
+      "sha256": "232ab62e411a07e583da5a1e6d4454465605aac09c470f1363374e4c96a71d7e"
+    },
+    "jobs": {
+      "rows": 11,
+      "sha256": "f40937c889593223c222fa80df8914f60179de48041c1e1477b0588db0603088"
+    },
+    "reviews": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "workspaces": {
+      "rows": 2,
+      "sha256": "f21fa1ce74f428f12a936c5c621fc73f036283683f7177e7d3e773ad2f2a3eb9"
+    },
+    "execution_events": {
+      "rows": 53,
+      "sha256": "7f176be9a06322f77ab3714c3b504eb00e2d26810ece751f55d455cfee9d5b7a"
+    },
+    "requirement_revisions": {
+      "rows": 3,
+      "sha256": "b030b2e5fdf0e0618392643902708801aeda1845d171f22289687c154ab95747"
+    },
+    "workflow_runs": {
+      "rows": 2,
+      "sha256": "9349fa3c40f0916c1e47e1682100c84146547c13b4badf7d9db9aa75cc198a82"
+    },
+    "workflow_steps": {
+      "rows": 8,
+      "sha256": "d5dcbd3d69292dfb32fe11da7919c27f061bc1ce2984f848c4577fcd80ce618e"
+    }
+  },
+  "added_tables": [
+    "material_attempts",
+    "material_exports",
+    "material_records",
+    "material_rounds",
+    "material_versions"
+  ],
+  "original_database_modified": false,
+  "full_workspace_restore_tested": false
+}

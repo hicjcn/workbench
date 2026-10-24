@@ -5,6 +5,7 @@ import type { Detail, Job, Project, Requirement } from "./api";
 import { Modal, ProjectForm, RequirementForm } from "./Forms";
 import { ExecutionLog } from "./ExecutionLog";
 import { WorkflowPanel } from "./WorkflowPanel";
+import { MaterialPanel } from "./MaterialPanel";
 
 function Badge({ value }: { value: string }) {
   return (
@@ -197,7 +198,7 @@ export default function App() {
           </div>
         </div>
         <div className="topbar-right">
-          <span className="version-pill">M3 · 本地运行</span>
+          <span className="version-pill">M4 · 本地运行</span>
           <button
             className="text-button"
             onClick={() =>
@@ -377,6 +378,16 @@ export default function App() {
                 detail={detail}
                 disabled={disabled}
                 onEnabled={setWorkflowEnabled}
+                onJob={(job) => setLogId(job.id)}
+                onChanged={async () => {
+                  setDetail(await api<Detail>(`/requirements/${detail.id}`));
+                  await reload();
+                }}
+              />
+              <MaterialPanel
+                key={`materials-${detail.id}`}
+                detail={detail}
+                disabled={disabled}
                 onJob={(job) => setLogId(job.id)}
                 onChanged={async () => {
                   setDetail(await api<Detail>(`/requirements/${detail.id}`));
@@ -651,7 +662,7 @@ export default function App() {
         </main>
       )}
       <footer className="page-footer">
-        <span>WORKBENCH / M3</span>
+        <span>WORKBENCH / M4</span>
         <span>源码独立 · 过程可追溯 · 结果由你确认</span>
       </footer>
       {modal ? (

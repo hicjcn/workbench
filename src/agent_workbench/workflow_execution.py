@@ -48,6 +48,11 @@ def execute_step(executor, job, workspace, emit, canceled):
         report = parse_report(key, result.pop("agent_text"))
         return {**result, "workflow_output": report}
     model = payload["bundle"]["config"]["development_model"] if key == "analysis" else payload["bundle"]["config"]["review_models"][int(key.removeprefix("model_review_"))]
+    return readonly_agent(executor, job, workspace, emit, canceled, model, prompt_for(payload), lambda text: parse_report(key, text))
+
+
+def readonly_agent(executor, job, workspace, emit, canceled, model, prompt, parse):
+    payload = job["input"]
     root = executor.settings.data_dir / "attempts" / job["id"]
     created = create_workspace(workspace / "repo", root, job["requirement_id"], job["project"]["id"],
                                include_dirty=True, include_untracked=True)
@@ -70,10 +75,10 @@ def execute_step(executor, job, workspace, emit, canceled):
             if time.monotonic() > deadline:
                 raise WorkbenchError("只读模型服务启动超时")
             time.sleep(0.5)
-        result = executor.task(job, isolated, emit, canceled, model=model, prompt=prompt_for(payload), read_only=True, collect_text=True)
+        result = executor.task(job, isolated, emit, canceled, model=model, prompt=prompt, read_only=True, collect_text=True)
         if snapshot(isolated / "repo")["tree_digest"] != payload["bundle"]["code_digest"]:
             raise WorkbenchError("只读审查基线发生变化，报告不能生效")
-        report = parse_report(key, result["agent_text"])
+        report = parse(result["agent_text"])
         return {**executor.observe(workspace), "workflow_output": report,
             "review_baseline": payload["bundle"]["code_digest"], "model": model, "isolated_workspace": str(isolated)}
     finally:

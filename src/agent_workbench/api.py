@@ -184,6 +184,9 @@ def create_app(settings: Settings, store: Store | None = None):
         if not supplied or not secrets.compare_digest(supplied, settings.runner_token):
             raise HTTPException(401, "执行器认证失败")
 
+    from .material_api import install as install_material_routes
+    install_material_routes(app, settings, database, user)
+
     @app.get("/api/v1/session")
     def session(request: Request):
         return {"authenticated": authenticated(request), "token_file": str(settings.data_dir / "access-token")}

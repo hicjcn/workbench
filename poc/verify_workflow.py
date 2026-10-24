@@ -222,7 +222,13 @@ def main():
         assert after["revision"]["number"] == 2 and after["current"]["state"] == "ACTIVE" and len(after["history"]) == 2
         assert previous["state"] == "STALE" and len(previous["attempts"]) == 8
         report["checks"]["api_restart_preserves_revisions_reports_and_decisions"] = "PASSED"
-        report.update(status="PASSED_CONTROLLED_M3_WORKFLOW", migration="0003", roles=records, actual_model_inference="NOT_ATTEMPTED")
+        from sqlalchemy import text
+        from agent_workbench.store import Store
+        check_store = Store(f"sqlite:///{root / 'workbench.db'}")
+        with check_store.engine.connect() as connection:
+            migration = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        check_store.engine.dispose()
+        report.update(status="PASSED_CONTROLLED_M3_WORKFLOW", migration=migration, roles=records, actual_model_inference="NOT_ATTEMPTED")
     finally:
         if client: client.close()
         for process in reversed(processes):

@@ -62,6 +62,33 @@ steps = Table("workflow_steps", metadata,
     Column("step_key", String(40), nullable=False), Column("job_id", ForeignKey("jobs.id"), nullable=False, unique=True),
     Column("input_digest", String(64), nullable=False), Column("input_json", Text, nullable=False),
     Column("output_json", Text), Column("created_at", Float, nullable=False))
+material_rounds = Table("material_rounds", metadata,
+    Column("id", String(40), primary_key=True), Column("requirement_id", ForeignKey("requirements.id"), nullable=False),
+    Column("flow_id", ForeignKey("workflow_runs.id"), nullable=False), Column("revision_id", ForeignKey("requirement_revisions.id"), nullable=False),
+    Column("basis_digest", String(64), nullable=False), Column("is_current", Boolean, nullable=False),
+    Column("state", String(30), nullable=False), Column("reason", Text, nullable=False),
+    Column("start_json", Text, nullable=False), Column("idempotency_key", String(100)), Column("created_at", Float, nullable=False),
+    UniqueConstraint("requirement_id", "idempotency_key", name="uq_material_start"))
+Index("uq_current_material_round", material_rounds.c.requirement_id, unique=True,
+    sqlite_where=material_rounds.c.is_current.is_(True), postgresql_where=material_rounds.c.is_current.is_(True))
+documents = Table("material_versions", metadata,
+    Column("id", String(40), primary_key=True), Column("round_id", ForeignKey("material_rounds.id"), nullable=False),
+    Column("kind", String(40), nullable=False), Column("number", Integer, nullable=False),
+    Column("content_json", Text, nullable=False), Column("content_digest", String(64), nullable=False),
+    Column("basis_json", Text, nullable=False), Column("provenance", String(30), nullable=False),
+    Column("reason", Text, nullable=False), Column("job_id", ForeignKey("jobs.id"), nullable=False, unique=True),
+    Column("created_at", Float, nullable=False), UniqueConstraint("round_id", "kind", "number", name="uq_material_version"))
+material_records = Table("material_records", metadata,
+    Column("id", String(40), primary_key=True), Column("round_id", ForeignKey("material_rounds.id"), nullable=False),
+    Column("kind", String(40), nullable=False), Column("payload_json", Text, nullable=False), Column("basis_json", Text, nullable=False),
+    Column("job_id", ForeignKey("jobs.id"), nullable=False, unique=True), Column("created_at", Float, nullable=False))
+material_attempts = Table("material_attempts", metadata,
+    Column("job_id", ForeignKey("jobs.id"), primary_key=True), Column("round_id", ForeignKey("material_rounds.id"), nullable=False),
+    Column("step_key", String(40), nullable=False), Column("input_digest", String(64), nullable=False), Column("created_at", Float, nullable=False))
+material_exports = Table("material_exports", metadata,
+    Column("id", String(40), primary_key=True), Column("round_id", ForeignKey("material_rounds.id"), nullable=False),
+    Column("job_id", ForeignKey("jobs.id"), nullable=False, unique=True), Column("sha256", String(64), nullable=False),
+    Column("size", Integer, nullable=False), Column("manifest_json", Text, nullable=False), Column("created_at", Float, nullable=False))
 
 
 def identifier(prefix):
@@ -101,11 +128,18 @@ class Store:
         if url.startswith("sqlite"):
             @event.listens_for(self.engine, "connect")
             def configure(connection, _):
+                # Explicit transactions also cover SELECT, DDL and nested savepoints.
+                connection.isolation_level = None
                 cursor = connection.cursor()
                 cursor.execute("PRAGMA foreign_keys=ON")
                 cursor.execute("PRAGMA busy_timeout=5000")
                 cursor.execute("PRAGMA journal_mode=WAL")
                 cursor.close()
+
+            @event.listens_for(self.engine, "begin")
+            def begin(connection):
+                # Local control transactions are short; serialize SQLite mutations and reads.
+                connection.exec_driver_sql("BEGIN IMMEDIATE")
 
     def get(self, table, identity, exclude=()):
         key = list(table.primary_key.columns)[0]
@@ -134,6 +168,7 @@ class Store:
                     jobs.c.status == "RUNNING", jobs.c.lease_until < now)).values(
                         status="UNKNOWN", error="执行器心跳中断；需要停止并核实，任务不会自动重放", updated_at=now))
                 if changed.rowcount:
+                    connection.execute(select(requirements.c.id).where(requirements.c.id == requirement_id).with_for_update()).one()
                     connection.execute(update(workspaces).where(workspaces.c.requirement_id == requirement_id)
                         .values(environment="UNKNOWN", approval="STALE", updated_at=now))
                     from .workflow import invalidate
@@ -223,9 +258,18 @@ class Store:
     def finish(self, job_id, owner, epoch, status, result, error):
         with self.engine.begin() as connection:
             job = self.owned(connection, job_id, owner, epoch)
+            # A consistent requirement -> flow/material order avoids cross-resource deadlocks.
+            connection.execute(select(requirements.c.id).where(requirements.c.id == job["requirement_id"]).with_for_update()).one()
             from .workflow import complete, invalidate
             if job["action"] == "workflow":
                 status, error = complete(connection, job, status, result, error)
+            elif job["action"] == "materials":
+                from pathlib import Path
+                from .materials import complete as complete_materials
+                if result.get("snapshot"):
+                    invalidate(connection, job["requirement_id"], result["snapshot"]["tree_digest"])
+                path = connection.execute(select(workspaces.c.path).where(workspaces.c.requirement_id == job["requirement_id"])).scalar_one()
+                status, error = complete_materials(connection, job, status, result, error, Path(path).parents[2])
             elif result.get("snapshot"):
                 invalidate(connection, job["requirement_id"], result["snapshot"]["tree_digest"])
             now = time.time()
@@ -276,12 +320,14 @@ class Store:
     def job_history(self, requirement_id):
         columns = [column for column in jobs.c if column.name not in ("input_json", "result_json", "owner", "epoch", "lease_until")]
         with self.engine.connect() as connection:
-            return [public(row) for row in connection.execute(select(*columns, steps.c.step_key)
-                .outerjoin(steps, steps.c.job_id == jobs.c.id).where(jobs.c.requirement_id == requirement_id)
+            from sqlalchemy import func
+            return [public(row) for row in connection.execute(select(*columns, func.coalesce(steps.c.step_key, material_attempts.c.step_key).label("step_key"))
+                .outerjoin(steps, steps.c.job_id == jobs.c.id).outerjoin(material_attempts, material_attempts.c.job_id == jobs.c.id).where(jobs.c.requirement_id == requirement_id)
                 .order_by(jobs.c.created_at.desc())).mappings()]
 
     def idle_observation(self, requirement_id, snapshot_value, diff, unreadable=False, diff_truncated=False):
         with self.engine.begin() as connection:
+            connection.execute(select(requirements.c.id).where(requirements.c.id == requirement_id).with_for_update()).one()
             if connection.execute(select(jobs.c.id).where(and_(jobs.c.requirement_id == requirement_id,
                     jobs.c.status.in_(["QUEUED", "RUNNING", "UNKNOWN"])))).first():
                 raise Conflict("工作区正在执行或待核实，暂不接受观察结果")

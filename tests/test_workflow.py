@@ -238,3 +238,5 @@ class WorkflowTests(ControlFixture):
                 lambda kind, payload: recorded.append(payload), threading.Event(), collect_text=True)
         self.assertEqual(result["agent_text"], final)
         self.assertTrue(any("Using Superpowers" in item["text"] for item in recorded))
+        process.stdin.write.assert_called_once()
+        self.assertIn("fixture", process.stdin.write.call_args.args[0])

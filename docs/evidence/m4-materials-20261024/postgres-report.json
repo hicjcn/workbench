@@ -1,0 +1,23 @@
+{
+  "status": "PASSED_POSTGRES_CONTROL_PLANE",
+  "postgres_version": "17.11 (Debian 17.11-1.pgdg12+2)",
+  "migration": "0004",
+  "controlled_model_report": true,
+  "checks": [
+    "migrations",
+    "idempotency",
+    "exclusive_job",
+    "claim",
+    "durable_event",
+    "completion",
+    "workflow_gate",
+    "revision_invalidation",
+    "material_versions",
+    "supervisor_gate",
+    "test_definition_execution_separation",
+    "material_acceptance",
+    "material_export_download",
+    "material_revision_invalidation",
+    "concurrent_idempotent_material_intent"
+  ]
+}

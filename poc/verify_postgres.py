@@ -78,12 +78,50 @@ def main():
             before = workflow.read(requirement["id"])["revision"]
             workflow.revise(requirement["id"], before["id"], {"title": "PG revision", "description": "", "acceptance": ""}, "controlled change")
             assert workflow.read(requirement["id"])["current"]["state"] == "STALE"
+            from material_fixtures import complete_code_fixture, evidence, sample_document
+            from agent_workbench.materials import Materials
+            flow = complete_code_fixture(database, settings, requirement["id"], Path(copied["workspace"]))
+            materials = Materials(database)
+            material_round = materials.start(requirement["id"], {"flow_id": flow["id"], "digest": flow["basis_digest"], "reason": "controlled PG material fixture"}, "pg-material-start")
+            def material_step(step, data=None):
+                state = materials.read(requirement["id"])["current"]
+                materials.enqueue(requirement["id"], {"round_id": material_round["id"], "step_key": step, "context_digest": state["context_digest"], "prompt": "", "data": data or {}}, None)
+                claimed = database.claim("pg-material-fixture")
+                result = {**observed, "material_output": sample_document(step)} if step in ("summary_design", "test_plan") else Executor(settings).execute(claimed, lambda *_: None, __import__("threading").Event())
+                database.finish(claimed["id"], "pg-material-fixture", claimed["epoch"], "SUCCEEDED", result, None)
+                assert database.get(__import__("agent_workbench.store", fromlist=["jobs"]).jobs, claimed["id"])["status"] == "SUCCEEDED"
+            material_step("summary_design")
+            assert materials.read(requirement["id"])["current"]["stage"] == "SUPERVISOR_REVIEW"
+            from concurrent.futures import ThreadPoolExecutor
+            state = materials.read(requirement["id"])["current"]
+            intent = {"round_id": material_round["id"], "step_key": "supervisor_review", "context_digest": state["context_digest"], "prompt": "", "data": evidence(decision="APPROVED")}
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                concurrent = list(pool.map(lambda _: materials.enqueue(requirement["id"], intent, "pg-concurrent-intent"), range(4)))
+            assert len({item["id"] for item in concurrent}) == 1
+            claimed = database.claim("pg-concurrent-worker")
+            result = Executor(settings).execute(claimed, lambda *_: None, __import__("threading").Event())
+            database.finish(claimed["id"], "pg-concurrent-worker", claimed["epoch"], "SUCCEEDED", result, None)
+            material_step("supervisor_review", evidence(decision="APPROVED"))
+            material_step("performance_decision", evidence(decision="NOT_REQUIRED"))
+            material_step("test_plan")
+            state = materials.read(requirement["id"])["current"]
+            assert state["test_status"] == "NOT_RUN"
+            material_step("test_execution", evidence(environment="controlled PG environment", results=[{"version_id": state["cases"][0]["version_id"], "case_id": "F1", "status": "PASS", "actual": "controlled registration; no business test executed", "evidence": "fixture://pg-result"}]))
+            material_step("acceptance", evidence())
+            material_step("export")
+            state = materials.read(requirement["id"])["current"]
+            assert state["accepted"]
+            exported = client.get(f"/api/v1/requirements/{requirement['id']}/materials/exports/{state['exports'][0]['id']}")
+            assert exported.status_code == 200 and exported.content.startswith(b"PK")
+            old = state["documents"]["summary_design"]
+            material_step("edit_document", {"kind": "summary_design", "expected_version": old["id"], "content": {**old["content"], "markdown": "人工更新 PG 材料"}, "reason": "controlled update"})
+            assert materials.read(requirement["id"])["current"]["stage"] == "SUPERVISOR_REVIEW"
             with database.engine.connect() as connection:
                 report["postgres_version"] = connection.execute(text("SHOW server_version")).scalar_one()
                 report["migration"] = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
             database.engine.dispose()
         report.update(status="PASSED_POSTGRES_CONTROL_PLANE", controlled_model_report=True,
-            checks=["migrations", "idempotency", "exclusive_job", "claim", "durable_event", "completion", "workflow_gate", "revision_invalidation"])
+            checks=["migrations", "idempotency", "exclusive_job", "claim", "durable_event", "completion", "workflow_gate", "revision_invalidation", "material_versions", "supervisor_gate", "test_definition_execution_separation", "material_acceptance", "material_export_download", "material_revision_invalidation", "concurrent_idempotent_material_intent"])
     finally:
         runtime.docker("rm", "--force", container, check=False)
         if report["status"] == "RUNNING":

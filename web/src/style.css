@@ -1135,3 +1135,160 @@ code {
     max-width: 70px;
   }
 }
+.material-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 24px 0;
+}
+.material-status-grid > div {
+  background: #f7f9fc;
+  border: 1px solid #e4e9f0;
+  border-radius: 10px;
+  padding: 14px;
+}
+.material-status-grid span {
+  display: block;
+  font-size: 11px;
+  color: #6d7d95;
+  margin-bottom: 10px;
+}
+.material-status-grid strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.material-next {
+  display: flex;
+  gap: 15px;
+  justify-content: space-between;
+  align-items: center;
+  background: #eef4ff;
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 22px;
+}
+.material-next p {
+  margin-bottom: 0;
+}
+.material-documents {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+.material-document {
+  border: 1px solid #e2e8f1;
+  padding: 18px;
+  border-radius: 10px;
+}
+.material-document > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+}
+.material-document p {
+  color: #65758e;
+  font-size: 13px;
+  margin: 14px 0;
+}
+.material-actions {
+  margin-top: 20px;
+}
+.material-tests {
+  margin-top: 26px;
+}
+.material-tests h3,
+.material-export h3 {
+  font-size: 14px;
+}
+.material-test-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-bottom: 1px solid #e6ebf2;
+  font-size: 13px;
+}
+.material-test-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.material-test-row > span {
+  flex-shrink: 0;
+}
+.material-test-row p {
+  margin: 8px 0;
+}
+.material-export {
+  margin-top: 24px;
+  border-top: 1px solid #e6ebf2;
+  padding-top: 20px;
+}
+.material-export a {
+  color: #315ca6;
+  font-size: 13px;
+}
+.material-export p > span,
+.material-export p > code {
+  margin-left: 12px;
+}
+.material-export code {
+  font-size: 11px;
+}
+.material-preview {
+  overflow-wrap: anywhere;
+}
+.material-preview pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 60vh;
+  overflow: auto;
+  background: #f6f8fb;
+  padding: 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.material-case {
+  border: 1px solid #e1e7f0;
+  border-radius: 10px;
+  padding: 16px;
+  min-width: 0;
+}
+.material-case legend {
+  font-size: 13px;
+  padding: 0 6px;
+  overflow-wrap: anywhere;
+}
+.material-case label {
+  margin: 10px 0;
+}
+.checkbox-label {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+}
+.checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .material-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .material-next {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .material-panel .section-title {
+    align-items: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .material-export .section-title {
+    align-items: stretch;
+  }
+}
