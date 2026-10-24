@@ -159,6 +159,37 @@ class WorkspaceTests(unittest.TestCase):
                     runtime.start(repo.parent, "fixture-image", openrouter_model=model)
             docker.assert_not_called()
 
+    def test_opencode_free_model_overwrites_persisted_config_without_forwarding_credentials(self):
+        workspace = self.create().parent
+        model = "opencode/glm-5.3-flash-free"
+        config = workspace / "agent-home/.config/opencode/opencode.json"
+        write_json(config, {"model": "paid/model", "small_model": "paid/model"})
+
+        def docker(*args, **kwargs):
+            if args[:2] == ("network", "inspect"):
+                return subprocess.CompletedProcess([], 1, "", "No such network")
+            return subprocess.CompletedProcess([], 0, "127.0.0.1:4096\n" if args[0] == "port" else "", "")
+
+        with patch.object(runtime, "docker", side_effect=docker) as calls:
+            runtime.start(workspace, "fixture-image", opencode_model=model)
+        run = next(call for call in calls.call_args_list if call.args[0] == "run")
+        self.assertEqual(set(run.kwargs["environment"]), {"OPENCODE_SERVER_PASSWORD"})
+        configured = json.loads(config.read_text())
+        self.assertEqual(configured["enabled_providers"], ["opencode"])
+        self.assertEqual(configured["model"], model)
+        self.assertEqual(configured["small_model"], model)
+        self.assertEqual(configured["provider"]["opencode"]["whitelist"], ["glm-5.3-flash-free"])
+
+    def test_paid_opencode_or_ambiguous_provider_selection_stops_before_docker(self):
+        workspace = self.create().parent
+        with patch.object(runtime, "docker") as docker:
+            with self.assertRaises(WorkbenchError):
+                runtime.start(workspace, "fixture-image", opencode_model="opencode/paid")
+            with self.assertRaises(WorkbenchError):
+                runtime.start(workspace, "fixture-image", opencode_model="opencode/glm-5.3-flash-free",
+                              openrouter_model="openrouter/fixture/model:free")
+            docker.assert_not_called()
+
     def test_state_writer_does_not_follow_a_predictable_temporary_symlink(self):
         victim = self.root / "victim.txt"
         victim.write_text("preserve")

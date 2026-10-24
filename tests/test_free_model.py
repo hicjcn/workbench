@@ -55,7 +55,8 @@ class FreeModelTests(unittest.TestCase):
         self.assertEqual(verification.selected_provider("openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"), "openrouter")
         self.assertEqual(verification.selected_provider("opencode/glm-5.3-flash-free"), "opencode")
         for model in ("openrouter/fixture/model", "openrouter/free", "openrouter/fixture/model:free\n",
-                      "other/fixture-free", "openrouter/fixture/model:free#paid"):
+                      "other/fixture-free", "openrouter/fixture/model:free#paid",
+                      "opencode/paid", "opencode/fixture-free\n", "opencode/vendor/model-free"):
             with self.subTest(model=model), self.assertRaises(verification.WorkbenchError):
                 verification.selected_provider(model)
 
@@ -162,7 +163,7 @@ class FreeModelTests(unittest.TestCase):
             workspace = root / "workspaces/req-free/backend"
             partial = b'{"type":"text","sessionID":"ses_fixture"}\n'
 
-            def start(*args):
+            def start(*args, **kwargs):
                 (workspace / "runtime.json").write_text("{}")
                 return {"container": "fixture-container"}
 
@@ -172,7 +173,7 @@ class FreeModelTests(unittest.TestCase):
             timeout = subprocess.TimeoutExpired("fixture", 1, output=partial, stderr=b"partial stderr")
             with patch.object(sys, "argv", ["verify_free_model.py", "--root", str(root),
                                            "--model", "opencode/glm-5.3-flash-free"]), \
-                    patch.object(verification.runtime, "start", side_effect=start), \
+                    patch.object(verification.runtime, "start", side_effect=start) as started, \
                     patch.object(verification.runtime, "stop", side_effect=stop) as stopped, \
                     patch.object(verification, "wait_ready", return_value={}), \
                     patch.object(verification.runtime, "docker", side_effect=[
@@ -189,6 +190,7 @@ class FreeModelTests(unittest.TestCase):
             self.assertEqual((root / "agent-events.jsonl").stat().st_mode & 0o777, 0o600)
             self.assertEqual([call.args[3] for call in docker.call_args_list], ["models", "run"])
             stopped.assert_called_once_with(workspace)
+            self.assertEqual(started.call_args.kwargs["opencode_model"], "opencode/glm-5.3-flash-free")
 
 
 if __name__ == "__main__":

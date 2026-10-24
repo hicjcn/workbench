@@ -65,7 +65,8 @@ def selected_provider(model):
     if model.startswith("openrouter/"):
         runtime.openrouter_config(model)
         return "openrouter"
-    if model.startswith("opencode/") and (model.endswith("-free") or model == "opencode/big-pickle"):
+    if model.startswith("opencode/"):
+        runtime.opencode_free_config(model)
         return "opencode"
     raise WorkbenchError("Select an OpenCode free model or an explicit openrouter/vendor/model:free ID")
 
@@ -156,7 +157,7 @@ def main():
             report["credentials_injected"] = True
             report["credential_source"] = "OPENROUTER_API_KEY"
         else:
-            state = runtime.start(workspace, args.image, args.proxy_ca)
+            state = runtime.start(workspace, args.image, args.proxy_ca, opencode_model=args.model)
         report["capabilities"] = wait_ready(workspace)
         available = runtime.docker("exec", state["container"], "opencode", "models", provider).stdout.splitlines()
         report["model_listed"] = args.model in available

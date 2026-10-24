@@ -66,12 +66,26 @@ def openrouter_config(model: str) -> dict:
     }
 
 
+def opencode_free_config(model: str) -> dict:
+    if not re.fullmatch(r"opencode/(?:[A-Za-z0-9._-]+-free|big-pickle)", model):
+        raise WorkbenchError("OpenCode verification requires an explicit free model ID")
+    return {
+        "plugin": ["/opt/superpowers"], "permission": "allow",
+        "enabled_providers": ["opencode"], "model": model, "small_model": model,
+        "provider": {"opencode": {"whitelist": [model.removeprefix("opencode/")]}},
+    }
+
+
 @exclusive_workspace
 def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
-          openrouter_model: str | None = None) -> dict:
+          openrouter_model: str | None = None, opencode_model: str | None = None) -> dict:
     workspace, manifest = load_workspace(workspace)
     configuration = {"plugin": ["/opt/superpowers"], "permission": "allow"}
     provider_environment = {}
+    if openrouter_model is not None and opencode_model is not None:
+        raise WorkbenchError("Select only one verification provider")
+    if opencode_model is not None:
+        configuration = opencode_free_config(opencode_model)
     if openrouter_model is not None:
         configuration = openrouter_config(openrouter_model)
         if not os.environ.get("OPENROUTER_API_KEY", "").strip():
@@ -96,7 +110,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
         if labels.get("awb.managed") != "true":
             raise WorkbenchError("Network name belongs to an unmanaged resource")
     config.mkdir(parents=True, exist_ok=True)
-    if not config_file.exists() or openrouter_model is not None:
+    if not config_file.exists() or openrouter_model is not None or opencode_model is not None:
         # Reapply the selected model restrictions even when Agent state was persisted.
         write_json(config_file, configuration)
     staging.mkdir(exist_ok=True)
