@@ -1,0 +1,69 @@
+{
+  "status": "FAILED_OR_BLOCKED_MODEL_TASK",
+  "model": "opencode/glm-5.3-flash-free",
+  "credentials_injected": false,
+  "source_tree_digest": "e378190b5ac1234c300e3ba6dd7bbb2e3f7210c3064e1fca92267818d52dcb19",
+  "model_response_observed": false,
+  "capabilities": {
+    "health": {
+      "healthy": true,
+      "version": "1.19.4"
+    },
+    "openapi_version": "3.1.0",
+    "capabilities": {
+      "create_session": true,
+      "async_prompt": true,
+      "abort": true,
+      "events": true
+    },
+    "superpowers_configured": true,
+    "skill_names": [
+      "brainstorming",
+      "customize-opencode",
+      "diagnosing-superpowers",
+      "dispatching-parallel-agents",
+      "executing-plans",
+      "finishing-a-development-branch",
+      "receiving-code-review",
+      "requesting-code-review",
+      "subagent-driven-development",
+      "systematic-debugging",
+      "test-driven-development",
+      "using-git-worktrees",
+      "using-superpowers",
+      "verification-before-completion",
+      "writing-plans",
+      "writing-skills"
+    ],
+    "empty_session_create_abort": "PASSED",
+    "runtime": {
+      "image_id": "sha256:c251995a31a0953cab8a90b92c99e382db630df83e7c3c7a5a2006f4852f3a1a",
+      "user": "1000:1000",
+      "privileged": false,
+      "readonly_rootfs": true,
+      "docker_socket_mounted": false,
+      "network": "awb-req-240f3969b9",
+      "egress_restriction_enforced": false
+    },
+    "model_execution": "NOT_ATTEMPTED"
+  },
+  "model_listed": true,
+  "submission_attempted": true,
+  "agent_exit_code": 0,
+  "event_types": [
+    "error"
+  ],
+  "session_ids": [
+    "ses_e94455e02ffeWycU9IYKPCtbII"
+  ],
+  "agent_error_events": 1,
+  "code_changed": false,
+  "regression_test_file_changed": false,
+  "before_digest": "e378190b5ac1234c300e3ba6dd7bbb2e3f7210c3064e1fca92267818d52dcb19",
+  "after_digest": "e378190b5ac1234c300e3ba6dd7bbb2e3f7210c3064e1fca92267818d52dcb19",
+  "source_unchanged": true,
+  "tests_passed": true,
+  "test_count": 2,
+  "acceptance_behavior_passed": false,
+  "runtime_stopped": true
+}

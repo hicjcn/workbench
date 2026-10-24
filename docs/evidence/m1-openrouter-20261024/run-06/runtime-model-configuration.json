@@ -1,0 +1,10 @@
+{
+  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "small_model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "enabled_providers": [
+    "openrouter"
+  ],
+  "whitelist": [
+    "nvidia/nemotron-3-ultra-550b-a55b:free"
+  ]
+}

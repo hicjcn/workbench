@@ -1,0 +1,17 @@
+{
+  "acceptance-output.txt": "ed73761461743111ae338ed25ba14b29ad6abbc81b22531dafb8a761c92be878",
+  "after-snapshot.json": "bac8ef238453b08503c8c51ae502f4c26948251112537775c681bafb9eccabdf",
+  "agent-events.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "agent-stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "approved-task.txt": "35536865f35babe98069aaa42a3c78063f356166ca11dc522f64f6ceaacf1e2b",
+  "before-snapshot.json": "bac8ef238453b08503c8c51ae502f4c26948251112537775c681bafb9eccabdf",
+  "cleanup.json": "5490b13bddd48296c899653d222e4ec59258e3f1078f50f7edb67be2bf7cd488",
+  "code-diff.patch": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "execution-context.json": "1723d758a59ab2b788fcb052d275886a61710238d87725d2c3bbe3c63fdf2f13",
+  "model-abort.json": "e16f04c9c9a65bafec0cbeb3ec1cf2ad23b33b1647857d727513cb9802164333",
+  "model-session-status.json": "27c03e322c00cd5bb1484fcc11ef22cee65275a738e96708dd39d94824f15a0b",
+  "network-probe.json": "9e40846aaa5139f65f25d5c08cb65b03cf4525fd92814f5bea96b0c9871861e8",
+  "report.json": "d90d12717e6772cdbbf8d8e690f9f87c210b0661b2ead4c234fd59f1a582e2f4",
+  "test-output.txt": "4aa54ae559464c7af6d9724604e80d93511f1259c2af00269c74409053a25731",
+  "verification-output.txt": "d5ed1a862d65082034004bba98e88954e2e7c15239a057ea2d8a8649108e3c10"
+}

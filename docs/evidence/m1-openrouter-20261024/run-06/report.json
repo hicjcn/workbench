@@ -1,0 +1,87 @@
+{
+  "status": "PASSED_REAL_MODEL_TASK",
+  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "provider": "openrouter",
+  "credentials_injected": true,
+  "started_at": "2026-10-24T03:14:10.590493+00:00",
+  "timeout_seconds": 600.0,
+  "source_tree_digest": "e378190b5ac1234c300e3ba6dd7bbb2e3f7210c3064e1fca92267818d52dcb19",
+  "model_response_observed": true,
+  "catalog_model": {
+    "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "pricing": {
+      "prompt": "0",
+      "completion": "0"
+    }
+  },
+  "free_pricing_verified": true,
+  "credential_source": "OPENROUTER_API_KEY",
+  "capabilities": {
+    "health": {
+      "healthy": true,
+      "version": "1.19.4"
+    },
+    "openapi_version": "3.1.0",
+    "capabilities": {
+      "create_session": true,
+      "async_prompt": true,
+      "abort": true,
+      "events": true
+    },
+    "superpowers_configured": true,
+    "skill_names": [
+      "brainstorming",
+      "customize-opencode",
+      "diagnosing-superpowers",
+      "dispatching-parallel-agents",
+      "executing-plans",
+      "finishing-a-development-branch",
+      "receiving-code-review",
+      "requesting-code-review",
+      "subagent-driven-development",
+      "systematic-debugging",
+      "test-driven-development",
+      "using-git-worktrees",
+      "using-superpowers",
+      "verification-before-completion",
+      "writing-plans",
+      "writing-skills"
+    ],
+    "empty_session_create_abort": "PASSED",
+    "runtime": {
+      "image_id": "sha256:d31046286a926a3e6de0f4b85a397f9ce643ce790d89cb5ea6f759a831175b9d",
+      "user": "1000:1000",
+      "privileged": false,
+      "readonly_rootfs": true,
+      "docker_socket_mounted": false,
+      "network": "awb-req-5755b69396",
+      "egress_restriction_enforced": false
+    },
+    "model_execution": "NOT_ATTEMPTED"
+  },
+  "model_listed": true,
+  "submission_attempted": true,
+  "agent_exit_code": 0,
+  "event_types": [
+    "step_finish",
+    "step_start",
+    "text",
+    "tool_use"
+  ],
+  "session_ids": [
+    "ses_e9418e8eaffe3frLAj62oDYMxR"
+  ],
+  "agent_error_events": 0,
+  "code_changed": true,
+  "implementation_file_changed": true,
+  "regression_test_file_changed": true,
+  "before_digest": "e378190b5ac1234c300e3ba6dd7bbb2e3f7210c3064e1fca92267818d52dcb19",
+  "after_digest": "2068155b092f4d753ece4a6b8e08142010eb1c20d5309d679c66185e19b6bd7b",
+  "source_unchanged": true,
+  "tests_passed": true,
+  "test_count": 4,
+  "acceptance_behavior_passed": true,
+  "runtime_stopped": true,
+  "finished_at": "2026-10-24T03:15:04.585940+00:00",
+  "elapsed_seconds": 53.995
+}

@@ -1,0 +1,36 @@
+{
+  "observed_at": "2026-10-24T02:43:00.310355+00:00",
+  "sessions": [
+    {
+      "session_id": "ses_e9435f8efffe3Rgt28Ah1FTq7k",
+      "messages": [
+        {
+          "role": "user",
+          "parts": [
+            {
+              "type": "text",
+              "tool": null,
+              "status": null
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "providerID": "opencode",
+          "modelID": "mimo-v2.6-flash-free",
+          "cost": 0,
+          "tokens": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "parts": []
+        }
+      ]
+    }
+  ]
+}

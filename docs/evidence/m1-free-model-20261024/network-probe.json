@@ -1,0 +1,20 @@
+{
+  "proxy_preserved": true,
+  "tls_verification_enabled": true,
+  "relevant_policy_hosts": [
+    "*.models.dev",
+    "*.opencode.ai"
+  ],
+  "checks": [
+    {
+      "url": "https://opencode.ai/zen/v1/models",
+      "checked_at": "2026-10-24T02:29:25.219533+00:00",
+      "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+    },
+    {
+      "url": "https://models.dev/api.json",
+      "checked_at": "2026-10-24T02:29:25.238670+00:00",
+      "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+    }
+  ]
+}

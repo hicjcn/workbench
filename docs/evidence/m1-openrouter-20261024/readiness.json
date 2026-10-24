@@ -1,0 +1,11 @@
+{
+  "observed_at": "2026-10-24T03:00:23.548085+00:00",
+  "selected_model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "credential_variable": "OPENROUTER_API_KEY",
+  "credential_variable_present": false,
+  "openrouter_policy_rules": [],
+  "model_task_submitted": false,
+  "tls_verification": true,
+  "inherited_proxy": true,
+  "public_catalog_diagnostic": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+}

@@ -1,0 +1,36 @@
+{
+  "observed_at": "2026-10-24T02:48:48.790900+00:00",
+  "sessions": [
+    {
+      "session_id": "ses_e94307272ffePhXZWGonIOsLBN",
+      "messages": [
+        {
+          "role": "user",
+          "parts": [
+            {
+              "type": "text",
+              "tool": null,
+              "status": null
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "providerID": "opencode",
+          "modelID": "deepseek-v4.1-flash-free",
+          "cost": 0,
+          "tokens": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "parts": []
+        }
+      ]
+    }
+  ]
+}
