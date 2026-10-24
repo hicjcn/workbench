@@ -172,7 +172,7 @@ class WorkflowTests(ControlFixture):
             return {"agent_text": '{"summary":"受控独立报告","findings":[]}'}
         def stop(workspace):
             (workspace / "runtime.json").unlink()
-        with patch("agent_workbench.runtime.start", side_effect=start), patch("agent_workbench.runtime.probe", return_value={"health": {"healthy": True}}), patch("agent_workbench.runtime.stop", side_effect=stop), patch.object(self.runner.executor, "task", side_effect=task):
+        with patch("agent_workbench.resources.inventory", return_value=[]), patch("agent_workbench.runtime.start", side_effect=start), patch("agent_workbench.runtime.probe", return_value={"health": {"healthy": True}}), patch("agent_workbench.runtime.stop", side_effect=stop), patch.object(self.runner.executor, "task", side_effect=task):
             for key in ("model_review_0", "model_review_1"):
                 self.enqueue(key)
                 self.runner.run_once()
@@ -211,7 +211,7 @@ class WorkflowTests(ControlFixture):
         self.start(); self.enqueue("analysis")
         def start(workspace, *args, **options):
             write_json(workspace / "runtime.json", {})
-        with patch("agent_workbench.runtime.start", side_effect=start), patch("agent_workbench.runtime.probe", return_value={"health": {"healthy": True}}), patch.object(self.runner.executor, "task", return_value={"agent_text": '{"summary":"report","impacted_paths":[],"plan":"plan","risks":[]}'}), patch("agent_workbench.runtime.stop", side_effect=WorkbenchError("cannot confirm stop")):
+        with patch("agent_workbench.resources.inventory", return_value=[]), patch("agent_workbench.runtime.start", side_effect=start), patch("agent_workbench.runtime.probe", return_value={"health": {"healthy": True}}), patch.object(self.runner.executor, "task", return_value={"agent_text": '{"summary":"report","impacted_paths":[],"plan":"plan","risks":[]}'}), patch("agent_workbench.runtime.stop", side_effect=WorkbenchError("cannot confirm stop")):
             self.runner.run_once()
         self.assertEqual(self.detail(self.req)["jobs"][0]["status"], "UNKNOWN")
         self.assertEqual(self.enqueue("analysis").status_code, 409)

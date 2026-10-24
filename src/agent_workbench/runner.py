@@ -71,10 +71,13 @@ class Runner:
             status = "CANCELED" if isinstance(failure, Canceled) else "UNKNOWN" if isinstance(failure, Unknown) else "FAILED"
             workspace = Path(job["workspace"]["path"])
             error = self.executor.redact(str(failure), workspace)[:4000]
-            try:
-                result = self.executor.observe(workspace, "STOPPED" if status == "CANCELED" else "ERROR")
-            except Exception:
-                result = {"environment": "UNKNOWN" if status == "UNKNOWN" else "ERROR"}
+            if job["action"] == "delivery":
+                result = {"delivery_observations": getattr(failure, "observations", []), "delivery_stopped": getattr(failure, "stopped", False)}
+            else:
+                try:
+                    result = self.executor.observe(workspace, "STOPPED" if status == "CANCELED" else "ERROR")
+                except Exception:
+                    result = {"environment": "UNKNOWN" if status == "UNKNOWN" else "ERROR"}
         finally:
             stop_heartbeat.set()
             thread.join(timeout=5)
@@ -112,6 +115,15 @@ class Runner:
                     result.raise_for_status()
 
 
+    def report_once(self):
+        from . import resources
+        try:
+            report = {"available": True, "controller_id": resources.controller_id(self.settings.data_dir), "containers": resources.inventory(self.settings.data_dir)}
+        except (WorkbenchError, OSError):
+            report = {"available": False, "controller_id": resources.controller_id(self.settings.data_dir), "containers": [], "error": "暂时无法核实 Docker 资源"}
+        self.post("/internal/runtime", {"owner": self.owner, "report": report})
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path)
@@ -119,27 +131,30 @@ def main():
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
     settings = Settings.load(args.data_dir)
-    runner = Runner(settings, args.api)
-    print("Runner 已启动，等待本机控制服务分配任务", flush=True)
-    last_watch = 0.0
-    try:
-        while True:
-            try:
-                worked = runner.run_once()
-                if time.monotonic() - last_watch > 2:
-                    runner.watch_once()
-                    last_watch = time.monotonic()
-                if args.once:
-                    return
-                if not worked:
-                    time.sleep(0.5)
-            except httpx.HTTPError:
-                if args.once:
-                    raise
-                print("暂时无法更新执行状态，任务不会自动重放", flush=True)
-                time.sleep(2)
-    finally:
-        runner.client.close()
+    from .resources import controller_lock
+    with controller_lock(settings.data_dir):
+        runner = Runner(settings, args.api)
+        print("Runner 已启动，等待本机控制服务分配任务", flush=True)
+        last_watch = 0.0
+        try:
+            while True:
+                try:
+                    worked = runner.run_once()
+                    if time.monotonic() - last_watch > 2:
+                        runner.watch_once()
+                        last_watch = time.monotonic()
+                        runner.report_once()
+                    if args.once:
+                        return
+                    if not worked:
+                        time.sleep(0.5)
+                except httpx.HTTPError:
+                    if args.once:
+                        raise
+                    print("暂时无法更新执行状态，任务不会自动重放", flush=True)
+                    time.sleep(2)
+        finally:
+            runner.client.close()
 
 
 if __name__ == "__main__":

@@ -127,7 +127,7 @@ class WorkflowStep(Input):
 def create_app(settings: Settings, store: Store | None = None):
     app = FastAPI(title="Agent 开发工作台", docs_url=None, redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
-    database = store or Store(settings.database_url, settings.lease_seconds)
+    database = store or Store(settings.database_url, settings.lease_seconds, settings.max_active_jobs)
     app.state.store = database
     workflow = Workflow(database, settings.model)
 
@@ -186,6 +186,8 @@ def create_app(settings: Settings, store: Store | None = None):
 
     from .material_api import install as install_material_routes
     install_material_routes(app, settings, database, user)
+    from .delivery_api import install as install_delivery_routes
+    install_delivery_routes(app, settings, database, user, runner)
 
     @app.get("/api/v1/session")
     def session(request: Request):

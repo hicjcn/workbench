@@ -62,7 +62,7 @@ def readonly_agent(executor, job, workspace, emit, canceled, model, prompt, pars
     try:
         options = {"openrouter_model": model} if model.startswith("openrouter/") else {"opencode_model": model}
         ca = Path(os.environ["CODEX_PROXY_CERT"]) if os.environ.get("CODEX_PROXY_CERT") else None
-        runtime.start(isolated, job["project"]["image"], ca, read_only_source=True, **options)
+        executor.start_runtime(isolated, job["project"]["image"], ca, read_only_source=True, **options)
         deadline = time.monotonic() + 90
         while True:
             if canceled.is_set():

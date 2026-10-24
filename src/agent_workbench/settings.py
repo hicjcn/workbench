@@ -14,6 +14,8 @@ class Settings:
     model: str = "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
     lease_seconds: int = 45
     web_dir: Path | None = None
+    max_active_jobs: int = 2
+    max_containers: int = 4
 
     @classmethod
     def load(cls, data_dir: Path | None = None):
@@ -34,5 +36,12 @@ class Settings:
             values.append(value)
         return cls(root, os.environ.get("AWB_DATABASE_URL", f"sqlite:///{root / 'workbench.db'}"),
                    *values, model=os.environ.get("AWB_MODEL", "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"),
-                   web_dir=Path(__file__).resolve().parents[2] / "web/dist")
+                   web_dir=Path(__file__).resolve().parents[2] / "web/dist",
+                   max_active_jobs=positive_int("AWB_MAX_ACTIVE_JOBS", 2), max_containers=positive_int("AWB_MAX_CONTAINERS", 4))
+
+
+def positive_int(name, default):
+    value = int(os.environ.get(name, str(default)))
+    if not 1 <= value <= 32: raise ValueError(f"{name} must be between 1 and 32")
+    return value
 

@@ -1,0 +1,23 @@
+{
+  "status": "PASSED_M5_CONTROLLED_DELIVERY_RESTORE",
+  "model_inference": false,
+  "controlled_reports": true,
+  "external_business_tests_executed": false,
+  "checks": {
+    "two_real_member_containers": "PASSED",
+    "browser_create_ordered_cross_project_scope": "PASSED",
+    "browser_explicit_scope_and_integration_gates": "PASSED",
+    "capture_stops_both_real_containers": "PASSED",
+    "browser_full_export_hashes_binary_patch_applies_and_history": "PASSED",
+    "browser_archive_and_explicit_reopen": "PASSED",
+    "browser_resources_and_mobile_without_overflow": "PASSED",
+    "offline_owned_orphan_cleanup_preserves_source_and_evidence": "PASSED",
+    "cleanup_preserves_attached_external_network": "PASSED",
+    "backup_restore_all_code_role_copies_exports_and_fresh_credentials": "PASSED",
+    "fresh_api_reads_restored_gates_code_and_original_download_without_replay": "PASSED",
+    "external_original_repositories_unchanged": "PASSED"
+  },
+  "backup_sha256": "e3d032471dce0c161049b3ec51e40e26ceb90d2bb594c1ffaa16c190a2596e94",
+  "migration": "0005",
+  "delivery_sha256": "e15c0c253fc277cc0dc11e42beccaaebe69158cd4982c7991fe91a55f77d8d19"
+}

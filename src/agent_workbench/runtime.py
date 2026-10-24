@@ -85,7 +85,7 @@ def model_config(model: str, read_only: bool = False) -> dict:
 
 @exclusive_workspace
 def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
-          openrouter_model: str | None = None, opencode_model: str | None = None, read_only_source: bool = False) -> dict:
+          openrouter_model: str | None = None, opencode_model: str | None = None, read_only_source: bool = False, controller: str | None = None) -> dict:
     workspace, manifest = load_workspace(workspace)
     configuration = {"plugin": ["/opt/superpowers"], "permission": "allow"}
     provider_environment = {}
@@ -115,7 +115,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     staging = safe_path(workspace, "staging")
     found = docker("network", "inspect", network, check=False)
     if found.returncode:
-        docker("network", "create", "--label", "awb.managed=true", network)
+        docker("network", "create", "--label", "awb.managed=true", *(["--label", f"awb.controller={controller}"] if controller else []), network)
     else:
         labels = json.loads(found.stdout)[0].get("Labels") or {}
         if labels.get("awb.managed") != "true":
@@ -145,6 +145,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     ]
     for name in provider_environment:
         command += ["--env", name]  # Pass the name, never the credential value, in argv.
+    if controller: command += ["--label", f"awb.controller={controller}"]
     # Docker's configured proxy environment remains in effect. Mount session CA only at runtime.
     if proxy_ca:
         command += ["--mount", f"type=bind,src={proxy_ca.resolve(strict=True)},dst=/run/proxy-ca.pem,readonly",

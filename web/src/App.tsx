@@ -6,6 +6,8 @@ import { Modal, ProjectForm, RequirementForm } from "./Forms";
 import { ExecutionLog } from "./ExecutionLog";
 import { WorkflowPanel } from "./WorkflowPanel";
 import { MaterialPanel } from "./MaterialPanel";
+import { DeliveryPanel } from "./DeliveryPanel";
+import { RuntimePanel } from "./RuntimePanel";
 
 function Badge({ value }: { value: string }) {
   return (
@@ -26,7 +28,9 @@ export default function App() {
   const [selected, setSelected] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [modal, setModal] = useState<"project" | "requirement" | null>(null);
-  const [view, setView] = useState<"requirements" | "projects">("requirements");
+  const [view, setView] = useState<
+    "requirements" | "projects" | "deliveries" | "runtime"
+  >("requirements");
   const [task, setTask] = useState("");
   const [reason, setReason] = useState("");
   const [logId, setLogId] = useState("");
@@ -198,7 +202,7 @@ export default function App() {
           </div>
         </div>
         <div className="topbar-right">
-          <span className="version-pill">M4 · 本地运行</span>
+          <span className="version-pill">M5 · 本地运行</span>
           <button
             className="text-button"
             onClick={() =>
@@ -286,8 +290,33 @@ export default function App() {
         >
           项目登记 <span>{projects.length}</span>
         </button>
+        <button
+          className={view === "deliveries" ? "selected" : ""}
+          aria-pressed={view === "deliveries"}
+          onClick={() => setView("deliveries")}
+        >
+          跨项目交付
+        </button>
+        <button
+          className={view === "runtime" ? "selected" : ""}
+          aria-pressed={view === "runtime"}
+          onClick={() => setView("runtime")}
+        >
+          资源与恢复
+        </button>
       </nav>
-      {view === "projects" ? (
+      {view === "deliveries" ? (
+        <DeliveryPanel
+          requirements={requirements}
+          projects={projects}
+          openRequirement={(id) => {
+            setSelected(id);
+            setView("requirements");
+          }}
+        />
+      ) : view === "runtime" ? (
+        <RuntimePanel />
+      ) : view === "projects" ? (
         <section className="projects-grid">
           {projects.length ? (
             projects.map((project) => (
@@ -662,7 +691,7 @@ export default function App() {
         </main>
       )}
       <footer className="page-footer">
-        <span>WORKBENCH / M4</span>
+        <span>WORKBENCH / M5</span>
         <span>源码独立 · 过程可追溯 · 结果由你确认</span>
       </footer>
       {modal ? (
