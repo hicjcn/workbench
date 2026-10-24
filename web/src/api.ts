@@ -29,6 +29,7 @@ export type Requirement = {
 export type Job = {
   id: string;
   action: string;
+  step_key?: string | null;
   status: string;
   error: string | null;
   cancel_requested: boolean;
@@ -77,6 +78,7 @@ export const labels: Record<string, string> = {
   task: "Agent 任务",
   reconcile: "停止并核实",
   review: "人工代码确认",
+  workflow: "流程步骤",
 };
 export const timeLabel = (timestamp: number) =>
   new Date(timestamp * 1000).toLocaleString("zh-CN", {
@@ -86,6 +88,22 @@ export const timeLabel = (timestamp: number) =>
     hour: "2-digit",
     minute: "2-digit",
   });
+
+export const jobLabel = (job: Job) => {
+  const names: Record<string, string> = {
+    analysis: "只读分析",
+    scope: "范围确认",
+    development: "开发",
+    verification: "执行验证",
+    resolution: "问题处理",
+    self_review: "流程自审",
+  };
+  if (job.step_key?.startsWith("model_review_"))
+    return `模型评审 ${Number(job.step_key.slice(-1)) + 1}`;
+  return (
+    (job.step_key && names[job.step_key]) || labels[job.action] || job.action
+  );
+};
 
 export async function api<T>(
   path: string,

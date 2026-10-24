@@ -44,6 +44,24 @@ reviews = Table("reviews", metadata,
     Column("id", String(40), primary_key=True), Column("requirement_id", ForeignKey("requirements.id"), nullable=False),
     Column("digest", String(64), nullable=False), Column("decision", String(30), nullable=False),
     Column("reason", Text, nullable=False), Column("created_at", Float, nullable=False))
+revisions = Table("requirement_revisions", metadata,
+    Column("id", String(40), primary_key=True), Column("requirement_id", ForeignKey("requirements.id"), nullable=False),
+    Column("number", Integer, nullable=False), Column("content_json", Text, nullable=False),
+    Column("reason", Text, nullable=False), Column("created_at", Float, nullable=False),
+    UniqueConstraint("requirement_id", "number", name="uq_requirement_revision"))
+flows = Table("workflow_runs", metadata,
+    Column("id", String(40), primary_key=True), Column("requirement_id", ForeignKey("requirements.id"), nullable=False),
+    Column("revision_id", ForeignKey("requirement_revisions.id"), nullable=False),
+    Column("is_current", Boolean, nullable=False), Column("state", String(30), nullable=False),
+    Column("basis_digest", String(64), nullable=False), Column("config_json", Text, nullable=False),
+    Column("reason", Text, nullable=False), Column("created_at", Float, nullable=False))
+Index("uq_current_workflow", flows.c.requirement_id, unique=True,
+    sqlite_where=flows.c.is_current.is_(True), postgresql_where=flows.c.is_current.is_(True))
+steps = Table("workflow_steps", metadata,
+    Column("id", String(40), primary_key=True), Column("flow_id", ForeignKey("workflow_runs.id"), nullable=False),
+    Column("step_key", String(40), nullable=False), Column("job_id", ForeignKey("jobs.id"), nullable=False, unique=True),
+    Column("input_digest", String(64), nullable=False), Column("input_json", Text, nullable=False),
+    Column("output_json", Text), Column("created_at", Float, nullable=False))
 
 
 def identifier(prefix):
@@ -118,29 +136,17 @@ class Store:
                 if changed.rowcount:
                     connection.execute(update(workspaces).where(workspaces.c.requirement_id == requirement_id)
                         .values(environment="UNKNOWN", approval="STALE", updated_at=now))
+                    from .workflow import invalidate
+                    invalidate(connection, requirement_id)
 
-    def enqueue(self, requirement_id, action, payload, key):
+    def enqueue(self, requirement_id, action, payload, key, connection=None):
+        if connection is not None:
+            return self._enqueue(connection, requirement_id, action, payload, key)
         self.expire()
         self.get(requirements, requirement_id)
         try:
             with self.engine.begin() as connection:
-                if key:
-                    previous = connection.execute(select(jobs).where(and_(jobs.c.requirement_id == requirement_id,
-                        jobs.c.idempotency_key == key))).mappings().first()
-                    if previous:
-                        if previous["action"] != action or previous["input_json"] != encoded(payload):
-                            raise Conflict("同一个请求标识对应了不同操作")
-                        return public(previous)
-                statuses = ["QUEUED", "RUNNING"] if action == "reconcile" else ["QUEUED", "RUNNING", "UNKNOWN"]
-                if connection.execute(select(jobs.c.id).where(and_(jobs.c.requirement_id == requirement_id,
-                        jobs.c.status.in_(statuses)))).first():
-                    raise Conflict("此需求有活动任务或待核实任务，请先处理后再操作")
-                now = time.time()
-                value = dict(id=identifier("job"), requirement_id=requirement_id, action=action,
-                    input_json=encoded(payload), status="QUEUED", idempotency_key=key,
-                    cancel_requested=False, epoch=0, created_at=now, updated_at=now)
-                connection.execute(insert(jobs).values(**value))
-                return public(value)
+                return self._enqueue(connection, requirement_id, action, payload, key)
         except IntegrityError:
             # A concurrent request may have won the same idempotency key.
             if key:
@@ -150,6 +156,26 @@ class Store:
                 if previous and previous["action"] == action and previous["input_json"] == encoded(payload):
                     return public(previous)
             raise Conflict("此需求已有活动任务") from None
+
+    def _enqueue(self, connection, requirement_id, action, payload, key):
+        if key:
+            previous = connection.execute(select(jobs).where(and_(jobs.c.requirement_id == requirement_id,
+                jobs.c.idempotency_key == key))).mappings().first()
+            if previous:
+                if previous["action"] != action or previous["input_json"] != encoded(payload):
+                    raise Conflict("同一个请求标识对应了不同操作")
+                return public(previous)
+        statuses = ["QUEUED", "RUNNING"] if action == "reconcile" else ["QUEUED", "RUNNING", "UNKNOWN"]
+        if connection.execute(select(jobs.c.id).where(and_(jobs.c.requirement_id == requirement_id,
+                jobs.c.status.in_(statuses)))).first():
+            raise Conflict("此需求有活动任务或待核实任务，请先处理后再操作")
+        now = time.time()
+        value = dict(id=identifier("job"), requirement_id=requirement_id, action=action,
+            input_json=encoded(payload), status="QUEUED", idempotency_key=key,
+            cancel_requested=False, epoch=0, created_at=now, updated_at=now)
+        connection.execute(insert(jobs).values(**value))
+        return public(value)
+
 
     def claim(self, owner):
         self.expire()
@@ -197,6 +223,11 @@ class Store:
     def finish(self, job_id, owner, epoch, status, result, error):
         with self.engine.begin() as connection:
             job = self.owned(connection, job_id, owner, epoch)
+            from .workflow import complete, invalidate
+            if job["action"] == "workflow":
+                status, error = complete(connection, job, status, result, error)
+            elif result.get("snapshot"):
+                invalidate(connection, job["requirement_id"], result["snapshot"]["tree_digest"])
             now = time.time()
             workspace = connection.execute(select(workspaces).where(workspaces.c.requirement_id == job["requirement_id"])).mappings().one()
             values = {"updated_at": now}
@@ -242,6 +273,13 @@ class Store:
             return [public(row) for row in connection.execute(select(events).where(and_(events.c.job_id == job_id,
                 events.c.id > after)).order_by(events.c.id).limit(200)).mappings()]
 
+    def job_history(self, requirement_id):
+        columns = [column for column in jobs.c if column.name not in ("input_json", "result_json", "owner", "epoch", "lease_until")]
+        with self.engine.connect() as connection:
+            return [public(row) for row in connection.execute(select(*columns, steps.c.step_key)
+                .outerjoin(steps, steps.c.job_id == jobs.c.id).where(jobs.c.requirement_id == requirement_id)
+                .order_by(jobs.c.created_at.desc())).mappings()]
+
     def idle_observation(self, requirement_id, snapshot_value, diff, unreadable=False, diff_truncated=False):
         with self.engine.begin() as connection:
             if connection.execute(select(jobs.c.id).where(and_(jobs.c.requirement_id == requirement_id,
@@ -253,6 +291,8 @@ class Store:
                 raise Missing("工作区不存在")
             previous = json.loads(row["snapshot_json"]) if row["snapshot_json"] else None
             if unreadable or (snapshot_value and previous and previous["tree_digest"] != snapshot_value["tree_digest"]):
+                from .workflow import invalidate
+                invalidate(connection, requirement_id, snapshot_value["tree_digest"] if snapshot_value else None)
                 values = {"approval": "STALE", "updated_at": time.time()}
                 if snapshot_value:
                     values.update(snapshot_json=encoded(snapshot_value), diff=diff, diff_truncated=diff_truncated)

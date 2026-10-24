@@ -105,12 +105,14 @@ class Executor:
             check()
             return self.observe(workspace, "STOPPED")
         if action == "reconcile" and not (workspace / "workspace.json").exists():
+            self.cleanup_attempts(job["requirement_id"])
             return {"environment": "NOT_CREATED"}
         if not (workspace / "workspace.json").exists():
             raise WorkbenchError("请先创建需求工作区")
         load_workspace(workspace)
         if action in ("stop", "reconcile"):
             emit("stage", {"text": "正在停止并核实运行环境"})
+            self.cleanup_attempts(job["requirement_id"])
             if (workspace / "runtime.json").exists():
                 runtime.stop(workspace)
             return self.observe(workspace, "STOPPED")
@@ -138,23 +140,30 @@ class Executor:
             return observed
         if action == "task":
             return self.task(job, workspace, emit, canceled)
+        if action == "workflow":
+            from .workflow_execution import execute_step
+            return execute_step(self, job, workspace, emit, canceled)
         raise WorkbenchError("未知操作")
 
-    def task(self, job, workspace, emit, canceled):
+    def cleanup_attempts(self, requirement_id):
+        root = self.settings.data_dir / "attempts"
+        if root.exists():
+            for path in root.glob(f"*/{requirement_id}/*/runtime.json"):
+                runtime.stop(path.parent)
+
+    def task(self, job, workspace, emit, canceled, *, model=None, prompt=None, read_only=False, collect_text=False):
         state_path = workspace / "runtime.json"
         if not state_path.exists():
             raise WorkbenchError("请先启动运行环境")
         state = json.loads(state_path.read_text())
-        model = self.settings.model
+        model = model or self.settings.model
         if model.startswith("openrouter/"):
-            expected = runtime.openrouter_config(model)
             openrouter_catalog_model(model)
-        else:
-            expected = runtime.opencode_free_config(model)
+        expected = runtime.model_config(model, read_only)
         configuration = safe_path(workspace, "agent-home/.config/opencode/opencode.json")
         if json.loads(configuration.read_text()) != expected:
             raise WorkbenchError("运行环境模型配置已变化，请停止并重新启动环境")
-        prompt = (f"需求：{job['requirement']['title']}\n背景：{job['requirement']['description']}\n"
+        prompt = prompt or (f"需求：{job['requirement']['title']}\n背景：{job['requirement']['description']}\n"
                   f"验收标准：{job['requirement']['acceptance']}\n本次任务：{job['input']['prompt']}\n"
                   "在当前独立工作区完成任务并执行合适验证。保留代码改动，不推送 Git，不启动子代理。")
         command = ["docker", "--host=unix:///var/run/docker.sock", "exec", state["container"], "opencode", "run",
@@ -179,6 +188,8 @@ class Executor:
         finished = set()
         agent_errors = False
         completed = False
+        text_parts = []
+        text_length = 0
         try:
             while len(finished) < 2 or process.poll() is None:
                 if canceled.is_set() or time.monotonic() > deadline:
@@ -208,6 +219,13 @@ class Executor:
                     if isinstance(item, dict):
                         agent_errors |= item.get("type") == "error"
                         completed |= item.get("type") == "step_finish" and item.get("part", {}).get("reason") == "stop"
+                        if collect_text and item.get("type") == "text":
+                            part = item.get("part", {}).get("text", "")
+                            if isinstance(part, str):
+                                text_length += len(part)
+                                if text_length > 80000:
+                                    raise WorkbenchError("模型正文超过报告大小限制")
+                                text_parts.append(part)
                         emit("agent", {"text": text[:16000]})
                     elif text:
                         emit("output", {"text": text[:16000], "stream": stream})
@@ -218,7 +236,12 @@ class Executor:
                 raise WorkbenchError("Agent 执行返回错误，请查看日志及保留的代码差异")
             if not completed:
                 raise Unknown("没有观察到明确结束事件，结果需核实；任务不会重放")
-            return {**self.observe(workspace, "RUNNING"), "model": model}
+            result = {**self.observe(workspace, "RUNNING"), "model": model}
+            if collect_text:
+                # Earlier assistant text may announce a skill or explain tool use.
+                # Only the final text part is the report; all parts stay in events.
+                result["agent_text"] = text_parts[-1] if text_parts else ""
+            return result
         finally:
             if not completed or agent_errors or canceled.is_set():
                 try:
