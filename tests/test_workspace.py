@@ -1,4 +1,7 @@
 from pathlib import Path
+import json
+import os
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -117,6 +120,44 @@ class WorkspaceTests(unittest.TestCase):
                 runtime.start(repo.parent, "fixture-image")
             docker.assert_not_called()
         self.assertEqual(list(external.iterdir()), [])
+
+    def test_openrouter_key_is_forwarded_by_name_without_persisting_it(self):
+        repo = self.create()
+        workspace = repo.parent
+        model = "openrouter/fixture/model:free"
+        credential = "fixture-openrouter-not-a-real-key"
+        config = workspace / "agent-home/.config/opencode/opencode.json"
+        write_json(config, {"model": "paid/model", "small_model": "paid/model"})
+
+        def docker(*args, **kwargs):
+            if args[:2] == ("network", "inspect"):
+                return subprocess.CompletedProcess([], 1, "", "No such network")
+            output = "127.0.0.1:4096\n" if args[0] == "port" else ""
+            return subprocess.CompletedProcess([], 0, output, "")
+
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": credential}), \
+                patch.object(runtime, "docker", side_effect=docker) as calls:
+            result = runtime.start(workspace, "fixture-image", openrouter_model=model)
+        run = next(call for call in calls.call_args_list if call.args[0] == "run")
+        self.assertIn("OPENROUTER_API_KEY", run.args)
+        self.assertNotIn(credential, " ".join(run.args))
+        self.assertEqual(run.kwargs["environment"]["OPENROUTER_API_KEY"], credential)
+        configured = json.loads(config.read_text())
+        self.assertEqual(configured["model"], model)
+        self.assertEqual(configured["small_model"], model)
+        self.assertEqual(configured["enabled_providers"], ["openrouter"])
+        self.assertEqual(configured["provider"]["openrouter"]["whitelist"], ["fixture/model:free"])
+        self.assertNotIn(credential, config.read_text())
+        self.assertNotIn(credential, (workspace / "runtime.json").read_text())
+        self.assertNotIn(credential, repr(result))
+
+    def test_openrouter_missing_key_or_paid_model_stops_before_docker(self):
+        repo = self.create()
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}), patch.object(runtime, "docker") as docker:
+            for model in ("openrouter/fixture/model", "openrouter/fixture/model:free"):
+                with self.subTest(model=model), self.assertRaises(WorkbenchError):
+                    runtime.start(repo.parent, "fixture-image", openrouter_model=model)
+            docker.assert_not_called()
 
     def test_state_writer_does_not_follow_a_predictable_temporary_symlink(self):
         victim = self.root / "victim.txt"

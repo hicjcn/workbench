@@ -1,0 +1,7 @@
+{
+  "cleanup.json": "9adacb1ba7005b492a5ca52e650fb3d7ceae4f0ee1b91da4195558eb90c160f0",
+  "configuration-smoke.json": "0d58b89b1b301a044925b0663aeb1125e41787d0d3a3e85fde5f8cf170a86b5d",
+  "readiness.json": "db144632366dafd5ccb514fcbb5a3465f190cf6c407e528173d0e7571fac6f74",
+  "sample-test-output.txt": "0d68cdae9b6fb5d941d3eeab1e046fd58fe8401ad22cf6b314dd33b0d1536e98",
+  "unit-test-output.txt": "31cafe2f389b9a814c5ef534f0cd9b78b1ae2466544a88bfac807cd95ab964b2"
+}

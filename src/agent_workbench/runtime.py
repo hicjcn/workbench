@@ -8,6 +8,7 @@ from functools import wraps
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import subprocess
 
@@ -52,9 +53,30 @@ def doctor() -> dict:
             "diagnostic": None if result.returncode == 0 else result.stderr.strip()[:1000]}
 
 
+def openrouter_config(model: str) -> dict:
+    if not re.fullmatch(r"openrouter/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+:free", model):
+        raise WorkbenchError("OpenRouter verification requires an explicit openrouter/vendor/model:free ID")
+    return {
+        "plugin": ["/opt/superpowers"], "permission": "allow",
+        "enabled_providers": ["openrouter"], "model": model, "small_model": model,
+        "provider": {"openrouter": {
+            "whitelist": [model.removeprefix("openrouter/")],
+            "options": {"apiKey": "{env:OPENROUTER_API_KEY}"},
+        }},
+    }
+
+
 @exclusive_workspace
-def start(workspace: Path, image: str, proxy_ca: Path | None = None) -> dict:
+def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
+          openrouter_model: str | None = None) -> dict:
     workspace, manifest = load_workspace(workspace)
+    configuration = {"plugin": ["/opt/superpowers"], "permission": "allow"}
+    provider_environment = {}
+    if openrouter_model is not None:
+        configuration = openrouter_config(openrouter_model)
+        if not os.environ.get("OPENROUTER_API_KEY", "").strip():
+            raise WorkbenchError("Configure the existing OPENROUTER_API_KEY secret before starting OpenRouter")
+        provider_environment["OPENROUTER_API_KEY"] = os.environ["OPENROUTER_API_KEY"]
     suffix = hashlib.sha256(str(workspace).encode()).hexdigest()[:10]
     requirement_suffix = hashlib.sha256(str(workspace.parent).encode()).hexdigest()[:10]
     container = f"awb-{manifest['requirement'][:20]}-{manifest['project'][:20]}-{suffix}"
@@ -74,8 +96,9 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None) -> dict:
         if labels.get("awb.managed") != "true":
             raise WorkbenchError("Network name belongs to an unmanaged resource")
     config.mkdir(parents=True, exist_ok=True)
-    if not config_file.exists():
-        write_json(config_file, {"plugin": ["/opt/superpowers"], "permission": "allow"})
+    if not config_file.exists() or openrouter_model is not None:
+        # Reapply the selected model restrictions even when Agent state was persisted.
+        write_json(config_file, configuration)
     staging.mkdir(exist_ok=True)
     password = secrets.token_urlsafe(32)
     state = {"container": container, "network": network, "password": password,
@@ -95,6 +118,8 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None) -> dict:
         "--env", "HOME=/home/node", "--env", "OPENCODE_SERVER_USERNAME=workbench",
         "--env", "OPENCODE_SERVER_PASSWORD",
     ]
+    for name in provider_environment:
+        command += ["--env", name]  # Pass the name, never the credential value, in argv.
     # Docker's configured proxy environment remains in effect. Mount session CA only at runtime.
     if proxy_ca:
         command += ["--mount", f"type=bind,src={proxy_ca.resolve(strict=True)},dst=/run/proxy-ca.pem,readonly",
@@ -103,7 +128,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None) -> dict:
                     "--env", "GIT_SSL_CAINFO=/run/proxy-ca.pem"]
     command += [image, "opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"]
     try:
-        docker(*command, environment={"OPENCODE_SERVER_PASSWORD": password})
+        docker(*command, environment={"OPENCODE_SERVER_PASSWORD": password, **provider_environment})
         address = docker("port", container, "4096/tcp").stdout.strip()
         if not address.startswith("127.0.0.1:"):
             raise WorkbenchError("OpenCode port was not bound to loopback")

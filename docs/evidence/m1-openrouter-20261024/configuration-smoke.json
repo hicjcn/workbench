@@ -1,0 +1,25 @@
+{
+  "observed_at": "2026-10-24T03:01:29.308751+00:00",
+  "test": "configuration-only",
+  "models_invoked": false,
+  "real_credentials_used": false,
+  "health": {
+    "healthy": true,
+    "version": "1.19.4"
+  },
+  "configured_model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "configured_small_model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "enabled_providers": [
+    "openrouter"
+  ],
+  "provider_whitelist": [
+    "nvidia/nemotron-3-ultra-550b-a55b:free"
+  ],
+  "listed_models": [
+    "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
+  ],
+  "credential_value_not_in_generated_config_or_journal": true,
+  "model_auth_file_created": false,
+  "status": "PASSED_CONFIGURATION_ONLY",
+  "runtime_stopped": true
+}

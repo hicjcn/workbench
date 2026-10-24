@@ -2,7 +2,7 @@
 
 - 日期：2026-10-24
 - 目标：验证独立源码、Docker 环境、OpenCode 控制 API、Superpowers 加载和重建持久化
-- 验证模型：按用户最新要求改试免凭据免费模型 `opencode/deepseek-v4.1-flash-free`
+- 验证模型：按用户最新要求切换为 `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`，使用用户现有 OpenRouter 密钥
 - 平台：当前实现面向 Linux、Unix Docker Socket、Python 3.11+、Git；测试项目使用 Node.js
 
 ## 1. 当前可运行范围
@@ -104,7 +104,26 @@ PYTHONPATH=src python3 -m agent_workbench stop \
 
 当前镜像仅包含 Node、Git 和 Agent 工具。Java、Python、数据库等真实业务项目运行环境需要替换或扩展 Dockerfile；不能直接宣称与用户本机一致。
 
-## 7. 免凭据真实模型验证
+## 7. 免费模型真实验证
+
+### 当前：OpenRouter 与用户现有密钥
+
+默认模型已切换为 `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`。运行前，将用户现有密钥通过云环境 Secret 注入为 `OPENROUTER_API_KEY`，并将 `openrouter.ai` 加入出站白名单后应用到当前运行实例。只检查变量是否存在和就绪，不打印变量值，不把密钥粘贴进聊天、命令参数或项目文件。无需创建新密钥。
+
+```bash
+PYTHONPATH=src python3 poc/verify_free_model.py \
+  --root .local-data/free-model-run-05 \
+  --model openrouter/nvidia/nemotron-3-ultra-550b-a55b:free \
+  --proxy-ca "$CODEX_PROXY_CERT" --timeout 600
+```
+
+普通本机不需要代理 CA 时省略 `--proxy-ca`。每次使用新根目录。脚本先检查已有密钥，再通过无认证的公开 OpenRouter 目录核实指定 `:free` 模型存在、prompt/completion 价格完整且所有返回的价格项为有限数值 0；失败时不提交模型任务。目录可达不等于真实推理或代码修改成功。
+
+密钥只通过 Docker 的环境变量名传入服务，不写入命令参数值、生成的 OpenCode 配置、运行状态或验证报告。配置仅启用 OpenRouter，模型白名单、默认模型及辅助模型均固定为同一个指定 `:free` 模型；重新启动时也会重设这些限制，不配置其他模型回退。验证输出、错误、测试结果和代码差异中的已知密钥值会被替换为 `[REDACTED]`；超时的部分输出同样处理。Agent 主目录及完整 Docker/OpenCode 配置不能作为公开证据提交。
+
+真实任务仍按下述相同验收条件判断。报告增加 `provider`、公开目录零价格检查结果、`credentials_injected` 与密钥变量名，绝不记录密钥值。使用用户现有密钥与免费模型，并不代表免费配额、速率或可用性一定满足本次任务。
+
+### 历史：OpenCode 免凭据免费模型
 
 用户已明确使用免凭据模型，并在 GLM、MiMo 免费额度阻塞后要求改试 DeepSeek V4.1 Flash Free。容器实际模型列表及 [OpenCode 官方模型目录](https://opencode.ai/zen/v1/models) 均包含 `deepseek-v4.1-flash-free`。通过 `--model` 明确选择本轮模型，不注入模型凭据，不配置付费回退。
 
@@ -126,7 +145,7 @@ run-01 被代理 tunnel 403 阻塞；run-02 服务可达但 GLM 免费额度耗�
 
 CLI 等待期间可通过本地控制 API 的 `/session/status` 观察额度状态；本轮额度提示没有进入 CLI JSON 事件。保存该状态后，只中止此次验证会话并让脚本完成验收与清理。CLI 返回 0 且没有事件仍必须按模型响应、代码变化和独立行为验收判定；不能据此宣布模型任务通过。服务端给出的下次重试时间不保证届时额度恢复，后续验证应显式选择新根目录，不自动重放、不创建模型凭据、不切换付费模型。
 
-### 后续使用自己的模型
+### 其他用户自有模型配置
 
 本机验证可在已经启动的目标容器内，通过 OpenCode 自身的交互登录配置现有智谱认证：
 
