@@ -116,11 +116,13 @@ PYTHONPATH=src python3 poc/verify_free_model.py \
   --model opencode/glm-5.3-flash-free
 ```
 
-托管代理环境额外传入 `--proxy-ca "$CODEX_PROXY_CERT"`。脚本创建新的无敏感信息测试仓库，发起一次真实修改任务，再独立检查代码变化、回归测试文件变化、至少 4 项测试及验收行为，保存事件及差异，最后停止容器。仅列出模型、CLI 返回成功或测试未失败都不足以判定通过。
+托管代理环境额外传入 `--proxy-ca "$CODEX_PROXY_CERT"`。脚本创建新的无敏感信息测试仓库，发起一次真实修改任务，再独立检查模型响应、实现文件变化、回归测试文件变化、至少 4 项测试及验收行为，保存事件及差异，最后停止容器。仅列出模型、CLI 返回成功或测试未失败都不足以判定通过。
+
+证据目录包括 `approved-task.txt`、`before-snapshot.json`、`after-snapshot.json`、`agent-events.jsonl`、`agent-stderr.txt`、`test-output.txt`、`acceptance-output.txt`、`code-diff.patch` 和带起止时间的 `report.json`。中途失败时可能只有部分文件；超时会保留已捕获的事件和标准错误，不将部分输出判为成功。Agent 主目录及控制状态不可直接提交为公开证据。
 
 若执行超时，记录未知状态并停止容器，不自动重复提交。默认每次验证最多等待 240 秒，选择新根目录才能重新运行。
 
-当前托管环境代理对 `opencode.ai` 返回 tunnel 403，模型实际调用等待网络配置更新。需要允许 `opencode.ai`，建议同时允许模型目录 `models.dev`。这与是否提供模型凭据无关。
+本轮实际提交任务仍收到代理 tunnel 403，详细失败证据见验证报告。环境策略应明确允许主域名 `opencode.ai` 和模型目录 `models.dev`；仅配置 `*.opencode.ai`、`*.models.dev` 不能作为主域名可访问的证据。通过受支持的环境配置流程更新并应用后，再用继承的代理核实两个主域名。网络阻塞与是否提供模型凭据无关。
 
 ### 后续使用自己的模型
 

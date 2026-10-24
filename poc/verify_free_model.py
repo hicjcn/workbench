@@ -1,11 +1,13 @@
 """Run a real free-model coding task against a fresh, non-sensitive fixture."""
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import time
 
 from agent_workbench import runtime
 from agent_workbench.workspace import WorkbenchError, create_workspace, git, snapshot, write_json
@@ -24,6 +26,35 @@ Use the installed Superpowers skills as appropriate. Do not dispatch subagents, 
 the network through tools, or create containers. Keep changes within this sample repository.
 Finish with a concise summary and the actual test results.
 """
+
+
+def save_agent_output(root, stdout, stderr):
+    """Preserve even TimeoutExpired's partial byte output without exposing it in the report."""
+    events = []
+    for filename, value in (("agent-events.jsonl", stdout), ("agent-stderr.txt", stderr)):
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="replace")
+        value = value or ""
+        path = root / filename
+        path.touch(mode=0o600)
+        path.write_text(value)
+        if filename == "agent-events.jsonl":
+            for line in value.splitlines():
+                try:
+                    event = json.loads(line)
+                    if isinstance(event, dict):
+                        events.append(event)
+                except json.JSONDecodeError:
+                    pass
+    return events
+
+
+def task_passed(report):
+    return (report["agent_exit_code"] == 0 and report["agent_error_events"] == 0
+            and report["model_response_observed"] and report["implementation_file_changed"]
+            and report["regression_test_file_changed"] and report["test_count"] >= 4
+            and report["source_unchanged"] and report["tests_passed"]
+            and report["acceptance_behavior_passed"])
 
 
 def main():
@@ -50,7 +81,11 @@ def main():
     value = create_workspace(source, root / "workspaces", "req-free", "backend")
     workspace = Path(value["workspace"])
     before = snapshot(workspace / "repo")
+    write_json(root / "before-snapshot.json", before)
+    (root / "approved-task.txt").write_text(PROMPT)
+    started = time.monotonic()
     report = {"status": "RUNNING", "model": args.model, "credentials_injected": False,
+              "started_at": datetime.now(timezone.utc).isoformat(), "timeout_seconds": args.timeout,
               "source_tree_digest": snapshot(source)["tree_digest"], "model_response_observed": False}
     exit_code = 1
     try:
@@ -61,7 +96,6 @@ def main():
         report["model_listed"] = args.model in available
         if args.model not in available:
             raise WorkbenchError("Selected free model is not listed by the installed OpenCode version")
-        (root / "approved-task.txt").write_text(PROMPT)
         progress("submit-free-model-task")
         # Submit once. A timeout is UNKNOWN, never an instruction to replay the task.
         report["submission_attempted"] = True
@@ -70,18 +104,7 @@ def main():
             "--attach", "http://127.0.0.1:4096", "--model", args.model,
             "--format", "json", PROMPT, check=False, timeout=args.timeout,
         )
-        for filename, value in (("agent-events.jsonl", result.stdout), ("agent-stderr.txt", result.stderr)):
-            path = root / filename
-            path.touch(mode=0o600)
-            path.write_text(value)
-        events = []
-        for line in result.stdout.splitlines():
-            try:
-                event = json.loads(line)
-                if isinstance(event, dict):
-                    events.append(event)
-            except json.JSONDecodeError:
-                pass
+        events = save_agent_output(root, result.stdout, result.stderr)
         report["agent_exit_code"] = result.returncode
         report["event_types"] = sorted({event.get("type", "unknown") for event in events})
         report["model_response_observed"] = any(event.get("type") in {"text", "tool_use", "step_finish"} for event in events)
@@ -89,9 +112,11 @@ def main():
         failures = [event for event in events if event.get("type") == "error"]
         report["agent_error_events"] = len(failures)
         after = snapshot(workspace / "repo")
+        write_json(root / "after-snapshot.json", after)
         report["code_changed"] = before["tree_digest"] != after["tree_digest"]
         before_files = {entry["path"]: entry["sha256"] for entry in before["files"]}
         after_files = {entry["path"]: entry["sha256"] for entry in after["files"]}
+        report["implementation_file_changed"] = before_files.get("server.mjs") != after_files.get("server.mjs")
         report["regression_test_file_changed"] = before_files.get("server.test.mjs") != after_files.get("server.test.mjs")
         report["before_digest"] = before["tree_digest"]
         report["after_digest"] = after["tree_digest"]
@@ -106,21 +131,20 @@ def main():
             "assert.equal(greeting('   ').message, 'hello world'); "
             "assert.equal(greeting().message, 'hello world');", check=False,
         )
+        (root / "acceptance-output.txt").write_text(behavior.stdout + behavior.stderr)
         report["tests_passed"] = tests.returncode == 0
         count = re.search(r"^# tests (\d+)\s*$", tests.stdout, re.MULTILINE)
         report["test_count"] = int(count.group(1)) if count else 0
         report["acceptance_behavior_passed"] = behavior.returncode == 0
-        if (result.returncode == 0 and not failures and report["code_changed"]
-                and report["regression_test_file_changed"] and report["test_count"] >= 4
-                and report["source_unchanged"] and report["tests_passed"]
-                and report["acceptance_behavior_passed"]):
+        if task_passed(report):
             report["status"] = "PASSED_REAL_MODEL_TASK"
             exit_code = 0
         else:
             report["status"] = "FAILED_OR_BLOCKED_MODEL_TASK"
         baseline = json.loads((workspace / "workspace.json").read_text())["source_baseline"]["commit_sha"]
         (root / "code-diff.patch").write_bytes(git(workspace / "repo", "diff", "--binary", baseline))
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as error:
+        save_agent_output(root, error.stdout, error.stderr)
         report["status"] = "UNKNOWN_TASK_STATE_AFTER_TIMEOUT"
     except WorkbenchError as error:
         report["status"] = "FAILED_OR_BLOCKED"
@@ -137,6 +161,8 @@ def main():
                 exit_code = 1
         if report["status"] == "RUNNING":
             report["status"] = "FAILED"
+        report["finished_at"] = datetime.now(timezone.utc).isoformat()
+        report["elapsed_seconds"] = round(time.monotonic() - started, 3)
         write_json(root / "report.json", report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return exit_code
