@@ -1,0 +1,13 @@
+{
+  "status": "PASSED_POSTGRES_CONTROL_PLANE",
+  "postgres_version": "17.11 (Debian 17.11-1.pgdg12+2)",
+  "migration": "0002",
+  "checks": [
+    "migrations",
+    "idempotency",
+    "exclusive_job",
+    "claim",
+    "durable_event",
+    "completion"
+  ]
+}

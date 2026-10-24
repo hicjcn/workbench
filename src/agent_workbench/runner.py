@@ -1,0 +1,146 @@
+"""A separate, trusted single-host Runner which pulls typed jobs from the API."""
+import argparse
+import fcntl
+import json
+from pathlib import Path
+import threading
+import time
+from urllib.parse import urlparse
+import uuid
+
+import httpx
+
+from .execution import Canceled, Executor, Unknown
+from .settings import Settings
+from .workspace import WorkbenchError
+
+
+class Runner:
+    def __init__(self, settings, base_url="http://127.0.0.1:8340", executor=None, transport=None):
+        parsed = urlparse(base_url)
+        if parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost", "testserver") or parsed.username:
+            raise ValueError("Runner 仅连接本机控制 API")
+        self.settings = settings
+        self.executor = executor or Executor(settings)
+        self.owner = "runner_" + uuid.uuid4().hex
+        self.client = httpx.Client(base_url=base_url, headers={"Authorization": "Bearer " + settings.runner_token},
+            trust_env=False, timeout=15, transport=transport)
+
+    def post(self, path, payload):
+        response = self.client.post(path, json=payload)
+        response.raise_for_status()
+        return response.json()
+
+    def run_once(self):
+        received = self.post("/internal/claim", {"owner": self.owner})
+        job = received["job"]
+        if not job:
+            return False
+        if received["model"] != self.settings.model:
+            self.post(f"/internal/jobs/{job['id']}/finish", {"owner": self.owner, "epoch": job["epoch"],
+                "status": "FAILED", "result": {}, "error": "API 与 Runner 的模型配置不一致"})
+            return True
+        base = {"owner": self.owner, "epoch": job["epoch"]}
+        stop_heartbeat = threading.Event()
+        canceled = threading.Event()
+        lost = threading.Event()
+        def heartbeat():
+            while not stop_heartbeat.wait(3):
+                try:
+                    observed = self.post(f"/internal/jobs/{job['id']}/heartbeat", base)
+                    if observed["cancel_requested"]:
+                        canceled.set()
+                except httpx.HTTPError:
+                    lost.set()
+                    canceled.set()
+                    return
+        thread = threading.Thread(target=heartbeat, daemon=True)
+        thread.start()
+        sequence = 0
+        def emit(kind, payload):
+            nonlocal sequence
+            sanitized = json.loads(self.executor.redact(json.dumps(payload, ensure_ascii=False), Path(job["workspace"]["path"])))
+            self.post(f"/internal/jobs/{job['id']}/events", {**base, "seq": sequence, "kind": kind, "payload": sanitized})
+            sequence += 1
+        status, result, error = "SUCCEEDED", {}, None
+        try:
+            emit("stage", {"text": "执行器已接收操作"})
+            result = self.executor.execute(job, emit, canceled)
+            emit("stage", {"text": "操作完成，结果已收集"})
+        except Exception as failure:
+            status = "CANCELED" if isinstance(failure, Canceled) else "UNKNOWN" if isinstance(failure, Unknown) else "FAILED"
+            workspace = Path(job["workspace"]["path"])
+            error = self.executor.redact(str(failure), workspace)[:4000]
+            try:
+                result = self.executor.observe(workspace, "STOPPED" if status == "CANCELED" else "ERROR")
+            except Exception:
+                result = {"environment": "UNKNOWN" if status == "UNKNOWN" else "ERROR"}
+        finally:
+            stop_heartbeat.set()
+            thread.join(timeout=5)
+        if lost.is_set():
+            status = "UNKNOWN"
+            error = "执行期间与控制服务失联；结果需停止并核实"
+        try:
+            self.post(f"/internal/jobs/{job['id']}/finish", {**base, "status": status, "result": result, "error": error})
+        except httpx.HTTPStatusError as failure:
+            if failure.response.status_code == 409 and status == "SUCCEEDED":
+                self.post(f"/internal/jobs/{job['id']}/finish", {**base, "status": "FAILED", "result": result,
+                    "error": "代码版本或执行租约已变化，结果未通过确认"})
+            else:
+                raise
+        return True
+
+    def watch_once(self):
+        response = self.client.get("/internal/watch")
+        response.raise_for_status()
+        locks = self.settings.data_dir / "locks"
+        locks.mkdir(parents=True, exist_ok=True)
+        for workspace in response.json():
+            with (locks / (workspace["requirement_id"] + ".lock")).open("a") as lock:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    continue
+                try:
+                    observed = self.executor.observe(Path(workspace["path"]))
+                    payload = {"snapshot": observed["snapshot"], "diff": observed["diff"], "diff_truncated": observed["diff_truncated"]}
+                except (WorkbenchError, OSError, ValueError):
+                    payload = {"unreadable": True}
+                result = self.client.post(f"/internal/workspaces/{workspace['requirement_id']}/observation", json=payload)
+                if result.status_code != 409:
+                    result.raise_for_status()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--api", default="http://127.0.0.1:8340")
+    parser.add_argument("--once", action="store_true")
+    args = parser.parse_args()
+    settings = Settings.load(args.data_dir)
+    runner = Runner(settings, args.api)
+    print("Runner 已启动，等待本机控制服务分配任务", flush=True)
+    last_watch = 0.0
+    try:
+        while True:
+            try:
+                worked = runner.run_once()
+                if time.monotonic() - last_watch > 2:
+                    runner.watch_once()
+                    last_watch = time.monotonic()
+                if args.once:
+                    return
+                if not worked:
+                    time.sleep(0.5)
+            except httpx.HTTPError:
+                if args.once:
+                    raise
+                print("暂时无法更新执行状态，任务不会自动重放", flush=True)
+                time.sleep(2)
+    finally:
+        runner.client.close()
+
+
+if __name__ == "__main__":
+    main()

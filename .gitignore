@@ -10,4 +10,6 @@ dist/
 .local-data/
 runtime-secrets/
 *.log
+web/node_modules/
+web/dist/
 

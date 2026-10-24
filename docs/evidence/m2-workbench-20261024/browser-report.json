@@ -1,0 +1,28 @@
+{
+  "model_inference_repeated": false,
+  "checks": {
+    "browser_project_registration": "PASSED",
+    "browser_two_durable_workspaces": "PASSED",
+    "browser_api_runner_real_opencode_container": "PASSED",
+    "browser_diff_and_snapshot_bound_review": "PASSED",
+    "idle_code_change_invalidates_approval": "PASSED",
+    "other_requirement_and_source_unchanged": "PASSED",
+    "browser_persistent_event_display": "PASSED",
+    "mobile_layout_without_horizontal_overflow": "PASSED",
+    "api_restart_and_migration_preserve_reviews_and_events": "PASSED",
+    "browser_can_reconcile_unknown_with_stopped_environment": "PASSED"
+  },
+  "status": "PASSED_BROWSER_CONTROLLER_FLOW",
+  "requirements": [
+    "req_5b99ded8d2d642ce989f7977c5a81ad1",
+    "req_5d6de4ca70b446d68175d5e9edee6eaf"
+  ],
+  "titles": [
+    "示例需求 A · 参数处理 · bdaafe",
+    "示例需求 B · 独立回归 · bdaafe"
+  ],
+  "source": "/workspace/agent-workbench/.local-data/m2-qa/sources/sample-bdaafe",
+  "console_errors": [],
+  "migration": "0002",
+  "recovery_case": "controlled UNKNOWN record for UI recovery; no model task was fabricated"
+}

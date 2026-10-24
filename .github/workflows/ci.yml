@@ -1,4 +1,4 @@
-name: M1 verification
+name: Workbench verification
 
 on:
   push:
@@ -18,8 +18,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Install controller dependencies
+        run: python -m pip install -e '.[server]'
       - name: Workspace and local control API tests
         run: PYTHONPATH=src python -m unittest discover -s tests -v
       - name: Sample backend tests
         run: node --test poc/sample-project/server.test.mjs
+      - name: Build Web interface
+        run: |
+          npm ci --prefix web --no-audit --no-fund
+          npm run --prefix web build
 
