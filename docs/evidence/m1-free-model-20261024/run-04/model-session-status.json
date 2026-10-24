@@ -1,0 +1,20 @@
+{
+  "observed_at": "2026-10-24T02:48:48.791111+00:00",
+  "sessions": {
+    "ses_e94307272ffePhXZWGonIOsLBN": {
+      "type": "retry",
+      "attempt": 1,
+      "message": "Free usage exceeded, subscribe to Go",
+      "action": {
+        "reason": "free_tier_limit",
+        "provider": "opencode",
+        "title": "Free limit reached",
+        "message": "Subscribe to OpenCode Go for reliable access to the best open-source models for $10/month.",
+        "label": "subscribe",
+        "link": "https://opencode.ai/go"
+      },
+      "next": 1792886400715,
+      "next_at": "2026-10-25T00:00:00.715000+00:00"
+    }
+  }
+}

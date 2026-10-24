@@ -1,0 +1,14 @@
+{
+  "observed_at": "2026-10-24T02:48:40.485147+00:00",
+  "workbench_commit": "e05c988417e31d6ac91c5cf21d15daa6db13147c",
+  "image_id": "sha256:b56ce1378a26dea06cf3d79bae1f70694db26ec2ac3b91e4f50ffba31a34664e",
+  "image_labels": {
+    "org.agent-workbench.opencode-version": "1.19.4",
+    "org.agent-workbench.superpowers-commit": "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b"
+  },
+  "node_version": "v22.23.4",
+  "opencode_version": "1.19.4",
+  "model_auth_file_present": false,
+  "model_credentials_created_or_injected": false,
+  "paid_fallback_configured": false
+}

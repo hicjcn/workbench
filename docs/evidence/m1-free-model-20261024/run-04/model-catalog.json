@@ -1,0 +1,34 @@
+{
+  "observed_at": "2026-10-24T02:48:08.165537+00:00",
+  "url": "https://opencode.ai/zen/v1/models",
+  "user_agent": "opencode/1.19.4",
+  "http_status": 200,
+  "tls_verification": true,
+  "inherited_proxy": true,
+  "matches": [
+    {
+      "id": "deepseek-v4.1-flash-free",
+      "object": "model",
+      "created": 1792810088,
+      "owned_by": "opencode"
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "object": "model",
+      "created": 1792810088,
+      "owned_by": "opencode"
+    },
+    {
+      "id": "deepseek-v4.1-flash",
+      "object": "model",
+      "created": 1792810088,
+      "owned_by": "opencode"
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "object": "model",
+      "created": 1792810088,
+      "owned_by": "opencode"
+    }
+  ]
+}

@@ -1,6 +1,22 @@
 # 免费模型任务证据：2026-10-24
 
-run-01、run-02 使用 `opencode/glm-5.3-flash-free`；最新 run-03 按用户要求改用 `opencode/mimo-v2.6-flash-free`。各轮均未创建或注入模型凭据，未使用付费模型。run-01 被代理 CONNECT 403 阻塞；run-02、run-03 服务可达，但均收到免费额度耗尽响应，无模型输出或代码修改。三轮都不能登记为模型开发验证通过。
+run-01、run-02 使用 `opencode/glm-5.3-flash-free`；run-03 改用 `opencode/mimo-v2.6-flash-free`，最新 run-04 按用户要求改试 `opencode/deepseek-v4.1-flash-free`。各轮均未创建或注入模型凭据，未使用付费模型。run-01 被代理 CONNECT 403 阻塞；run-02 至 run-04 服务可达，但均收到免费额度耗尽响应，无模型输出或代码修改。四轮都不能登记为模型开发验证通过。
+
+## run-04：DeepSeek V4.1 Flash Free
+
+在 `e05c988417e31d6ac91c5cf21d15daa6db13147c` 上使用同一脚本、提示词、样例基线和验收条件，仅显式改用 `--model opencode/deepseek-v4.1-flash-free`。2026-10-24 北京时间 10:48:24 至 10:48:49，共 24.889 秒。新会话提交一次后仍收到 `free_tier_limit`；记录状态后中止等待，未重放任务。
+
+- [model-catalog.json](run-04/model-catalog.json) / [model-message-summary.json](run-04/model-message-summary.json)：目录 HTTP 200；消息元数据确认实际使用 `opencode / deepseek-v4.1-flash-free`，观察时 cost 与 token 均为 0，无模型内容片段。
+- [model-session-status.json](run-04/model-session-status.json) / [session-status-observations.jsonl](run-04/session-status-observations.jsonl)：服务端额度原因及下次重试时间（2026-10-25 北京时间 08:00，不保证恢复）。
+- [report.json](run-04/report.json) / [verification-output.txt](run-04/verification-output.txt)：原始结果 `FAILED_OR_BLOCKED_MODEL_TASK`，脚本退出码 1。
+- [approved-task.txt](run-04/approved-task.txt) / [execution-context.json](run-04/execution-context.json)：任务、固定工具版本与免凭据状态。
+- [before-snapshot.json](run-04/before-snapshot.json) / [after-snapshot.json](run-04/after-snapshot.json) / [code-diff.patch](run-04/code-diff.patch)：源码摘要相同、差异为空。
+- [test-output.txt](run-04/test-output.txt) / [acceptance-output.txt](run-04/acceptance-output.txt)：仅原始 2 项测试通过，独立空白处理验收失败。
+- [agent-events.jsonl](run-04/agent-events.jsonl) / [agent-stderr.txt](run-04/agent-stderr.txt)：均为空；CLI 返回 0，额度状态由 API 另行记录。
+- [model-abort.json](run-04/model-abort.json) / [cleanup.json](run-04/cleanup.json)：本次会话中止成功，无托管容器或网络遗留。
+- [sha256.json](run-04/sha256.json)：其余 17 份证据文件的 SHA-256。
+
+GLM、MiMo、DeepSeek 均观察到相同额度原因，当前证据不能确定服务端具体计额维度。没有模型代码产出或人工代写的样例实现。
 
 ## run-03：MiMo-V2.6-Flash Free
 
@@ -54,4 +70,4 @@ JSON 时间使用 UTC。`report.json` 保留脚本原样，没有将外部 API �
 - [approved-task.txt](run-01/approved-task.txt)：实际提交的任务和验收要求。
 - [agent-stderr.txt](run-01/agent-stderr.txt)：空文件；错误通过 JSON 事件输出。
 
-各轮原始目录为 `.local-data/free-model-run-01`、`.local-data/free-model-run-02`、`.local-data/free-model-run-03`，未提交包含控制密码、认证数据或 Agent 主目录的内容。后续验证应使用新根目录，保持历史记录不变。
+各轮原始目录为 `.local-data/free-model-run-01` 至 `.local-data/free-model-run-04`，未提交包含控制密码、认证数据或 Agent 主目录的内容。后续验证应使用新根目录，保持历史记录不变。

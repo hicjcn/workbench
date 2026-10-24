@@ -1,7 +1,7 @@
 # M1 验证报告
 
 - 日期：2026-10-24
-- 状态：基础设施实测通过；本轮改用 MiMo-V2.6-Flash Free 后仍因服务端免费额度耗尽而阻塞，未产生模型代码修改
+- 状态：基础设施实测通过；本轮改试 DeepSeek V4.1 Flash Free 后仍因服务端免费额度耗尽而阻塞，未产生模型代码修改
 - 范围：内置 Node.js 测试项目，不包含用户业务项目或生产数据
 
 ## 1. 已完成结果
@@ -48,7 +48,7 @@
 
 ## 4. 免凭据模型验证
 
-先使用 `opencode/glm-5.3-flash-free`，本轮按用户最新要求改试 `opencode/mimo-v2.6-flash-free`。两者均由容器的 `opencode models opencode` 和 [官方模型目录](https://opencode.ai/zen/v1/models) 实际列出。各轮均不创建或注入模型凭据，不配置付费回退。
+先使用 `opencode/glm-5.3-flash-free`、`opencode/mimo-v2.6-flash-free`，本轮按用户最新要求改试 `opencode/deepseek-v4.1-flash-free`。三者均由容器的 `opencode models opencode` 和 [官方模型目录](https://opencode.ai/zen/v1/models) 实际列出。各轮均不创建或注入模型凭据，不配置付费回退。
 
 真实模型验证脚本的完成条件同时要求：任务无错误、观察到模型响应、`server.mjs` 实际变化、回归测试文件变化、至少 4 项测试通过、源仓库不变，以及独立验收行为通过。目录可达、CLI 返回 0 或原始测试通过均不足以判定真实任务成功。
 
@@ -93,7 +93,7 @@ PYTHONPATH=src python3 poc/verify_free_model.py \
 
 本轮复核 20 项 Python 测试及原始 2 项 Node.js 测试通过。免费额度阻塞使真实模型代码修改、新增回归测试及行为验收仍未完成；本轮没有用人工修改替代模型产出。
 
-### 最新一轮：MiMo-V2.6-Flash Free（run-03）
+### 上一轮：MiMo-V2.6-Flash Free（run-03）
 
 用户要求改用 MiMo-V2.6-Flash Free。公开目录确认准确 ID 为 `mimo-v2.6-flash-free`，在 `b0e5be195e710aade9e356e480d34d3f02599256` 上实际执行一次：
 
@@ -122,9 +122,28 @@ PYTHONPATH=src python3 poc/verify_free_model.py \
 
 MiMo 与 GLM 均观察到相同的服务端免费额度原因，当前证据不能确定额度按模型还是其他维度计算。更换模型没有解除本轮阻塞，仍未完成真实模型代码修改与新行为验收。
 
+### 最新一轮：DeepSeek V4.1 Flash Free（run-04）
+
+用户要求改试 DeepSeek V4.1 Flash Free。公开目录 HTTP 200，准确 ID 为 `deepseek-v4.1-flash-free`；在 `e05c988417e31d6ac91c5cf21d15daa6db13147c` 上实际执行一次：
+
+```bash
+PYTHONPATH=src python3 poc/verify_free_model.py \
+  --root .local-data/free-model-run-04 \
+  --model opencode/deepseek-v4.1-flash-free \
+  --proxy-ca "$CODEX_PROXY_CERT" --timeout 600
+```
+
+执行时间为 2026-10-24 北京时间 10:48:24 至 10:48:49，耗时 24.889 秒。沿用同一镜像、固定工具版本、任务、样例基线和验收条件，仅显式更换模型参数。
+
+控制 API 消息元数据确认为 `providerID=opencode`、`modelID=deepseek-v4.1-flash-free`；观察时 cost 与输入/输出 token 均为 0，无内容片段。会话状态同样返回 `type=retry`、`attempt=1`、`action.reason=free_tier_limit` 和 `Free usage exceeded, subscribe to Go`，服务端给出的下次重试时间为 2026-10-25 北京时间 08:00:00（原值 `1792886400715` 毫秒），不保证届时额度恢复。
+
+记录额度状态后 abort 返回 `true`，随后会话状态为空。CLI 返回 0，事件和标准错误为空；未产生模型响应、实现或回归测试变化，前后快照及原始源码摘要相同，代码差异为空。仅原始 2 项测试通过，独立空白处理验收失败。脚本返回 `FAILED_OR_BLOCKED_MODEL_TASK`，退出码 1，容器及网络均已清理。本轮没有重放任务、创建模型凭据或使用付费模型。
+
+新增 [run-04 证据](evidence/m1-free-model-20261024/README.md) 包含 17 份原始记录及 SHA-256 清单：模型目录、实际模型元数据、额度状态、任务、报告、前后快照、测试/验收输出、空差异、中止、执行版本及清理结果。GLM、MiMo、DeepSeek 三个免费模型均观察到相同额度原因；更换模型尚未解除阻塞，当前证据仍不能确定服务端计额维度，真实模型代码修改与行为验收保持未完成。
+
 ## 5. 仍待完成
 
-1. 服务端免费额度可用后，在新证据目录运行当前指定的 MiMo 免凭据模型任务，完成实际代码修改及结果验证；不自动重放本轮任务。
+1. 服务端免费额度可用后，在新证据目录运行当前指定的 DeepSeek 免凭据模型任务，完成实际代码修改及结果验证；不自动重放本轮任务。
 2. 活动模型任务的中止、事件流及控制进程断线恢复。
 3. 用户业务项目的语言运行时、服务依赖和本机环境一致性。
 4. 数据库、缓存及队列的跨需求可写状态隔离。

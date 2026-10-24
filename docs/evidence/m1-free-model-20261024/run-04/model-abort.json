@@ -1,0 +1,11 @@
+{
+  "observed_at": "2026-10-24T02:48:48.806519+00:00",
+  "reason": "Provider free_tier_limit; stop this validation wait without prompt replay, model change or paid fallback.",
+  "aborted": [
+    {
+      "session_id": "ses_e94307272ffePhXZWGonIOsLBN",
+      "abort_result": true
+    }
+  ],
+  "status_after_abort": {}
+}
