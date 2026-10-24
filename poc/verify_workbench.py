@@ -25,7 +25,7 @@ def verify_persistence(root, base_url, chromium):
         assert current["jobs"] and all(job["status"] in ("SUCCEEDED", "CANCELED") for job in current["jobs"])
         with sqlite3.connect(root / "workbench.db") as connection:
             report["migration"] = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-        assert report["migration"] == "0003"
+        assert report["migration"] == "0004"
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=chromium, args=["--no-sandbox"], headless=True)
         page = browser.new_page(viewport={"width":1500,"height":1100})

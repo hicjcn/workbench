@@ -1,0 +1,10 @@
+{
+  "status": "PASSED",
+  "command": ".venv/bin/python -m unittest discover -s tests -q",
+  "tests": 76,
+  "existing_tests": 59,
+  "new_tests": 17,
+  "observed_duration_seconds": 15.043,
+  "source": "Observed local unittest output in this task; summary only, not a raw log",
+  "model_inference": false
+}

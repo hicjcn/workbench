@@ -25,6 +25,8 @@ def invalidate(connection, requirement_id, code_digest=None):
     if row and (code_digest is None or row["basis_digest"] != code_digest):
         connection.execute(update(flows).where(flows.c.id == row["id"]).values(state="STALE"))
         connection.execute(update(workspaces).where(workspaces.c.requirement_id == requirement_id).values(approval="STALE"))
+        from .materials import invalidate as invalidate_materials
+        invalidate_materials(connection, requirement_id)
 
 
 def idle(connection, requirement_id):
@@ -49,7 +51,7 @@ def revision(connection, requirement_id):
 
 
 def definitions(config):
-    return [
+    nodes = [
         ("analysis", "只读全景分析", config["development_model"]),
         ("scope", "范围与方案确认", None),
         ("development", "Superpowers 开发", config["development_model"]),
@@ -58,6 +60,7 @@ def definitions(config):
         ("resolution", "问题处理确认", None),
         ("self_review", "开发者自审", None),
     ]
+    return nodes[2:] if config.get("entry_step") == "development" else nodes
 
 
 def attempts(connection, flow_id, include_inputs=False):
@@ -158,6 +161,8 @@ class Workflow:
                 flows.c.state == "ACTIVE")).values(state="SUPERSEDED"))
             connection.execute(update(flows).where(flows.c.requirement_id == requirement_id).values(is_current=False))
             connection.execute(update(workspaces).where(workspaces.c.requirement_id == requirement_id).values(approval="PENDING"))
+            from .materials import invalidate as invalidate_materials
+            invalidate_materials(connection, requirement_id)
             value = dict(id=identifier("flow"), requirement_id=requirement_id, revision_id=rev["id"],
                 is_current=True, state="ACTIVE", basis_digest=expected_digest,
                 config_json=encoded({"template": "backend-development-m3/v1", "development_model": self.model,
@@ -168,6 +173,7 @@ class Workflow:
     def enqueue(self, requirement_id, flow_id, step_key, supplied, key):
         self.store.expire()
         with self.store.engine.begin() as connection:
+            revision(connection, requirement_id)
             # The request key is checked before the moving workflow position.
             if key:
                 previous = connection.execute(select(jobs).where(and_(jobs.c.requirement_id == requirement_id,
@@ -197,9 +203,13 @@ class Workflow:
                         raise Conflict("每个阻断或主要问题都需要逐项处置和原因；代码修复后应重新评审")
             rev = public(connection.execute(select(revisions).where(revisions.c.id == row["revision_id"])).mappings().one())
             bundle = {"template": flow["config"]["template"], "requirement_revision": rev,
+                "round_reason": flow["reason"],
                 "code_digest": row["basis_digest"], "config": flow["config"],
                 "upstream": {name: item["output"] for name, item in latest.items() if item["status"] == "SUCCEEDED"
                     and not (step_key.startswith("model_review_") and name.startswith("model_review_"))}}
+            carried = flow["config"].get("carried_scope")
+            if carried:
+                bundle["upstream"].update(analysis=carried["analysis"], scope=carried["scope"])
             if step_key.startswith("model_review_"):
                 ws = connection.execute(select(workspaces).where(workspaces.c.requirement_id == requirement_id)).mappings().one()
                 bundle["code_diff"] = ws["diff"]

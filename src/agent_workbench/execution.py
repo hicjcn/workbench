@@ -1,6 +1,7 @@
 """Trusted host operations. API requests cannot provide shell commands or mounts."""
 import fcntl
 import json
+import math
 import os
 from pathlib import Path
 import queue
@@ -143,6 +144,9 @@ class Executor:
         if action == "workflow":
             from .workflow_execution import execute_step
             return execute_step(self, job, workspace, emit, canceled)
+        if action == "materials":
+            from .material_execution import execute
+            return execute(self, job, workspace, emit, canceled)
         raise WorkbenchError("未知操作")
 
     def cleanup_attempts(self, requirement_id):
@@ -166,13 +170,32 @@ class Executor:
         prompt = prompt or (f"需求：{job['requirement']['title']}\n背景：{job['requirement']['description']}\n"
                   f"验收标准：{job['requirement']['acceptance']}\n本次任务：{job['input']['prompt']}\n"
                   "在当前独立工作区完成任务并执行合适验证。保留代码改动，不推送 Git，不启动子代理。")
-        command = ["docker", "--host=unix:///var/run/docker.sock", "exec", state["container"], "opencode", "run",
-                   "--attach", "http://127.0.0.1:4096", "--model", model, "--format", "json", prompt]
+        command = ["docker", "--host=unix:///var/run/docker.sock", "exec", "-i", state["container"], "opencode", "run",
+                   "--attach", "http://127.0.0.1:4096", "--model", model, "--format", "json"]
         environment = os.environ.copy()
         for name in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
             environment.pop(name, None)
-        emit("stage", {"text": "已提交一次 Agent 任务，正在收集输出", "model": model})
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment)
+        emit("stage", {"text": "正在提交一次 Agent 任务并收集输出", "model": model})
+        try:
+            timeout = float(os.environ.get("AWB_TASK_TIMEOUT", "300"))
+            if not math.isfinite(timeout) or timeout <= 0:
+                raise ValueError
+        except ValueError:
+            raise WorkbenchError("AWB_TASK_TIMEOUT 必须是有限正数；尚未启动任务") from None
+        deadline = time.monotonic() + timeout
+        # OpenCode 1.19.4 reads piped stdin. Large documents exceed argv's per-argument limit.
+        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment)
+        input_finished = threading.Event()
+        input_errors = []
+        def write_input():
+            try:
+                process.stdin.write(prompt)
+                process.stdin.close()
+            except (OSError, ValueError):
+                input_errors.append(True)
+            finally:
+                input_finished.set()
+        threading.Thread(target=write_input, daemon=True).start()
         messages = queue.Queue()
         def read(pipe, label):
             try:
@@ -183,7 +206,6 @@ class Executor:
                 pipe.close()
         for pipe, name in ((process.stdout, "stdout"), (process.stderr, "stderr")):
             threading.Thread(target=read, args=(pipe, name), daemon=True).start()
-        deadline = time.monotonic() + float(os.environ.get("AWB_TASK_TIMEOUT", "300"))
         buffers = {"stdout": "", "stderr": ""}
         finished = set()
         agent_errors = False
@@ -234,6 +256,8 @@ class Executor:
                     buffers[stream] = ""
             if process.returncode != 0 or agent_errors:
                 raise WorkbenchError("Agent 执行返回错误，请查看日志及保留的代码差异")
+            if not input_finished.wait(1) or input_errors:
+                raise Unknown("Agent 输入传输未确认完成，结果需核实")
             if not completed:
                 raise Unknown("没有观察到明确结束事件，结果需核实；任务不会重放")
             result = {**self.observe(workspace, "RUNNING"), "model": model}
@@ -243,7 +267,7 @@ class Executor:
                 result["agent_text"] = text_parts[-1] if text_parts else ""
             return result
         finally:
-            if not completed or agent_errors or canceled.is_set():
+            if not completed or agent_errors or canceled.is_set() or input_errors or not input_finished.is_set():
                 try:
                     if (workspace / "runtime.json").exists():
                         runtime.stop(workspace)

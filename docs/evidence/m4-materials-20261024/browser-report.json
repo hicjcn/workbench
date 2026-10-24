@@ -1,0 +1,56 @@
+{
+  "status": "PASSED_CONTROLLED_M4_MATERIALS",
+  "model_inference": false,
+  "controlled_reports": true,
+  "m3_prerequisite": "seeded controlled workflow reports; not an online model run",
+  "checks": {
+    "browser_generate_summary_without_implicit_approval": "PASSED",
+    "browser_undecided_performance_cannot_skip": "PASSED",
+    "generated_test_definition_has_no_execution_result": "PASSED",
+    "browser_records_evidence_and_material_acceptance": "PASSED",
+    "browser_download_zip_hashes_and_reasoned_performance_skip": "PASSED",
+    "manual_document_revision_invalidates_records_preserving_export": "PASSED",
+    "required_performance_case_blocks_until_registered": "PASSED",
+    "mobile_layout_without_horizontal_overflow": "PASSED",
+    "browser_historical_round_export_remains_downloadable": "PASSED",
+    "browser_bug_feedback_opens_explicit_scoped_fix_round": "PASSED",
+    "real_docker_document_roles_are_separate_read_only_snapshots": "PASSED",
+    "source_and_other_requirement_unchanged": "PASSED",
+    "api_restart_preserves_versions_records_and_download": "PASSED"
+  },
+  "console_errors": [],
+  "migration": "0004",
+  "roles": [
+    {
+      "kind": "summary_design",
+      "code_digest": "e378190b5ac1234c300e3ba6dd7bbb2e3f7210c3064e1fca92267818d52dcb19",
+      "workspace": "/workspace/agent-workbench/.local-data/m4-qa-04/attempts/job_d2c6e14e8eeb4d829aae84bd6513317b/req_a9288a9ecfcb49a1a2b9dac81d399f7b/prj_34e0d39f9e114966b9f32c19f02f1697",
+      "source_read_only": true,
+      "write_denied": true
+    },
+    {
+      "kind": "test_plan",
+      "code_digest": "e378190b5ac1234c300e3ba6dd7bbb2e3f7210c3064e1fca92267818d52dcb19",
+      "workspace": "/workspace/agent-workbench/.local-data/m4-qa-04/attempts/job_097f6c30556c45f4b1c6273b2a201bc1/req_a9288a9ecfcb49a1a2b9dac81d399f7b/prj_34e0d39f9e114966b9f32c19f02f1697",
+      "source_read_only": true,
+      "write_denied": true
+    },
+    {
+      "kind": "test_plan",
+      "code_digest": "e378190b5ac1234c300e3ba6dd7bbb2e3f7210c3064e1fca92267818d52dcb19",
+      "workspace": "/workspace/agent-workbench/.local-data/m4-qa-04/attempts/job_9ca870d6579d4f01b33b4ab4295d9a45/req_a9288a9ecfcb49a1a2b9dac81d399f7b/prj_34e0d39f9e114966b9f32c19f02f1697",
+      "source_read_only": true,
+      "write_denied": true
+    },
+    {
+      "kind": "performance_plan",
+      "code_digest": "e378190b5ac1234c300e3ba6dd7bbb2e3f7210c3064e1fca92267818d52dcb19",
+      "workspace": "/workspace/agent-workbench/.local-data/m4-qa-04/attempts/job_6e91b1cca73842fdba011484383daca9/req_a9288a9ecfcb49a1a2b9dac81d399f7b/prj_34e0d39f9e114966b9f32c19f02f1697",
+      "source_read_only": true,
+      "write_denied": true
+    }
+  ],
+  "downloaded_package_sha256": "77be23ab64377dcacc818818acb0b95180b5aaa13c9045956447eea6bde914e2",
+  "actual_online_model_inference": "NOT_ATTEMPTED",
+  "actual_business_or_performance_test": "NOT_EXECUTED; test results are controlled registrations"
+}

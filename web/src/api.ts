@@ -79,6 +79,7 @@ export const labels: Record<string, string> = {
   reconcile: "停止并核实",
   review: "人工代码确认",
   workflow: "流程步骤",
+  materials: "材料步骤",
 };
 export const timeLabel = (timestamp: number) =>
   new Date(timestamp * 1000).toLocaleString("zh-CN", {
@@ -91,6 +92,17 @@ export const timeLabel = (timestamp: number) =>
 
 export const jobLabel = (job: Job) => {
   const names: Record<string, string> = {
+    summary_design: "概要设计",
+    test_plan: "功能测试单",
+    performance_plan: "性能测试单",
+    supervisor_review: "主管评审",
+    performance_decision: "性能判断",
+    test_execution: "测试执行登记",
+    acceptance: "材料验收",
+    feedback: "反馈",
+    resolve_feedback: "反馈处置",
+    edit_document: "修订材料",
+    export: "材料导出",
     analysis: "只读分析",
     scope: "范围确认",
     development: "开发",
