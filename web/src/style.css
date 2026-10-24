@@ -1003,3 +1003,135 @@ code {
     margin-left: 0;
   }
 }
+/* The workflow stays in the requirement column on narrow screens. */
+.flow-start,
+.flow-next {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f7f9fc;
+  border: 1px solid #e0e6ef;
+  border-radius: 12px;
+}
+.flow-timeline {
+  list-style: none;
+  padding: 0;
+  margin: 24px 0;
+}
+.flow-timeline li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-left: 2px solid #e4e9f0;
+  padding: 12px;
+  margin-left: 14px;
+}
+.flow-timeline li.current {
+  background: #eef4ff;
+  border-left-color: #4169d5;
+  border-radius: 0 8px 8px 0;
+}
+.flow-number {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #e4ebf8;
+  color: #284b99;
+  font-size: 12px;
+}
+.flow-timeline li > div {
+  min-width: 0;
+  flex: 1;
+}
+.flow-timeline strong {
+  display: block;
+  font-size: 13px;
+}
+.flow-timeline code,
+.finding code {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  color: #596b85;
+  overflow-wrap: anywhere;
+}
+.flow-status {
+  font-size: 11px;
+  flex-shrink: 0;
+  color: #465e7a;
+}
+.flow-next h3,
+.flow-reports h3,
+.finding-list h3 {
+  font-size: 14px;
+  margin-bottom: 15px;
+}
+.flow-next > button {
+  margin-top: 14px;
+}
+.flow-reports {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e6ebf2;
+}
+.flow-reports summary {
+  cursor: pointer;
+  color: #4764a1;
+  font-size: 13px;
+}
+.flow-reports pre {
+  background: #f6f8fb;
+  padding: 14px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 360px;
+  overflow: auto;
+  font-size: 12px;
+}
+.flow-reports p,
+.workflow-panel label {
+  overflow-wrap: anywhere;
+}
+.flow-reports > div {
+  margin-top: 20px;
+}
+.finding-list {
+  margin-top: 24px;
+}
+.finding {
+  padding: 16px;
+  margin: 12px 0;
+  border: 1px solid #e3e7ef;
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.finding p {
+  margin: 10px 0;
+}
+.finding .form-stack {
+  margin-top: 14px;
+}
+@media (max-width: 600px) {
+  .flow-timeline li {
+    gap: 8px;
+    padding: 12px 6px;
+    margin-left: 0;
+  }
+  .flow-start,
+  .flow-next {
+    padding: 14px;
+  }
+  .workflow-panel .section-title {
+    align-items: flex-start;
+    gap: 10px;
+    flex-direction: column;
+  }
+  .flow-status {
+    font-size: 10px;
+    max-width: 70px;
+  }
+}

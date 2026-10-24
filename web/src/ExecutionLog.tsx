@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { labels, timeLabel } from "./api";
+import { labels, timeLabel, jobLabel } from "./api";
 import type { ExecutionEvent, Job } from "./api";
 
 function readable(event: ExecutionEvent) {
@@ -53,7 +53,7 @@ export function ExecutionLog({ job }: { job: Job | null }) {
       <div className="log-caption">
         <span>
           {job
-            ? `${labels[job.action] ?? job.action} · ${labels[job.status] ?? job.status}`
+            ? `${jobLabel(job)} · ${labels[job.status] ?? job.status}`
             : "选择一次执行查看日志"}
         </span>
         <span>{connected ? "● 实时连接" : "持久记录 · 最近 500 条"}</span>

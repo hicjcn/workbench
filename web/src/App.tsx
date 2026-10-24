@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { api, active, labels, timeLabel } from "./api";
+import { api, active, labels, timeLabel, jobLabel } from "./api";
 import type { Detail, Job, Project, Requirement } from "./api";
 import { Modal, ProjectForm, RequirementForm } from "./Forms";
 import { ExecutionLog } from "./ExecutionLog";
+import { WorkflowPanel } from "./WorkflowPanel";
 
 function Badge({ value }: { value: string }) {
   return (
@@ -29,6 +30,7 @@ export default function App() {
   const [reason, setReason] = useState("");
   const [logId, setLogId] = useState("");
   const [model, setModel] = useState("");
+  const [workflowEnabled, setWorkflowEnabled] = useState(false);
   useEffect(() => {
     let live = true;
     api<{ authenticated: boolean; token_file: string }>("/session")
@@ -195,7 +197,7 @@ export default function App() {
           </div>
         </div>
         <div className="topbar-right">
-          <span className="version-pill">M2 · 本地运行</span>
+          <span className="version-pill">M3 · 本地运行</span>
           <button
             className="text-button"
             onClick={() =>
@@ -370,6 +372,17 @@ export default function App() {
                   </div>
                 ) : null}
               </section>
+              <WorkflowPanel
+                key={detail.id}
+                detail={detail}
+                disabled={disabled}
+                onEnabled={setWorkflowEnabled}
+                onJob={(job) => setLogId(job.id)}
+                onChanged={async () => {
+                  setDetail(await api<Detail>(`/requirements/${detail.id}`));
+                  await reload();
+                }}
+              />
               <section className="panel">
                 <div className="section-title">
                   <h2>工作区与环境</h2>
@@ -425,7 +438,7 @@ export default function App() {
                 </div>
                 {running ? (
                   <p className="operation-note">
-                    ◌ {labels[running.action]} · {labels[running.status]}
+                    ◌ {jobLabel(running)} · {labels[running.status]}
                     <button
                       className="text-button"
                       disabled={busy || running.cancel_requested}
@@ -444,45 +457,47 @@ export default function App() {
                   数据。执行状态不明时，先停止并核实。
                 </p>
               </section>
-              <section className="panel">
-                <div className="section-title">
-                  <h2>交给 Agent</h2>
-                  <span className="small-label">授权环境内执行</span>
-                </div>
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void action("task", task).then((ok) => {
-                      if (ok) setTask("");
-                    });
-                  }}
-                >
-                  <label className="sr-only" htmlFor="task-prompt">
-                    Agent 任务
-                  </label>
-                  <textarea
-                    id="task-prompt"
-                    rows={3}
-                    value={task}
-                    onChange={(event) => setTask(event.target.value)}
-                    placeholder="描述这次需要分析、修改或验证的内容…"
-                    maxLength={32000}
-                  />
-                  <div className="task-footer">
-                    <span>结果与代码差异会保留，供你检查。</span>
-                    <button
-                      className="primary"
-                      disabled={
-                        disabled ||
-                        detail.workspace.environment !== "RUNNING" ||
-                        !task.trim()
-                      }
-                    >
-                      运行任务 ↗
-                    </button>
+              {!workflowEnabled ? (
+                <section className="panel">
+                  <div className="section-title">
+                    <h2>交给 Agent</h2>
+                    <span className="small-label">授权环境内执行</span>
                   </div>
-                </form>
-              </section>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void action("task", task).then((ok) => {
+                        if (ok) setTask("");
+                      });
+                    }}
+                  >
+                    <label className="sr-only" htmlFor="task-prompt">
+                      Agent 任务
+                    </label>
+                    <textarea
+                      id="task-prompt"
+                      rows={3}
+                      value={task}
+                      onChange={(event) => setTask(event.target.value)}
+                      placeholder="描述这次需要分析、修改或验证的内容…"
+                      maxLength={32000}
+                    />
+                    <div className="task-footer">
+                      <span>结果与代码差异会保留，供你检查。</span>
+                      <button
+                        className="primary"
+                        disabled={
+                          disabled ||
+                          detail.workspace.environment !== "RUNNING" ||
+                          !task.trim()
+                        }
+                      >
+                        运行任务 ↗
+                      </button>
+                    </div>
+                  </form>
+                </section>
+              ) : null}
               <section className="panel">
                 <div className="section-title">
                   <h2>执行记录</h2>
@@ -497,7 +512,7 @@ export default function App() {
                       className={logId === job.id ? "selected" : ""}
                       onClick={() => setLogId(job.id)}
                     >
-                      {labels[job.action]}
+                      {jobLabel(job)}
                       <Badge value={job.status} />
                     </button>
                   ))}
@@ -544,38 +559,48 @@ export default function App() {
                         差异超出当前界面限制，暂不能在此确认。
                       </p>
                     ) : null}
-                    <label className="review-reason">
-                      审查意见
-                      <input
-                        value={reason}
-                        onChange={(event) => setReason(event.target.value)}
-                        placeholder="记录确认依据；退回时请说明原因"
-                        maxLength={4000}
-                      />
-                    </label>
-                    <div className="button-row">
-                      <button
-                        className="primary"
-                        disabled={disabled || detail.workspace.diff_truncated}
-                        onClick={() => void decide("APPROVED")}
-                      >
-                        自审通过
-                      </button>
-                      <button
-                        className="secondary"
-                        disabled={
-                          disabled ||
-                          detail.workspace.diff_truncated ||
-                          !reason.trim()
-                        }
-                        onClick={() => void decide("REJECTED")}
-                      >
-                        退回修改
-                      </button>
-                      <span className="hint">
-                        确认绑定当前代码快照，代码变化后需重新确认。
-                      </span>
-                    </div>
+                    {!workflowEnabled ? (
+                      <>
+                        <label className="review-reason">
+                          审查意见
+                          <input
+                            value={reason}
+                            onChange={(event) => setReason(event.target.value)}
+                            placeholder="记录确认依据；退回时请说明原因"
+                            maxLength={4000}
+                          />
+                        </label>
+                        <div className="button-row">
+                          <button
+                            className="primary"
+                            disabled={
+                              disabled || detail.workspace.diff_truncated
+                            }
+                            onClick={() => void decide("APPROVED")}
+                          >
+                            自审通过
+                          </button>
+                          <button
+                            className="secondary"
+                            disabled={
+                              disabled ||
+                              detail.workspace.diff_truncated ||
+                              !reason.trim()
+                            }
+                            onClick={() => void decide("REJECTED")}
+                          >
+                            退回修改
+                          </button>
+                          <span className="hint">
+                            确认绑定当前代码快照，代码变化后需重新确认。
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="hint">
+                        已开启默认流程，请在完成模型评审与问题处理后，从流程面板进行自审。
+                      </p>
+                    )}
                     {detail.reviews.length ? (
                       <div className="review-history">
                         {detail.reviews.map((review) => (
@@ -626,7 +651,7 @@ export default function App() {
         </main>
       )}
       <footer className="page-footer">
-        <span>WORKBENCH / M2</span>
+        <span>WORKBENCH / M3</span>
         <span>源码独立 · 过程可追溯 · 结果由你确认</span>
       </footer>
       {modal ? (

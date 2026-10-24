@@ -76,9 +76,16 @@ def opencode_free_config(model: str) -> dict:
     }
 
 
+def model_config(model: str, read_only: bool = False) -> dict:
+    config = openrouter_config(model) if model.startswith("openrouter/") else opencode_free_config(model)
+    if read_only:
+        config["permission"] = {"*": "deny", "read": "allow", "glob": "allow", "grep": "allow", "list": "allow"}
+    return config
+
+
 @exclusive_workspace
 def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
-          openrouter_model: str | None = None, opencode_model: str | None = None) -> dict:
+          openrouter_model: str | None = None, opencode_model: str | None = None, read_only_source: bool = False) -> dict:
     workspace, manifest = load_workspace(workspace)
     configuration = {"plugin": ["/opt/superpowers"], "permission": "allow"}
     provider_environment = {}
@@ -91,6 +98,10 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
         if not os.environ.get("OPENROUTER_API_KEY", "").strip():
             raise WorkbenchError("Configure the existing OPENROUTER_API_KEY secret before starting OpenRouter")
         provider_environment["OPENROUTER_API_KEY"] = os.environ["OPENROUTER_API_KEY"]
+    if read_only_source:
+        if not (openrouter_model or opencode_model):
+            raise WorkbenchError("Read-only roles require an explicit model")
+        configuration = model_config(openrouter_model or opencode_model, True)
     suffix = hashlib.sha256(str(workspace).encode()).hexdigest()[:10]
     requirement_suffix = hashlib.sha256(str(workspace.parent).encode()).hexdigest()[:10]
     container = f"awb-{manifest['requirement'][:20]}-{manifest['project'][:20]}-{suffix}"
@@ -126,7 +137,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
         "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m",
         "--cpus", "1", "--memory", "1536m", "--pids-limit", "256",
         "--publish", "127.0.0.1::4096", "--workdir", "/workspace/project",
-        "--mount", f"type=bind,src={workspace / 'repo'},dst=/workspace/project",
+        "--mount", f"type=bind,src={workspace / 'repo'},dst=/workspace/project" + (",readonly" if read_only_source else ""),
         "--mount", f"type=bind,src={home},dst=/home/node",
         "--mount", f"type=bind,src={staging},dst=/workbench/out",
         "--env", "HOME=/home/node", "--env", "OPENCODE_SERVER_USERNAME=workbench",
@@ -169,6 +180,7 @@ def probe(workspace: Path) -> dict:
         "privileged": details["HostConfig"]["Privileged"],
         "readonly_rootfs": details["HostConfig"]["ReadonlyRootfs"],
         "docker_socket_mounted": any(mount["Destination"] == "/var/run/docker.sock" for mount in mounts),
+        "source_read_only": any(mount["Destination"] == "/workspace/project" and not mount["RW"] for mount in mounts),
         "network": state["network"],
         "egress_restriction_enforced": False,
     }

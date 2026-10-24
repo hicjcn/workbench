@@ -13,7 +13,9 @@ from agent_workbench import runtime
 from agent_workbench.api import create_app
 from agent_workbench.server import migrate
 from agent_workbench.settings import Settings
-from agent_workbench.workspace import git, write_json
+from agent_workbench.workspace import create_workspace, git, snapshot, write_json
+from agent_workbench.workflow import Workflow
+from agent_workbench.execution import Executor
 
 
 def main():
@@ -62,13 +64,26 @@ def main():
             job = database.claim("postgres_fixture")
             assert job["id"] == first.json()["id"]
             database.append_event(job["id"], "postgres_fixture", job["epoch"], 0, "output", {"text": "durable"})
-            database.finish(job["id"], "postgres_fixture", job["epoch"], "SUCCEEDED", {}, None)
+            copied = create_workspace(source, settings.data_dir / "workspaces", requirement["id"], project["id"])
+            observed = Executor(settings).observe(Path(copied["workspace"]), "STOPPED")
+            database.finish(job["id"], "postgres_fixture", job["epoch"], "SUCCEEDED", observed, None)
             assert client.get(f"/api/v1/jobs/{job['id']}/events").json()[0]["payload"]["text"] == "durable"
+            workflow = Workflow(database, settings.model)
+            flow = workflow.start(requirement["id"], ["opencode/glm-5.3-flash-free", "opencode/big-pickle"], "node --test", "controlled PG workflow fixture", observed["snapshot"]["tree_digest"])
+            workflow.enqueue(requirement["id"], flow["id"], "analysis", {"prompt": "", "decision": None, "reason": "", "dispositions": {}}, "pg-analysis")
+            job = database.claim("postgres_fixture")
+            database.finish(job["id"], "postgres_fixture", job["epoch"], "SUCCEEDED", {**observed,
+                "workflow_output": {"summary": "controlled PG report; no inference", "impacted_paths": [], "plan": "test", "risks": []}}, None)
+            assert workflow.read(requirement["id"])["current"]["next_step"] == "scope"
+            before = workflow.read(requirement["id"])["revision"]
+            workflow.revise(requirement["id"], before["id"], {"title": "PG revision", "description": "", "acceptance": ""}, "controlled change")
+            assert workflow.read(requirement["id"])["current"]["state"] == "STALE"
             with database.engine.connect() as connection:
                 report["postgres_version"] = connection.execute(text("SHOW server_version")).scalar_one()
                 report["migration"] = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
             database.engine.dispose()
-        report.update(status="PASSED_POSTGRES_CONTROL_PLANE", checks=["migrations", "idempotency", "exclusive_job", "claim", "durable_event", "completion"])
+        report.update(status="PASSED_POSTGRES_CONTROL_PLANE", controlled_model_report=True,
+            checks=["migrations", "idempotency", "exclusive_job", "claim", "durable_event", "completion", "workflow_gate", "revision_invalidation"])
     finally:
         runtime.docker("rm", "--force", container, check=False)
         if report["status"] == "RUNNING":

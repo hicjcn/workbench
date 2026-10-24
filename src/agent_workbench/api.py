@@ -12,13 +12,15 @@ from typing import Literal
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import insert
+from sqlalchemy import insert, select
+from sqlalchemy.exc import IntegrityError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from . import store as tables
 from .settings import Settings
 from .store import Conflict, Missing, Store, identifier
 from .workspace import WorkbenchError, git
+from .workflow import Workflow, current
 
 
 class Input(BaseModel):
@@ -93,11 +95,41 @@ class Observation(Input):
     diff_truncated: bool = False
 
 
+class RevisionInput(Input):
+    expected_revision: str
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=32000)
+    acceptance: str = Field(default="", max_length=16000)
+    reason: str = Field(min_length=1, max_length=4000)
+
+
+class WorkflowStart(Input):
+    review_models: list[str] = Field(min_length=2, max_length=4)
+    verification_command: str = Field(min_length=1, max_length=2000)
+    reason: str = Field(min_length=1, max_length=4000)
+    digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class Disposition(Input):
+    decision: Literal["ACCEPTED", "FALSE_POSITIVE"]
+    reason: str = Field(min_length=1, max_length=4000)
+
+
+class WorkflowStep(Input):
+    flow_id: str
+    step_key: str = Field(max_length=40)
+    prompt: str = Field(default="", max_length=16000)
+    decision: Literal["APPROVED", "REJECTED"] | None = None
+    reason: str = Field(default="", max_length=4000)
+    dispositions: dict[str, Disposition] = Field(default_factory=dict)
+
+
 def create_app(settings: Settings, store: Store | None = None):
     app = FastAPI(title="Agent 开发工作台", docs_url=None, redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
     database = store or Store(settings.database_url, settings.lease_seconds)
     app.state.store = database
+    workflow = Workflow(database, settings.model)
 
     @app.exception_handler(Conflict)
     async def conflict(_, error):
@@ -106,6 +138,14 @@ def create_app(settings: Settings, store: Store | None = None):
     @app.exception_handler(Missing)
     async def missing(_, error):
         return JSONResponse({"detail": str(error)}, status_code=404)
+
+    @app.exception_handler(IntegrityError)
+    async def simultaneous_change(_, error):
+        return JSONResponse({"detail": "记录已被其他操作更新，请重新载入"}, status_code=409)
+
+    @app.exception_handler(WorkbenchError)
+    async def invalid_operation(_, error):
+        return JSONResponse({"detail": str(error)}, status_code=422)
 
     @app.middleware("http")
     async def local_boundary(request, call_next):
@@ -208,19 +248,52 @@ def create_app(settings: Settings, store: Store | None = None):
         requirement = database.get(tables.requirements, requirement_id)
         return {**requirement, "project": database.get(tables.projects, requirement["project_id"]),
             "workspace": database.get(tables.workspaces, requirement_id),
-            "jobs": database.list(tables.jobs, tables.jobs.c.requirement_id == requirement_id,
-                exclude=("input_json", "result_json", "owner", "epoch", "lease_until")),
+            "jobs": database.job_history(requirement_id),
             "reviews": database.list(tables.reviews, tables.reviews.c.requirement_id == requirement_id)}
 
     @app.post("/api/v1/requirements/{requirement_id}/actions", status_code=202, dependencies=[Depends(user)])
     def action(requirement_id: str, value: ActionInput, idempotency_key: str | None = Header(default=None, max_length=100)):
-        if value.action == "task" and not value.prompt.strip():
-            raise HTTPException(422, "请填写 Agent 任务")
-        return database.enqueue(requirement_id, value.action, {"prompt": value.prompt}, idempotency_key)
+        database.expire()
+        with database.engine.begin() as connection:
+            if not connection.execute(select(tables.requirements.c.id).where(tables.requirements.c.id == requirement_id).with_for_update()).first():
+                raise Missing("需求不存在")
+            if value.action == "task" and current(connection, requirement_id):
+                raise Conflict("此需求已开启流程，请从流程面板运行开发步骤")
+            if value.action == "task" and not value.prompt.strip():
+                raise HTTPException(422, "请填写 Agent 任务")
+            return database.enqueue(requirement_id, value.action, {"prompt": value.prompt}, idempotency_key, connection=connection)
 
     @app.post("/api/v1/requirements/{requirement_id}/reviews", status_code=202, dependencies=[Depends(user)])
     def review(requirement_id: str, value: ReviewInput, idempotency_key: str | None = Header(default=None, max_length=100)):
-        return database.enqueue(requirement_id, "review", value.model_dump(), idempotency_key)
+        database.expire()
+        with database.engine.begin() as connection:
+            if not connection.execute(select(tables.requirements.c.id).where(tables.requirements.c.id == requirement_id).with_for_update()).first():
+                raise Missing("需求不存在")
+            if current(connection, requirement_id):
+                raise Conflict("请完成模型评审和问题处理，再从流程面板自审")
+            return database.enqueue(requirement_id, "review", value.model_dump(), idempotency_key, connection=connection)
+
+    @app.get("/api/v1/requirements/{requirement_id}/workflow", dependencies=[Depends(user)])
+    def workflow_state(requirement_id: str):
+        return workflow.read(requirement_id)
+
+    @app.get("/api/v1/requirements/{requirement_id}/workflow/runs/{flow_id}", dependencies=[Depends(user)])
+    def archived_workflow(requirement_id: str, flow_id: str):
+        return workflow.archived(requirement_id, flow_id)
+
+    @app.post("/api/v1/requirements/{requirement_id}/revisions", status_code=201, dependencies=[Depends(user)])
+    def revise(requirement_id: str, value: RevisionInput):
+        return workflow.revise(requirement_id, value.expected_revision,
+            value.model_dump(include={"title", "description", "acceptance"}), value.reason)
+
+    @app.post("/api/v1/requirements/{requirement_id}/workflow", status_code=201, dependencies=[Depends(user)])
+    def start_workflow(requirement_id: str, value: WorkflowStart):
+        return workflow.start(requirement_id, value.review_models, value.verification_command, value.reason, value.digest)
+
+    @app.post("/api/v1/requirements/{requirement_id}/workflow/steps", status_code=202, dependencies=[Depends(user)])
+    def run_step(requirement_id: str, value: WorkflowStep, idempotency_key: str | None = Header(default=None, max_length=100)):
+        supplied = value.model_dump(exclude={"flow_id", "step_key"})
+        return workflow.enqueue(requirement_id, value.flow_id, value.step_key, supplied, idempotency_key)
 
     @app.get("/api/v1/jobs/{job_id}", dependencies=[Depends(user)])
     def job(job_id: str):
@@ -265,7 +338,11 @@ def create_app(settings: Settings, store: Store | None = None):
 
     @app.get("/internal/watch", dependencies=[Depends(runner)])
     def watch():
-        return database.list(tables.workspaces, tables.workspaces.c.approval == "APPROVED")
+        from sqlalchemy import exists, or_
+        return database.list(tables.workspaces, or_(tables.workspaces.c.approval == "APPROVED",
+            exists().where((tables.flows.c.requirement_id == tables.workspaces.c.requirement_id) &
+                tables.flows.c.is_current.is_(True) & tables.flows.c.state.in_(["ACTIVE", "COMPLETE"]))),
+            exclude=("snapshot_json", "diff"))
 
     @app.post("/internal/workspaces/{requirement_id}/observation", dependencies=[Depends(runner)])
     def observation(requirement_id: str, value: Observation):

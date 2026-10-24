@@ -1,0 +1,47 @@
+{
+  "status": "PASSED_CONTROLLED_M3_WORKFLOW",
+  "model_inference": false,
+  "controlled_reports": true,
+  "checks": {
+    "browser_fixed_workflow_to_self_review": "PASSED",
+    "browser_per_finding_human_disposition": "PASSED",
+    "real_docker_source_read_only_and_write_denied": "PASSED",
+    "distinct_roles_same_digest_separate_homes": "PASSED",
+    "review_inputs_exclude_peer_model_reports": "PASSED",
+    "real_container_verification_command_two_node_tests": "PASSED",
+    "mobile_layout_without_horizontal_overflow": "PASSED",
+    "browser_revision_invalidates_old_flow": "PASSED",
+    "browser_new_round_can_view_immutable_previous_reports": "PASSED",
+    "source_and_other_requirement_unchanged": "PASSED",
+    "api_restart_preserves_revisions_reports_and_decisions": "PASSED"
+  },
+  "console_errors": [],
+  "migration": "0003",
+  "roles": [
+    {
+      "step": "analysis",
+      "model": "opencode/glm-5.3-flash-free",
+      "code_digest": "e378190b5ac1234c300e3ba6dd7bbb2e3f7210c3064e1fca92267818d52dcb19",
+      "workspace": "/workspace/agent-workbench/.local-data/m3-qa-03/attempts/job_edfd11f48b474314a0118081298657c5/req_ba14159f3cd54404925c9bb780eefcfb/prj_9bacc95958a145c9b06a92e724c2c310",
+      "source_read_only": true,
+      "write_denied": true
+    },
+    {
+      "step": "model_review_0",
+      "model": "opencode/glm-5.3-flash-free",
+      "code_digest": "3d5c8580797c832fa2493f9bc26a303ee8a8f6584c6365cdecf666fb0b45b2b4",
+      "workspace": "/workspace/agent-workbench/.local-data/m3-qa-03/attempts/job_456ee1c1af9a465ab85c86d351a043f9/req_ba14159f3cd54404925c9bb780eefcfb/prj_9bacc95958a145c9b06a92e724c2c310",
+      "source_read_only": true,
+      "write_denied": true
+    },
+    {
+      "step": "model_review_1",
+      "model": "opencode/big-pickle",
+      "code_digest": "3d5c8580797c832fa2493f9bc26a303ee8a8f6584c6365cdecf666fb0b45b2b4",
+      "workspace": "/workspace/agent-workbench/.local-data/m3-qa-03/attempts/job_2b6df91f55aa464394f2877c7469035d/req_ba14159f3cd54404925c9bb780eefcfb/prj_9bacc95958a145c9b06a92e724c2c310",
+      "source_read_only": true,
+      "write_denied": true
+    }
+  ],
+  "actual_model_inference": "NOT_ATTEMPTED"
+}

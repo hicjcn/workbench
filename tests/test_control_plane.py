@@ -20,7 +20,7 @@ from agent_workbench.store import Store, jobs, metadata
 from agent_workbench.workspace import WorkbenchError, git, write_json
 
 
-class ControlPlaneTests(unittest.TestCase):
+class ControlFixture(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -73,6 +73,8 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(detail["jobs"][0]["status"], "SUCCEEDED", detail)
         return detail
 
+
+class ControlPlaneTests(ControlFixture):
     def test_auth_origin_and_internal_boundary(self):
         self.client.headers.pop("Authorization")
         self.assertEqual(self.client.get("/api/v1/projects").status_code, 401)
