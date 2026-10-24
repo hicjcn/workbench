@@ -1,0 +1,22 @@
+{
+  "acceptance-output.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "after-snapshot.json": "81358a5ca6976349f48fd0c09a80584b440622b95765dea4b2ae0002a761d2df",
+  "agent-events.jsonl": "060c98d48506df224558d6b069dbb64ab65071307f695320fe05409f624572d3",
+  "agent-stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "approved-task.txt": "35536865f35babe98069aaa42a3c78063f356166ca11dc522f64f6ceaacf1e2b",
+  "before-snapshot.json": "af8e20b00ee912f442e5dfbc00737ca4e548b1284918373ce820889b3dc80216",
+  "cleanup.json": "27098894165a34a63789ae0103a84aded32c6d2db9e1deaed0371f253958dbe4",
+  "code-diff.patch": "6fb06ea1eb2986c42ed2590f003711df32cb0d034e8f38550c664d397fb62519",
+  "event-summary.json": "3f53b3569bb77694769fc22ca9193744259a27f5a95788fe449e599ebb8565c7",
+  "execution-context.json": "f8ff8b55f1b885b0d0ae82e88f7cb0b76da8c448277c1b015b545f2d66d5c233",
+  "model-message-summary.json": "9c406fc1932cb301e3c3f93c5acd9271fec9f88fd68ff1d88cb945258f2ae893",
+  "readiness.json": "101d2dabe9aa708658c1e84e629901d640c58d1eee9943979af76591aa045de5",
+  "report.json": "b2d4437cc31256f3f8ff2215c624729b68c9fe21914505c4d6db742cee150d27",
+  "runtime-model-configuration.json": "8a6378ba542b9f1e44e9443f6c2603c6fecf7d82455f5c9e1b3baa8a8623048e",
+  "sample-test-output.txt": "2a05feb0a1bb0bd4d5293b383f57498304de10dc5d1f57528e848b86c5ca6473",
+  "session-status-observations.jsonl": "2a3e0188fead2382ebf8ee050cad47709523e48fd13ee4643a8b5c2e2a6404e1",
+  "test-output.txt": "534857230efe2bc94800a5aa89f21de4a09075f5845aa5035c5cfaf67c221b2e",
+  "unit-test-output.txt": "e14f15d958213863c802eb8dcf716db6cdd073675af616ee77239dbecdf73218",
+  "verification-exit-code.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+  "verification-output.txt": "b768b56087d1404b319226f443a33f89949ae99abd232ef67ad87318b3519561"
+}

@@ -1,0 +1,22 @@
+{
+  "event_count": 20,
+  "step_finish_count": 6,
+  "all_recorded_step_costs_zero": true,
+  "recorded_total_cost": 0,
+  "finish_reasons": [
+    "tool-calls",
+    "tool-calls",
+    "tool-calls",
+    "tool-calls",
+    "tool-calls",
+    "stop"
+  ],
+  "tool_names": [
+    "glob",
+    "read",
+    "read",
+    "edit",
+    "edit",
+    "bash"
+  ]
+}

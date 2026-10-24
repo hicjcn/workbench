@@ -1,0 +1,18 @@
+{
+  "observed_at": "2026-10-24T03:13:56.427310+00:00",
+  "credential_present_nonempty": true,
+  "credential_state": "ready",
+  "observations_current": true,
+  "network_policy_state": "enforced",
+  "openrouter_host_allowed": true,
+  "catalog_model": {
+    "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "pricing": {
+      "prompt": "0",
+      "completion": "0"
+    }
+  },
+  "catalog_accessible": true,
+  "tls_verification": true,
+  "inherited_proxy": true
+}

@@ -1,6 +1,17 @@
 # 免费模型任务证据：2026-10-24
 
-run-01、run-02 使用 `opencode/glm-5.3-flash-free`；run-03 改用 `opencode/mimo-v2.6-flash-free`，最新 run-04 按用户要求改试 `opencode/deepseek-v4.1-flash-free`。各轮均未创建或注入模型凭据，未使用付费模型。run-01 被代理 CONNECT 403 阻塞；run-02 至 run-04 服务可达，但均收到免费额度耗尽响应，无模型输出或代码修改。四轮都不能登记为模型开发验证通过。
+run-01、run-02、run-05 使用 `opencode/glm-5.3-flash-free`；run-03 使用 `opencode/mimo-v2.6-flash-free`，run-04 使用 `opencode/deepseek-v4.1-flash-free`。各轮均未创建或注入模型凭据，未使用付费模型。run-01 被代理 CONNECT 403 阻塞，其余均收到免费额度耗尽响应，无模型输出或代码修改，不能登记为模型开发验证通过。后续按用户最新要求使用 OpenRouter 的 [run-06 已通过](../m1-openrouter-20261024/README.md#run-06真实模型任务通过)。
+
+## run-05：GLM 再次验证与任务切换
+
+本次对话最初要求再试 GLM，在提交 `4b4eaea763a3f653c5b12a794da4704c506fdee0` 上使用新目录 run-05，2026-10-24 北京时间 11:12:09 至 11:13:40，耗时 91.489 秒。提交一次后仍收到 `free_tier_limit`；用户随后明确切换 OpenRouter，已中止 GLM 会话，未重放任务。实现和回归测试均无变化，原始 2 项测试通过，独立行为验收失败，脚本返回 `FAILED_OR_BLOCKED_MODEL_TASK`。
+
+- [report.json](run-05/report.json) / [verification-output.txt](run-05/verification-output.txt) / [verification-exit-code.txt](run-05/verification-exit-code.txt)：原始报告和退出码 1，不能作为模型代码产出。
+- [model-session-status.json](run-05/model-session-status.json) / [model-abort.json](run-05/model-abort.json)：实际额度状态及因用户切换任务中止的记录，abort 返回 `true`。
+- [approved-task.txt](run-05/approved-task.txt) / [agent-events.jsonl](run-05/agent-events.jsonl) / [agent-stderr.txt](run-05/agent-stderr.txt)：实际任务、空事件与空标准错误；CLI 返回 0 仍未被判为成功。
+- [before-snapshot.json](run-05/before-snapshot.json) / [after-snapshot.json](run-05/after-snapshot.json) / [code-diff.patch](run-05/code-diff.patch)：摘要不变，差异为空。
+- [test-output.txt](run-05/test-output.txt) / [acceptance-output.txt](run-05/acceptance-output.txt)：原始测试及失败的行为断言。
+- [cleanup.json](run-05/cleanup.json) / [sha256.json](run-05/sha256.json)：资源清理复核和其余 14 份证据的校验清单。
 
 ## run-04：DeepSeek V4.1 Flash Free
 
@@ -70,4 +81,4 @@ JSON 时间使用 UTC。`report.json` 保留脚本原样，没有将外部 API �
 - [approved-task.txt](run-01/approved-task.txt)：实际提交的任务和验收要求。
 - [agent-stderr.txt](run-01/agent-stderr.txt)：空文件；错误通过 JSON 事件输出。
 
-各轮原始目录为 `.local-data/free-model-run-01` 至 `.local-data/free-model-run-04`，未提交包含控制密码、认证数据或 Agent 主目录的内容。后续验证应使用新根目录，保持历史记录不变。
+各轮原始目录为 `.local-data/free-model-run-01` 至 `.local-data/free-model-run-05`，未提交包含控制密码、认证数据或 Agent 主目录的内容。后续验证应使用新根目录，保持历史记录不变。

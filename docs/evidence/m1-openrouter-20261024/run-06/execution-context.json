@@ -1,0 +1,20 @@
+{
+  "observed_at": "2026-10-24T03:15:02.596263+00:00",
+  "workbench_commit": "4b4eaea763a3f653c5b12a794da4704c506fdee0",
+  "python": "3.12.14",
+  "docker": "28.4.0",
+  "image_id": "sha256:d31046286a926a3e6de0f4b85a397f9ce643ce790d89cb5ea6f759a831175b9d",
+  "image_labels": {
+    "org.agent-workbench.opencode-version": "1.19.4",
+    "org.agent-workbench.superpowers-commit": "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b"
+  },
+  "node": "v22.23.4",
+  "opencode": "1.19.4",
+  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "credential_source": "existing OPENROUTER_API_KEY environment binding",
+  "credential_created": false,
+  "auth_file_exists": false,
+  "generated_config_uses_env_reference": true,
+  "task_submissions": 1,
+  "infrastructure_isolation_repeated": false
+}

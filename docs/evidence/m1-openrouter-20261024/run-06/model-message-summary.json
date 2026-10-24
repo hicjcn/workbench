@@ -1,0 +1,84 @@
+[
+  {
+    "session_id": "ses_e9418e8eaffe3frLAj62oDYMxR",
+    "role": "user",
+    "provider_id": null,
+    "model_id": null,
+    "cost": null,
+    "tokens": null,
+    "error": null,
+    "part_types": [
+      "text"
+    ]
+  },
+  {
+    "session_id": "ses_e9418e8eaffe3frLAj62oDYMxR",
+    "role": "assistant",
+    "provider_id": "openrouter",
+    "model_id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "cost": 0,
+    "tokens": {
+      "total": 10048,
+      "input": 9894,
+      "output": 8,
+      "reasoning": 146,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "error": null,
+    "part_types": [
+      "step-start",
+      "reasoning",
+      "tool",
+      "step-finish"
+    ]
+  },
+  {
+    "session_id": "ses_e9418e8eaffe3frLAj62oDYMxR",
+    "role": "assistant",
+    "provider_id": "openrouter",
+    "model_id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "cost": 0,
+    "tokens": {
+      "total": 10157,
+      "input": 10079,
+      "output": 56,
+      "reasoning": 22,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "error": null,
+    "part_types": [
+      "step-start",
+      "reasoning",
+      "tool",
+      "tool",
+      "step-finish"
+    ]
+  },
+  {
+    "session_id": "ses_e9418e8eaffe3frLAj62oDYMxR",
+    "role": "assistant",
+    "provider_id": "openrouter",
+    "model_id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "error": null,
+    "part_types": [
+      "step-start",
+      "reasoning"
+    ]
+  }
+]

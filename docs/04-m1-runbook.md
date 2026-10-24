@@ -112,12 +112,14 @@ PYTHONPATH=src python3 -m agent_workbench stop \
 
 ```bash
 PYTHONPATH=src python3 poc/verify_free_model.py \
-  --root .local-data/free-model-run-05 \
+  --root .local-data/free-model-run-07 \
   --model openrouter/nvidia/nemotron-3-ultra-550b-a55b:free \
   --proxy-ca "$CODEX_PROXY_CERT" --timeout 600
 ```
 
 普通本机不需要代理 CA 时省略 `--proxy-ca`。每次使用新根目录。脚本先检查已有密钥，再通过无认证的公开 OpenRouter 目录核实指定 `:free` 模型存在、prompt/completion 价格完整且所有返回的价格项为有限数值 0；失败时不提交模型任务。目录可达不等于真实推理或代码修改成功。
+
+2026-10-24 已在 `free-model-run-06` 完成一次指定 OpenRouter 模型任务，结果为 `PASSED_REAL_MODEL_TASK`：实现和回归测试均由模型修改，4 项测试及独立行为验收通过。`run-05` 是此前 GLM 额度阻塞记录；两目录均不得覆盖，所以上例从 `run-07` 开始。运行条件和完整证据见 [验证报告](05-m1-validation.md#run-06真实模型代码修改及验收通过)。
 
 密钥只通过 Docker 的环境变量名传入服务，不写入命令参数值、生成的 OpenCode 配置、运行状态或验证报告。配置仅启用 OpenRouter，模型白名单、默认模型及辅助模型均固定为同一个指定 `:free` 模型；重新启动时也会重设这些限制，不配置其他模型回退。验证输出、错误、测试结果和代码差异中的已知密钥值会被替换为 `[REDACTED]`；超时的部分输出同样处理。Agent 主目录及完整 Docker/OpenCode 配置不能作为公开证据提交。
 
@@ -125,13 +127,13 @@ PYTHONPATH=src python3 poc/verify_free_model.py \
 
 ### 历史：OpenCode 免凭据免费模型
 
-用户已明确使用免凭据模型，并在 GLM、MiMo 免费额度阻塞后要求改试 DeepSeek V4.1 Flash Free。容器实际模型列表及 [OpenCode 官方模型目录](https://opencode.ai/zen/v1/models) 均包含 `deepseek-v4.1-flash-free`。通过 `--model` 明确选择本轮模型，不注入模型凭据，不配置付费回退。
+历史轮次曾在 GLM、MiMo 免费额度阻塞后改试 DeepSeek V4.1 Flash Free。容器实际模型列表及 [OpenCode 官方模型目录](https://opencode.ai/zen/v1/models) 均包含 `deepseek-v4.1-flash-free`。仅在明确选择这一路径时通过 `--model` 指定模型，不注入模型凭据。验证器也将 OpenCode 路径的主模型、辅助模型、唯一 provider 和白名单固定为同一个免费模型，重启时覆盖持久配置，不配置付费回退。当前用户指定的执行路径仍为上面的 OpenRouter 模型。
 
-网络可访问且服务端免费额度可用后执行（run-01 至 run-04 已有历史证据，后续使用新目录）：
+网络可访问且服务端免费额度可用后执行（run-01 至 run-06 已有证据，后续使用新目录）：
 
 ```bash
 PYTHONPATH=src python3 poc/verify_free_model.py \
-  --root .local-data/free-model-run-05 \
+  --root .local-data/free-model-run-07 \
   --model opencode/deepseek-v4.1-flash-free
 ```
 
@@ -141,7 +143,7 @@ PYTHONPATH=src python3 poc/verify_free_model.py \
 
 若执行超时，记录未知状态并停止容器，不自动重复提交。默认每次验证最多等待 240 秒，选择新根目录才能重新运行。
 
-run-01 被代理 tunnel 403 阻塞；run-02 服务可达但 GLM 免费额度耗尽。run-03 改用 MiMo、最新 run-04 改用 DeepSeek，均已确认实际会话模型，但同样收到服务端 `free_tier_limit`，详细证据见验证报告。仅用默认 Python 客户端探测可能收到 `error code: 1010` 的 HTTP 403，需要结合实际 OpenCode 会话区分代理拒绝、客户端差异及模型额度问题。始终保留继承代理及 TLS 校验。
+run-01 被代理 tunnel 403 阻塞；run-02 服务可达但 GLM 免费额度耗尽。run-03 改用 MiMo、run-04 改用 DeepSeek，均收到服务端 `free_tier_limit`；run-05 再试 GLM 仍被额度阻塞，切换任务后中止，详细证据见验证报告。仅用默认 Python 客户端探测可能收到 `error code: 1010` 的 HTTP 403，需要结合实际 OpenCode 会话区分代理拒绝、客户端差异及模型额度问题。始终保留继承代理及 TLS 校验。
 
 CLI 等待期间可通过本地控制 API 的 `/session/status` 观察额度状态；本轮额度提示没有进入 CLI JSON 事件。保存该状态后，只中止此次验证会话并让脚本完成验收与清理。CLI 返回 0 且没有事件仍必须按模型响应、代码变化和独立行为验收判定；不能据此宣布模型任务通过。服务端给出的下次重试时间不保证届时额度恢复，后续验证应显式选择新根目录，不自动重放、不创建模型凭据、不切换付费模型。
 

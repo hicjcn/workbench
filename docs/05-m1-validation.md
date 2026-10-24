@@ -1,15 +1,15 @@
 # M1 验证报告
 
 - 日期：2026-10-24
-- 状态：已接入用户指定的 OpenRouter 免费模型；回归与固定版本容器配置检查通过；当前实例尚无密钥变量且 OpenRouter 出站被拒，真实任务未提交
+- 状态：指定 OpenRouter 免费模型的真实代码修改、4 项测试和独立行为验收已通过；完整工作台及任务恢复仍待后续迭代
 - 范围：内置 Node.js 测试项目，不包含用户业务项目或生产数据
 
 ## 1. 已完成结果
 
 | 检查 | 结果 | 证据与边界 |
 | --- | --- | --- |
-| 代码工作区、控制接口与模型验收测试 | 通过 | 本轮 29 项自动测试，新增 OpenRouter 路由、免费价格门槛、密钥注入/缺失、持久配置覆盖及错误/超时输出脱敏检查 |
-| 测试项目 | 通过 | 原始问候逻辑的 2 项测试 |
+| 代码工作区、控制接口与模型验收测试 | 通过 | 本轮 31 项自动测试；保留 OpenRouter 零价格、密钥注入和脱敏检查，并补充 OpenCode 免费模型的主/辅助模型及白名单固定检查 |
+| 测试项目 | 通过 | 仓库原始 2 项测试通过；真实模型在独立副本补充后 4 项测试通过 |
 | 镜像构建 | 通过 | 固定 OpenCode 及 Superpowers 版本实际构建成功 |
 | 双容器启动 | 通过 | 两需求分别具有网络、控制端口、代码和 Agent 主目录 |
 | Superpowers 加载 | 通过 | 原生技能发现包含 brainstorming、writing-plans、using-superpowers 等 |
@@ -20,7 +20,7 @@
 | 重建互不影响 | 通过 | 需求 A 重建期间和之后，需求 B 的控制 API 保持健康 |
 | 资源清理 | 通过 | 双容器验证报告 cleanup_errors 为空 |
 | OpenRouter 配置检查 | 通过 | 固定版本 OpenCode 真容器、无效测试占位符；仅启用 OpenRouter，主/辅助模型与白名单固定为指定免费模型；无真实推理 |
-| 免费模型真实任务 | 待验证 | 当前 OpenRouter 任务未提交；此前 GLM、MiMo、DeepSeek 均被 OpenCode 免费额度阻塞，无模型代码修改 |
+| 免费模型真实任务 | 通过 | [OpenRouter run-06](evidence/m1-openrouter-20261024/run-06/report.json) 为 `PASSED_REAL_MODEL_TASK`：模型修改实现和测试，4 项测试及独立行为验收通过，源仓库不变 |
 
 双容器脚本的实际结果为 `PASSED_INFRASTRUCTURE_ONLY`，6 个集成检查通过。该状态不包含模型推理或完整工作台验收。
 
@@ -32,7 +32,7 @@
 | Python | 3.12.14 |
 | OpenCode 健康接口版本 | 1.19.4 |
 | Superpowers | `2ce8aa15d05bd57213e6f746f953aafb7ded7a8b`，v7.0.1 |
-| 验证镜像 ID | `sha256:658fed3b5eb5ae880c7c18a24c4f35c1f8a7a073706f6b8f61fb8c3ca3cc4464` |
+| 本轮验证镜像 ID | `sha256:d31046286a926a3e6de0f4b85a397f9ce643ce790d89cb5ea6f759a831175b9d`；历史双容器及模型轮次保留各自镜像记录 |
 | 容器用户 | 1000:1000 |
 | 根文件系统 | 只读 |
 | 特权模式 | 关闭 |
@@ -49,7 +49,7 @@
 
 ## 4. 历史 OpenCode 免凭据模型验证
 
-先使用 `opencode/glm-5.3-flash-free`、`opencode/mimo-v2.6-flash-free`，本轮按用户最新要求改试 `opencode/deepseek-v4.1-flash-free`。三者均由容器的 `opencode models opencode` 和 [官方模型目录](https://opencode.ai/zen/v1/models) 实际列出。各轮均不创建或注入模型凭据，不配置付费回退。
+run-01 至 run-04 先后使用 `opencode/glm-5.3-flash-free`、`opencode/mimo-v2.6-flash-free` 和 `opencode/deepseek-v4.1-flash-free`。三者均由容器的 `opencode models opencode` 和 [官方模型目录](https://opencode.ai/zen/v1/models) 实际列出。各轮均不创建或注入模型凭据，不配置付费回退。
 
 真实模型验证脚本的完成条件同时要求：任务无错误、观察到模型响应、`server.mjs` 实际变化、回归测试文件变化、至少 4 项测试通过、源仓库不变，以及独立验收行为通过。目录可达、CLI 返回 0 或原始测试通过均不足以判定真实任务成功。
 
@@ -142,7 +142,13 @@ PYTHONPATH=src python3 poc/verify_free_model.py \
 
 新增 [run-04 证据](evidence/m1-free-model-20261024/README.md) 包含 17 份原始记录及 SHA-256 清单：模型目录、实际模型元数据、额度状态、任务、报告、前后快照、测试/验收输出、空差异、中止、执行版本及清理结果。GLM、MiMo、DeepSeek 三个免费模型均观察到相同额度原因；更换模型尚未解除阻塞，当前证据仍不能确定服务端计额维度，真实模型代码修改与行为验收保持未完成。
 
-## 5. OpenRouter 接入与运行准备
+### GLM 再次验证与任务切换（run-05）
+
+按本次对话最初指令，在新目录 `free-model-run-05` 提交一次 GLM 任务。会话再次返回 `free_tier_limit`，无模型响应或代码修改。用户随后明确固定使用 OpenRouter，因此中止 GLM 会话，abort 返回 `true`，脚本完成测试和资源清理，结果仍为 `FAILED_OR_BLOCKED_MODEL_TASK`。原始证据见 [run-05](evidence/m1-free-model-20261024/README.md#run-05glm-再次验证与任务切换)，未覆盖历史目录。
+
+提交 `4b4eaea` 同时将 OpenCode 免费模型路径的主模型、辅助模型、唯一 provider 和白名单固定为显式选择的模型，重启时覆盖持久配置；新增两项测试并收紧模型 ID 检查。该验证器改动不是模型生成的样例实现，也不改变 OpenRouter 原有免费检查。
+
+## 5. OpenRouter 接入与真实任务
 
 用户提供模型 `nvidia/nemotron-3-ultra-550b-a55b:free`，要求改用 OpenRouter provider 和用户现有密钥。验证器默认模型已改为 `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`；历史 OpenCode 模型仍可通过显式参数复核，没有自动回退。
 
@@ -150,14 +156,44 @@ PYTHONPATH=src python3 poc/verify_free_model.py \
 
 29 项 Python 回归测试和原始 2 项 Node.js 测试通过。固定 OpenCode 1.19.4 真容器仅做配置检查，使用无效测试占位符，不调用推理、不使用真实凭据；检查已配置的主/辅助模型、唯一 provider 和模型白名单，以及密钥值未写入生成配置或运行状态。该检查仅能登记为 `PASSED_CONFIGURATION_ONLY`，不能作为真实模型开发通过的证据。可评审记录见 [OpenRouter 接入证据](evidence/m1-openrouter-20261024/README.md)。
 
-用户回复变量已就绪后，当前运行实例再次检查仍为 `OPENROUTER_API_KEY` 不存在，环境状态工具也未报告 Secret 绑定；出站白名单不含 `openrouter.ai`，经继承代理访问公开目录实际收到 CONNECT 403。此观察仅代表当前实例，不推断用户是否已保存了其他环境配置草稿。需把现有 Secret 和域名规则实际应用到该实例，才能核实公开目录零价格和发起真实任务。完整模型 ID 已确定，不需要再次提供模型或创建密钥；尚未提交 OpenRouter 真实任务，也未产生模型代码修改。
+上一会话的实例检查为 `OPENROUTER_API_KEY` 不存在、无 Secret 绑定且 OpenRouter 目录收到 CONNECT 403。上述 [历史运行条件](evidence/m1-openrouter-20261024/readiness.json) 保留原样；它不代表下面新实例的状态。
+
+### run-06：真实模型代码修改及验收通过
+
+本次实例确认 `observations_current=true`、Secret 状态 `ready`、环境变量非空，网络规则为 `enforced` 且允许 `openrouter.ai`。继承代理和 TLS 校验访问公开目录成功；指定模型存在，返回的 prompt/completion 价格均为 0。只复用已有密钥，不输出值、不创建模型认证文件。
+
+在提交 `4b4eaea763a3f653c5b12a794da4704c506fdee0` 上运行：
+
+```bash
+PYTHONPATH=src python3 poc/verify_free_model.py \
+  --root .local-data/free-model-run-06 \
+  --model openrouter/nvidia/nemotron-3-ultra-550b-a55b:free \
+  --proxy-ca "$CODEX_PROXY_CERT" --timeout 600
+```
+
+`run-05` 已被 GLM 占用，因此选择新的 `run-06`。执行时间为 2026-10-24 北京时间 11:14:10 至 11:15:04，耗时 53.995 秒，提交一次，没有超时或重放，也未重复双容器隔离验证。
+
+| 观察项 | 实际结果 |
+| --- | --- |
+| 实际 provider / 模型 | 控制 API 消息为 `openrouter / nvidia/nemotron-3-ultra-550b-a55b:free`，存在非零 token 和工具调用 |
+| 运行配置 | 唯一 provider 为 OpenRouter；主模型、辅助模型及唯一白名单均为指定免费模型，无付费回退 |
+| CLI 事件 | 20 条事件，6 条 `step_finish` 的 cost 均为 0，最终 reason 为 `stop`；退出码 0，无错误事件 |
+| 模型实现 | `greeting()` 对输入调用 `trim()`，空白名称回退到 `world`，保留普通名称行为 |
+| 模型回归测试 | 新增带空白名称与纯空白名称测试，包含制表符和换行；副本共 4 项测试全部通过 |
+| 独立行为验收 | 带空白名称、纯空白名称和缺省名称的独立断言通过，退出码 0；空输出文件表示无断言错误 |
+| 前后快照 | 从 `e378190b…dcb19` 变为 `2068155b…6bd7b`；实现和测试均变化，原始源仓库摘要保持不变 |
+| 最终结果 | `PASSED_REAL_MODEL_TASK`，验证脚本退出码 0 |
+| 清理 | `runtime_stopped=true`；另行复核无托管容器、网络和运行状态文件，未创建模型认证文件 |
+
+完整 [run-06 证据索引](evidence/m1-openrouter-20261024/README.md#run-06真实模型任务通过) 包含脱敏事件、实际任务、前后快照、模型代码差异、测试与验收输出、原始报告、运行配置摘要、API 消息摘要、版本、运行条件、清理结果及 SHA-256 清单。API 摘要是执行中的观察，不冒充最终 CLI 事件；报告内 `capabilities.model_execution=NOT_ATTEMPTED` 是提交前探测，实际任务状态看顶层 `submission_attempted` 和最终结果。
+
+31 项 Python 回归与仓库原始 2 项 Node.js 测试通过。4 项模型测试发生在独立副本；仓库的 `poc/sample-project` 保留原始基线，便于下次验证。没有人工修改样例来冒充模型产出。此次通过仅覆盖内置小任务，不代表完整工作台、业务项目接入或活动任务恢复已验收。
 
 ## 6. 仍待完成
 
-1. 将已有 OpenRouter 密钥变量和 `openrouter.ai` 白名单规则应用到当前实例，在新证据目录运行指定 NVIDIA 免费模型任务，完成实际代码修改及结果验证；不重放历史任务、不切换付费模型。
-2. 活动模型任务的中止、事件流及控制进程断线恢复。
-3. 用户业务项目的语言运行时、服务依赖和本机环境一致性。
-4. 数据库、缓存及队列的跨需求可写状态隔离。
-5. 完整流程状态机、多模型评审及材料/测试反馈闭环。
+1. 活动模型任务的中止、事件流及控制进程断线恢复。
+2. 用户业务项目的语言运行时、服务依赖和本机环境一致性。
+3. 数据库、缓存及队列的跨需求可写状态隔离。
+4. 完整流程状态机、多模型评审及材料/测试反馈闭环。
 
-前四项属于后续 M1 验证及用户项目接入；完整流程按实施计划进入后续迭代。
+前三项属于后续 M1 验证及用户项目接入；完整流程按实施计划进入后续迭代。

@@ -1,0 +1,32 @@
+diff --git a/server.mjs b/server.mjs
+index d40cea7..6f69583 100644
+--- a/server.mjs
++++ b/server.mjs
+@@ -1,7 +1,9 @@
+ import { createServer } from 'node:http';
+ 
+ export function greeting(name = 'world') {
+-  return { message: `hello ${name}` };
++  const trimmed = name?.trim();
++  const displayName = trimmed ? trimmed : 'world';
++  return { message: `hello ${displayName}` };
+ }
+ 
+ if (process.argv[1]?.endsWith('server.mjs')) {
+diff --git a/server.test.mjs b/server.test.mjs
+index 00d8e9b..14476e3 100644
+--- a/server.test.mjs
++++ b/server.test.mjs
+@@ -10,3 +10,12 @@ test('named greeting', () => {
+   assert.deepEqual(greeting('developer'), { message: 'hello developer' });
+ });
+ 
++test('padded name trims whitespace', () => {
++  assert.deepEqual(greeting('  developer  '), { message: 'hello developer' });
++});
++
++test('whitespace-only name falls back to world', () => {
++  assert.deepEqual(greeting('   '), { message: 'hello world' });
++  assert.deepEqual(greeting('\t\n'), { message: 'hello world' });
++});
++
