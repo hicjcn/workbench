@@ -1,0 +1,32 @@
+{
+  "observed_at": "2026-10-24T02:33:58.136563+00:00",
+  "tls_verification": true,
+  "inherited_proxy": true,
+  "probes": [
+    {
+      "url": "https://opencode.ai/zen/v1/models",
+      "error": "HTTP Error 403: Forbidden"
+    },
+    {
+      "url": "https://models.dev/api.json",
+      "error": "HTTP Error 403: Forbidden"
+    }
+  ],
+  "client_probe_observed_at": "2026-10-24T02:35:05.111492+00:00",
+  "client_probes": [
+    {
+      "url": "https://opencode.ai/zen/v1/models",
+      "user_agent": "opencode/1.19.4",
+      "status": 200,
+      "json_response": true,
+      "selected_model_listed": true
+    },
+    {
+      "url": "https://models.dev/api.json",
+      "user_agent": "opencode/1.19.4",
+      "status": 200,
+      "json_response": true
+    }
+  ],
+  "note": "Default Python User-Agent received HTTP 403 (body: error code 1010); OpenCode User-Agent received the results below. All requests used inherited proxy and TLS verification; no model credentials supplied."
+}

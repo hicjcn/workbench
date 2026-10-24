@@ -1,14 +1,14 @@
 # M1 验证报告
 
 - 日期：2026-10-24
-- 状态：基础设施实测通过；本轮已实际提交免凭据模型任务，代理 CONNECT 403 阻塞，未产生模型代码修改
+- 状态：基础设施实测通过；本轮模型服务可达，免凭据真实任务因服务端免费额度耗尽而阻塞，未产生模型代码修改
 - 范围：内置 Node.js 测试项目，不包含用户业务项目或生产数据
 
 ## 1. 已完成结果
 
 | 检查 | 结果 | 证据与边界 |
 | --- | --- | --- |
-| 代码工作区、控制接口与模型验收测试 | 通过 | 本轮 20 项自动测试；新增 CLI 假成功、模型/代码证据不足及超时证据保留、不重放回归检查 |
+| 代码工作区、控制接口与模型验收测试 | 通过 | 本轮复核 20 项自动测试，包含 CLI 假成功、模型/代码证据不足及超时证据保留、不重放检查 |
 | 测试项目 | 通过 | 原始问候逻辑的 2 项测试 |
 | 镜像构建 | 通过 | 固定 OpenCode 及 Superpowers 版本实际构建成功 |
 | 双容器启动 | 通过 | 两需求分别具有网络、控制端口、代码和 Agent 主目录 |
@@ -19,7 +19,7 @@
 | 重建持久化 | 通过 | 需求 A 重建后代码和 Agent 主目录标记保留 |
 | 重建互不影响 | 通过 | 需求 A 重建期间和之后，需求 B 的控制 API 保持健康 |
 | 资源清理 | 通过 | 双容器验证报告 cleanup_errors 为空 |
-| 免费模型真实任务 | 阻塞 | 模型已列出，任务已提交；CLI 返回 0 但事件含代理 403；无模型响应、代码变化或新增回归测试，独立行为验收失败 |
+| 免费模型真实任务 | 阻塞 | 本轮服务可达、模型已列出、任务已提交；会话返回 `free_tier_limit`；中止等待后 CLI 返回 0，无模型响应、代码变化或新增回归测试，独立行为验收失败 |
 
 双容器脚本的实际结果为 `PASSED_INFRASTRUCTURE_ONLY`，6 个集成检查通过。该状态不包含模型推理或完整工作台验收。
 
@@ -48,51 +48,54 @@
 
 ## 4. 免凭据模型验证
 
-用户最新要求使用免凭据模型，不限定为原有智谱账号。容器内 `opencode models opencode` 已实际列出：
+本轮严格使用用户指定的 `opencode/glm-5.3-flash-free`，不创建或注入模型凭据，不配置付费回退。模型已由容器的 `opencode models opencode` 和 [官方模型目录](https://opencode.ai/zen/v1/models) 实际列出。
 
-- `opencode/glm-5.3-flash-free`
-- `opencode/deepseek-v4.1-flash-free`
-- `opencode/big-pickle`
-- 其他当前可用免费模型
+真实模型验证脚本的完成条件同时要求：任务无错误、观察到模型响应、`server.mjs` 实际变化、回归测试文件变化、至少 4 项测试通过、源仓库不变，以及独立验收行为通过。目录可达、CLI 返回 0 或原始测试通过均不足以判定真实任务成功。
 
-首选 `opencode/glm-5.3-flash-free`。模型身份与 [官方免费模型目录](https://opencode.ai/v2/docs/console/models/) 一致，但“目录存在”不代表实际推理已成功。
+### 上一轮：代理拒绝（run-01）
 
-真实模型验证脚本的完成条件同时要求：任务无错误、观察到模型响应、`server.mjs` 实际变化、回归测试文件变化、至少 4 项测试通过、源仓库不变，以及独立验收行为通过。脚本不注入模型密钥，不自动改用付费模型。
+在 `c7aa01a` 上运行时，任务收到 `Proxy refused to open a tunnel: 403 Forbidden`，无模型响应或代码变化。CLI 返回 0，验证脚本正确返回 `FAILED_OR_BLOCKED_MODEL_TASK`。原始 [run-01 报告](evidence/m1-free-model-20261024/run-01/report.json) 和 [代理探测](evidence/m1-free-model-20261024/network-probe.json) 保持原样。
 
-### 本轮执行结果
+随后 `c566bbf` 加强验证器的响应和实现变化门槛、前后快照及超时证据保留，20 项回归测试通过。这些是验证器改动，不能作为 GLM 生成业务代码的证据。
 
-在 `codex/m1-technical-validation` 的 `c7aa01a` 上重建镜像后实际执行一次：
+### 本轮：服务端免费额度耗尽（run-02）
+
+在 `codex/m1-technical-validation` 的 `c566bbfe5fdfee5412b4dc8c635de7df5842c308` 上重建相同固定版本镜像后，实际执行一次：
 
 ```bash
 PYTHONPATH=src python3 poc/verify_free_model.py \
-  --root .local-data/free-model-run-01 \
+  --root .local-data/free-model-run-02 \
   --model opencode/glm-5.3-flash-free \
   --proxy-ca "$CODEX_PROXY_CERT" --timeout 600
 ```
 
+执行时间为 2026-10-24 北京时间 10:34:47 至 10:37:34，耗时 167.530 秒；原始 JSON 时间使用 UTC。基础设施已通过，本轮未重复双容器隔离验证。
+
 | 观察项 | 实际结果 |
 | --- | --- |
-| OpenCode / Superpowers | 1.19.4 / v7.0.1（`2ce8aa1`），与基础设施验证一致 |
-| 本轮镜像 ID | `sha256:c251995a31a0953cab8a90b92c99e382db630df83e7c3c7a5a2006f4852f3a1a`；重新构建，区别于第 2 节历史镜像 |
-| 容器 Node.js | v22.23.4 |
-| 指定模型已列出 / 任务已提交 | 是 / 是；仅提交一次，无付费回退或模型凭据注入 |
-| CLI 退出码 / 错误事件 | 0 / 1；`Proxy refused to open a tunnel: 403 Forbidden` |
-| 模型响应 / 代码变化 / 回归测试变化 | 均为否 |
-| 原有测试 | 2 项通过，不能作为新行为通过的证据 |
-| 独立行为验收 | 失败；空白处理未实现 |
+| OpenCode / Superpowers / Node.js | 1.19.4 / v7.0.1（`2ce8aa1`）/ v22.23.4 |
+| 本轮镜像 ID | `sha256:b56ce1378a26dea06cf3d79bae1f70694db26ec2ac3b91e4f50ffba31a34664e`；区别于第 2 节和 run-01 历史镜像 |
+| 网络探测 | 继承代理、保留 TLS 校验；使用 `User-Agent: opencode/1.19.4` 时两个服务均返回 HTTP 200，模型目录包含指定模型 |
+| 指定模型已列出 / 任务已提交 | 是 / 是；提交一次，未重放提示词，未创建模型凭据或使用付费回退 |
+| 服务端状态 | `/session/status` 返回 `type=retry`、`attempt=1`、`action.reason=free_tier_limit`、`Free usage exceeded, subscribe to Go` |
+| 服务端给出的下次重试时间 | 2026-10-25 北京时间 08:00:00（原值 `1792886400257` 毫秒）；不保证届时额度恢复 |
+| 中止等待 | 已调用本次会话的 abort，返回 `true`；随后会话状态为空，未等待次日重试 |
+| CLI 退出码 / JSON 事件 | 0 / 无事件；额度原因由执行期间的控制 API 单独采集 |
+| 模型响应 / 实现变化 / 回归测试变化 | 均为否；前后源码快照相同，代码差异为空 |
+| 原有测试 / 独立行为验收 | 2 项通过 / 失败：实际 `hello   developer  `，期望 `hello developer` |
 | 原始源码 | 保持不变；前后摘要均为 `e378190b5ac1234c300e3ba6dd7bbb2e3f7210c3064e1fca92267818d52dcb19` |
-| 最终状态 | `FAILED_OR_BLOCKED_MODEL_TASK`；脚本退出码 1 |
-| 清理 | `runtime_stopped=true`；复核无本次遗留容器或托管网络 |
+| 最终状态 | `FAILED_OR_BLOCKED_MODEL_TASK`；脚本退出码 1，未登记真实代码修改通过 |
+| 清理 | `runtime_stopped=true`；另行复核无托管容器或网络遗留 |
 
-可评审证据见 [本轮证据目录](evidence/m1-free-model-20261024/README.md)：报告、原始错误事件、测试输出、空代码差异和任务文本均已收集。原始运行目录继续留在被 Git 忽略的 `.local-data/free-model-run-01`，未提交 Agent 主目录、控制密码或认证数据。
+默认 Python 客户端探测同样地址时收到 HTTP 403（响应 `error code: 1010`）；携带上述 OpenCode 客户端标识时返回 200。本轮实际模型会话已获得服务端额度响应，因此不能沿用上一轮的代理 CONNECT 403 诊断。
 
-同一环境通过继承代理探测 `https://opencode.ai/zen/v1/models` 和 `https://models.dev/api.json`，均返回 `Tunnel connection failed: 403 Forbidden`。当前策略快照仅列出 `*.opencode.ai`、`*.models.dev`，未显式列出主域名；需要通过环境配置流程补充 `opencode.ai`、`models.dev` 并应用后再核实访问。不能用子域名规则已存在推断主域名已放行，也不能将本轮登记为模型开发通过。
+完整可评审记录见 [证据索引](evidence/m1-free-model-20261024/README.md)：新增 run-02 的任务文本、原始报告、前后快照、测试与验收输出、空差异、额度状态、中止记录、网络探测、执行版本及清理复核。保留脚本报告原样，没有将 API 采集的状态补写成 CLI 错误事件；其中 `capabilities.model_execution=NOT_ATTEMPTED` 来自提交前的基础设施探测，实际提交状态看顶层 `submission_attempted=true`。本地原始目录 `.local-data/free-model-run-02` 不提交；Agent 主目录、控制密码及认证数据不进入公开证据。
 
-本次代码改动针对验证脚本：增加时间、前后快照和独立验收输出收集；保留超时前的部分事件；加强真实响应和实现文件变化门槛。4 项新增回归测试加上原有 16 项均通过。这些是验证器改动，不是由 GLM 生成的示例业务代码。修订后的真实任务尚待网络放行后运行，不自动重放本轮任务。
+本轮复核 20 项 Python 测试及原始 2 项 Node.js 测试通过。免费额度阻塞使真实模型代码修改、新增回归测试及行为验收仍未完成；本轮没有用人工修改替代模型产出。
 
 ## 5. 仍待完成
 
-1. 明确放行模型主域名后，在新证据目录运行免凭据模型任务，完成实际代码修改及结果验证。
+1. 服务端免费额度可用后，在新证据目录运行指定免凭据模型任务，完成实际代码修改及结果验证；不自动重放本轮任务。
 2. 活动模型任务的中止、事件流及控制进程断线恢复。
 3. 用户业务项目的语言运行时、服务依赖和本机环境一致性。
 4. 数据库、缓存及队列的跨需求可写状态隔离。

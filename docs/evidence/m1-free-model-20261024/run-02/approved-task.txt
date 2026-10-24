@@ -1,0 +1,11 @@
+This is an approved, small infrastructure validation task in a disposable sample repository.
+The agreed plan and acceptance criteria are:
+1. In server.mjs, greeting(name) must trim leading/trailing whitespace from a supplied string.
+2. If the name is missing or consists only of whitespace, return {message: 'hello world'}.
+3. Preserve named greetings such as 'hello developer'.
+4. Add regression tests in server.test.mjs for padded names and whitespace-only names.
+5. Run node --test server.test.mjs and fix any failures.
+The specification and plan are approved; implement and verify them without clarification questions.
+Use the installed Superpowers skills as appropriate. Do not dispatch subagents, push Git, access
+the network through tools, or create containers. Keep changes within this sample repository.
+Finish with a concise summary and the actual test results.

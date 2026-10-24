@@ -1,0 +1,11 @@
+{
+  "observed_at": "2026-10-24T02:37:34.072728+00:00",
+  "reason": "Provider free_tier_limit; next retry is outside this validation window. No model change, credentials, paid fallback or prompt replay.",
+  "aborted": [
+    {
+      "session_id": "ses_e943cc0abffee3oDit4JB1sBMn",
+      "abort_result": true
+    }
+  ],
+  "status_after_abort": {}
+}
