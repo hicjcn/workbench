@@ -1,0 +1,167 @@
+# 工作台拟设计流程；不是 Superpowers、OpenCode 或任何现有编排工具的原生配置。
+# 条件使用受控注册标识，不执行任意表达式。反馈通过新轮次处理，历史步骤不覆盖。
+schema_version: "0.1"
+kind: WorkflowTemplate
+id: backend-development
+revision: 1
+
+policy:
+  max_active_attempts_per_workspace_project: 1
+  max_automatic_fix_rounds: 2
+  unknown_execution_state: reconcile_then_wait
+  approval_binds_to_baseline: true
+  downstream_invalidation: conservative
+
+steps:
+  - id: intake
+    kind: human_input
+    scope: requirement
+    depends_on: []
+    output: requirement_revision
+
+  - id: analysis
+    kind: agent
+    scope: requirement
+    depends_on: [intake]
+    role: analyst
+    code_access: candidate_snapshots_read_only
+    output: impact_report
+
+  - id: scope_confirmation
+    kind: human_gate
+    scope: requirement
+    depends_on: [analysis]
+    passing_decisions: [APPROVED]
+    binds: [requirement_revision, project_set, impact_report]
+
+  - id: development
+    kind: agent_subflow
+    scope: workspace_project
+    depends_on: [scope_confirmation]
+    executor: opencode_http
+    method_profile_ref: installed-superpowers
+    model_profile_ref: development-model
+    code_access: project_copy_read_write
+    output: development_result
+
+  - id: verification
+    kind: command
+    scope: workspace_project
+    depends_on: [development]
+    command_ref: project.commands.verify
+    environment: isolated_validation_copy
+    output: verification_result
+
+  - id: review_baseline
+    kind: system
+    scope: requirement
+    depends_on: [verification]
+    action: capture_project_baseline_set
+    join_policy: all_required_project_instances
+    output: baseline_set
+
+  - id: model_review
+    kind: agent
+    scope: requirement
+    depends_on: [review_baseline]
+    role: reviewer
+    model_profile_refs: [review-model-a, review-model-b]
+    fanout: model_profile
+    input_baseline_ref: review_baseline
+    code_access: frozen_snapshots_read_only
+    independent_sessions: true
+    output: review_report
+
+  - id: review_resolution
+    kind: human_gate
+    scope: requirement
+    depends_on: [model_review]
+    join_policy: all_required_model_instances
+    passing_decisions: [APPROVED]
+    prerequisite: blocking_findings_resolved_or_explicitly_dispositioned
+    binds: [requirement_revision, baseline_set, review_report]
+
+  - id: self_review
+    kind: human_gate
+    scope: requirement
+    depends_on: [review_resolution]
+    passing_decisions: [APPROVED]
+    binds: [requirement_revision, baseline_set, review_report]
+
+  - id: summary_design
+    kind: agent
+    scope: requirement
+    depends_on: [self_review]
+    role: document_author
+    template_ref: server-summary-design
+    code_access: frozen_snapshots_read_only
+    output: summary_design_document
+
+  - id: supervisor_review
+    kind: external_review_record
+    scope: requirement
+    depends_on: [summary_design]
+    passing_decisions: [APPROVED]
+    binds: [requirement_revision, baseline_set, summary_design_document]
+    require: [reviewer, reviewed_at, decision]
+
+  - id: performance_decision
+    kind: human_input
+    scope: requirement
+    depends_on: [supervisor_review]
+    allowed_values: [UNDECIDED, REQUIRED, NOT_REQUIRED]
+    completion_values: [REQUIRED, NOT_REQUIRED]
+    require_reason: true
+
+  - id: test_plan
+    kind: agent
+    scope: requirement
+    depends_on: [performance_decision]
+    role: test_designer
+    template_ref: functional-test-plan
+    code_access: frozen_snapshots_read_only
+    output: functional_test_plan
+
+  - id: performance_plan
+    kind: agent
+    scope: requirement
+    depends_on: [performance_decision]
+    condition_ref: performance_is_required
+    skip_reason_ref: performance_decision
+    role: test_designer
+    template_ref: performance-test-plan
+    code_access: frozen_snapshots_read_only
+    output: performance_test_plan
+
+  - id: test_execution
+    kind: human_input
+    scope: requirement
+    depends_on: [test_plan, performance_plan]
+    allow_conditionally_skipped_dependencies: true
+    require: [baseline_set, environment_ref, actual_results, evidence]
+    completion_condition_ref: required_tests_passed_for_current_baseline
+    output: test_execution_record
+
+  - id: delivery
+    kind: system
+    scope: requirement
+    depends_on: [test_execution]
+    action: validate_and_export_delivery
+    require_current_results: true
+    require_no_blocking_issues: true
+    require_tests_passed_for_current_baseline: true
+    output: delivery_manifest
+
+feedback_routes:
+  bug:
+    action: create_fix_round
+    entry_step: development
+  requirement_change:
+    action: create_requirement_revision_and_round
+    entry_step: analysis
+  architecture_change:
+    action: create_design_change_and_round
+    entry_step: analysis
+  document_comment:
+    action: create_document_revision_and_review_round
+    entry_step: summary_design

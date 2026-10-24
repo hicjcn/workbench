@@ -1,0 +1,92 @@
+# 工作台拟设计配置，schema 尚未实现；不是 Docker Compose 或 OpenCode 原生配置。
+# 示例值仅用于审阅整体设计，不能直接用于构建和运行。
+schema_version: "0.1"
+kind: ProjectProfile
+id: example-backend
+revision: 1
+
+source:
+  registered_project_ref: example-backend
+  mode: independent_copy
+  include_uncommitted: false
+  include_untracked: false
+  exclude:
+    - ".env"
+    - ".env.*"
+    - "**/credentials/**"
+    - "node_modules/**"
+    - "target/**"
+
+environment:
+  dockerfile: Dockerfile.dev
+  build_context: "."
+  image_ref: "<built-image-digest>"
+  runtime_user: "1000:1000"
+  workdir: /workspace/project
+  privileged: false
+  host_network: false
+  mount_docker_socket: false
+  resources:
+    cpu_cores: 2
+    memory: 4GiB
+    pids_limit: 512
+    disk_warning: 10GiB
+    disk_stop_threshold: 15GiB
+  ports:
+    - name: application
+      container_port: 8080
+      host_address: "127.0.0.1"
+      host_port: auto
+  mounts:
+    - source_kind: workspace_project_copy
+      target: /workspace/project
+      access: read_write
+    - source_kind: registered_config
+      source_ref: example-package-manager-settings
+      target: /run/project-config/package-manager.conf
+      access: read_only
+  network:
+    namespace: requirement
+    egress_policy: proxy_allowlist
+    # 选择此策略时必须有代理/防火墙执行支持；不能只创建 bridge 就判定满足。
+    enforcement_required: true
+    allowed_hosts:
+      - "model-provider.example"
+      - "package-registry.example"
+
+dependencies:
+  - id: database
+    template_ref: example-postgres
+    instance_scope: requirement
+    data_scope: requirement
+
+commands:
+  # 均为占位脚本，实施时替换为真实项目命令；Runner 不拼接用户输入为宿主 shell。
+  build: ["./scripts/build"]
+  start: ["./scripts/start"]
+  verify: ["./scripts/verify"]
+
+agent:
+  executor: opencode_http
+  tool_version: "<pin-installed-opencode-version>"
+  superpowers:
+    source_ref: "https://github.com/obra/superpowers"
+    revision: "<pin-tag-or-commit>"
+    configuration_variant: "<select-after-version-probe>"
+  roles:
+    development:
+      model_profile_ref: development-model
+      permission_profile_ref: container-autonomous-development
+      session_scope: workspace_project
+    review:
+      permission_profile_ref: snapshot-review
+      session_scope: execution_attempt
+  credential_refs:
+    - model-provider-development
+    - model-provider-review
+
+retention:
+  code_after_stop: keep
+  artifacts_after_stop: keep
+  dependency_data_after_stop: keep
+  delete_workspace_data: explicit_action
