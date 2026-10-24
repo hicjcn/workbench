@@ -1,0 +1,16 @@
+{
+  "observed_at": "2026-10-24T02:41:57.121738+00:00",
+  "url": "https://opencode.ai/zen/v1/models",
+  "user_agent": "opencode/1.19.4",
+  "http_status": 200,
+  "tls_verification": true,
+  "inherited_proxy": true,
+  "matches": [
+    {
+      "id": "mimo-v2.6-flash-free",
+      "object": "model",
+      "created": 1792809717,
+      "owned_by": "opencode"
+    }
+  ]
+}

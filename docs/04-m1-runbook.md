@@ -2,7 +2,7 @@
 
 - 日期：2026-10-24
 - 目标：验证独立源码、Docker 环境、OpenCode 控制 API、Superpowers 加载和重建持久化
-- 验证模型：按用户要求使用免凭据免费模型 `opencode/glm-5.3-flash-free`
+- 验证模型：按用户最新要求改用免凭据免费模型 `opencode/mimo-v2.6-flash-free`
 - 平台：当前实现面向 Linux、Unix Docker Socket、Python 3.11+、Git；测试项目使用 Node.js
 
 ## 1. 当前可运行范围
@@ -106,14 +106,14 @@ PYTHONPATH=src python3 -m agent_workbench stop \
 
 ## 7. 免凭据真实模型验证
 
-用户已明确将首轮验证改为免凭据模型。容器的实际模型列表包含 `opencode/glm-5.3-flash-free`，与 [OpenCode 官方免费模型目录](https://opencode.ai/v2/docs/console/models/) 对应。本次不注入模型凭据，不配置付费回退。
+用户已明确使用免凭据模型，并在 GLM 免费额度阻塞后要求改试 MiMo-V2.6-Flash Free。容器实际模型列表及 [OpenCode 官方模型目录](https://opencode.ai/zen/v1/models) 均包含 `mimo-v2.6-flash-free`。通过 `--model` 明确选择本轮模型，不注入模型凭据，不配置付费回退。
 
-网络可访问且服务端免费额度可用后执行（run-01、run-02 已有历史证据，后续使用新目录）：
+网络可访问且服务端免费额度可用后执行（run-01 至 run-03 已有历史证据，后续使用新目录）：
 
 ```bash
 PYTHONPATH=src python3 poc/verify_free_model.py \
-  --root .local-data/free-model-run-03 \
-  --model opencode/glm-5.3-flash-free
+  --root .local-data/free-model-run-04 \
+  --model opencode/mimo-v2.6-flash-free
 ```
 
 托管代理环境额外传入 `--proxy-ca "$CODEX_PROXY_CERT"`。脚本创建新的无敏感信息测试仓库，发起一次真实修改任务，再独立检查模型响应、实现文件变化、回归测试文件变化、至少 4 项测试及验收行为，保存事件及差异，最后停止容器。仅列出模型、CLI 返回成功或测试未失败都不足以判定通过。
@@ -122,7 +122,7 @@ PYTHONPATH=src python3 poc/verify_free_model.py \
 
 若执行超时，记录未知状态并停止容器，不自动重复提交。默认每次验证最多等待 240 秒，选择新根目录才能重新运行。
 
-上一轮任务被代理 tunnel 403 阻塞。本轮使用 OpenCode 客户端标识探测 `opencode.ai`、`models.dev` 均返回 200，真实任务则收到服务端 `free_tier_limit`，详细证据见验证报告。仅用默认 Python 客户端探测可能收到 `error code: 1010` 的 HTTP 403，需要结合实际 OpenCode 会话区分代理拒绝、客户端差异及模型额度问题。始终保留继承代理及 TLS 校验。
+run-01 被代理 tunnel 403 阻塞；run-02 服务可达但 GLM 免费额度耗尽。最新 run-03 按用户要求改用 MiMo，模型目录可达且已创建 MiMo 会话，但同样收到服务端 `free_tier_limit`，详细证据见验证报告。仅用默认 Python 客户端探测可能收到 `error code: 1010` 的 HTTP 403，需要结合实际 OpenCode 会话区分代理拒绝、客户端差异及模型额度问题。始终保留继承代理及 TLS 校验。
 
 CLI 等待期间可通过本地控制 API 的 `/session/status` 观察额度状态；本轮额度提示没有进入 CLI JSON 事件。保存该状态后，只中止此次验证会话并让脚本完成验收与清理。CLI 返回 0 且没有事件仍必须按模型响应、代码变化和独立行为验收判定；不能据此宣布模型任务通过。服务端给出的下次重试时间不保证届时额度恢复，后续验证应显式选择新根目录，不自动重放、不创建模型凭据、不切换付费模型。
 
