@@ -1,8 +1,31 @@
 # Agent 开发工作台
 
-面向后端开发者的需求与整体设计资料。以 OpenCode 为主要执行工具，结合 Superpowers，在独立 Docker 工作区中组织分析、开发、评审、文档和测试反馈。
+面向后端开发者的本地 Agent 开发工作台。以 OpenCode 为主要执行工具，结合 Superpowers，在独立 Docker 工作区中组织需求、代码、运行和人工确认。
 
-当前处于 M1 技术验证阶段，已提供可运行的 Python CLI、Docker/OpenCode 环境及双需求隔离验证。完整工作台尚未实现，真实模型任务的当前状态见验证报告。
+M1 已完成小样例的真实模型验证；M2 已加入 React 界面、FastAPI 控制服务、持久化任务和独立 Runner。完整流程编排、多模型评审和文档闭环继续按实施计划推进。
+
+## 运行 M2
+
+需要 Linux、Python 3.11+、Node.js 22.12+、Git 和 Docker：
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[server]'
+npm ci --prefix web
+npm run --prefix web build
+docker build -t agent-workbench-m1:local poc/container
+.venv/bin/python -m agent_workbench.server
+```
+
+另开终端启动 Runner：
+
+```bash
+.venv/bin/python -m agent_workbench.runner
+```
+
+打开 [本机工作台](http://127.0.0.1:8340)，使用启动时提示的本机访问令牌文件登录。默认使用 SQLite；PostgreSQL、模型配置、代理证书及验证命令见 [M2 操作说明](docs/06-m2-workbench.md)。访问令牌与模型密钥分别管理，均不提交 Git。
+
+默认模型沿用 M1 已验证的 OpenRouter 免费 Nemotron，Runner 从现有 `OPENROUTER_API_KEY` 环境变量读取凭据。可通过 API 与 Runner 一致的 `AWB_MODEL` 切换显式免费模型，不使用付费回退。
 
 ## 文档导航
 
@@ -11,11 +34,13 @@
 3. [实施计划](docs/03-implementation-plan.md)：技术验证、迭代、工作包及需求追踪。
 4. [M1 操作说明](docs/04-m1-runbook.md)：运行命令、真实模型验证及原型边界。
 5. [M1 验证报告](docs/05-m1-validation.md)：已通过检查、实际版本及尚待完成的项目。
+6. [M2 操作说明](docs/06-m2-workbench.md)：架构落地、启动、配置和接口。
+7. [M2 验证报告](docs/07-m2-validation.md)：浏览器、数据库、迁移、恢复及验证范围。
 
 ## 运行 M1
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -v
+.venv/bin/python -m unittest discover -s tests -v
 docker build -t agent-workbench-m1:local poc/container
 PYTHONPATH=src python3 poc/verify_isolation.py --root .local-data/m1-run-01
 ```
@@ -29,4 +54,4 @@ PYTHONPATH=src python3 poc/verify_isolation.py --root .local-data/m1-run-01
 
 示例使用工作台拟设计的配置结构，仅用于评审。不是 Docker Compose、OpenCode 或 Superpowers 原生配置，当前没有解析器，不能直接运行。占位版本、脚本、挂载和模型引用需要在实施时替换。
 
-推荐先阅读需求，再审阅整体设计中的默认选择，随后按实施计划 M1 完成工具及环境验证。技术栈为暂定参考方案，用户实际项目、工具版本及部署信息见实施计划的信息清单。
+推荐先阅读需求与设计，再按 M2 操作说明运行本地工作台。用户业务项目的具体运行环境仍需在试点接入时配置。

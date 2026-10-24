@@ -20,7 +20,7 @@ class WorkbenchError(Exception):
 
 def git(directory: Path, *args: str) -> bytes:
     result = subprocess.run(
-        ["git", "-c", "core.hooksPath=/dev/null", "-C", str(directory), *args],
+        ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", str(directory), *args],
         capture_output=True,
         timeout=120,
     )

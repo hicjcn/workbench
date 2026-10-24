@@ -1,0 +1,38 @@
+"""Single-host controller settings; secrets never enter API resource payloads."""
+from dataclasses import dataclass
+import os
+from pathlib import Path
+import secrets
+
+
+@dataclass(frozen=True)
+class Settings:
+    data_dir: Path
+    database_url: str
+    access_token: str
+    runner_token: str
+    model: str = "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
+    lease_seconds: int = 45
+    web_dir: Path | None = None
+
+    @classmethod
+    def load(cls, data_dir: Path | None = None):
+        root = (data_dir or Path(os.environ.get("AWB_DATA_DIR", ".local-data/workbench"))).resolve()
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        values = []
+        for name in ("access-token", "runner-token"):
+            path = root / name
+            if not path.exists():
+                descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(descriptor, "w") as stream:
+                    stream.write(secrets.token_urlsafe(32))
+            if path.is_symlink():
+                raise ValueError("Access token files must not be symbolic links")
+            value = path.read_text().strip()
+            if len(value) < 32:
+                raise ValueError("Access token file is empty or invalid")
+            values.append(value)
+        return cls(root, os.environ.get("AWB_DATABASE_URL", f"sqlite:///{root / 'workbench.db'}"),
+                   *values, model=os.environ.get("AWB_MODEL", "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"),
+                   web_dir=Path(__file__).resolve().parents[2] / "web/dist")
+

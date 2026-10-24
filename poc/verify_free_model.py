@@ -14,6 +14,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from agent_workbench import runtime
+from agent_workbench.providers import openrouter_catalog_model as shared_catalog_model
 from agent_workbench.workspace import WorkbenchError, create_workspace, git, snapshot, write_json
 from verify_isolation import progress, wait_ready
 
@@ -72,36 +73,8 @@ def selected_provider(model):
 
 
 def openrouter_catalog_model(model):
-    """Check public pricing before any authenticated request or model submission."""
-    runtime.openrouter_config(model)
-    request = Request("https://openrouter.ai/api/v1/models", headers={"User-Agent": "agent-workbench/0.1"})
-    try:
-        with urlopen(request, timeout=30) as response:
-            content = response.read(8 * 1024 * 1024 + 1)
-        if len(content) > 8 * 1024 * 1024:
-            raise WorkbenchError("OpenRouter model catalog exceeds the verification limit")
-        catalog = json.loads(content)
-    except HTTPError as error:
-        raise WorkbenchError(f"OpenRouter public model catalog returned HTTP {error.code}; no task submitted") from None
-    except (OSError, URLError, ValueError):
-        raise WorkbenchError("Cannot read OpenRouter public model catalog through the configured network; no task submitted") from None
-    if not isinstance(catalog, dict) or not isinstance(catalog.get("data"), list):
-        raise WorkbenchError("OpenRouter returned an invalid model catalog; no task submitted")
-    model_id = model.removeprefix("openrouter/")
-    entry = next((item for item in catalog["data"] if isinstance(item, dict) and item.get("id") == model_id), None)
-    if entry is None:
-        raise WorkbenchError("Selected OpenRouter free model is not in the public catalog")
-    pricing = entry.get("pricing")
-    if not isinstance(pricing, dict) or not {"prompt", "completion"} <= pricing.keys():
-        raise WorkbenchError("OpenRouter model pricing is incomplete; no task submitted")
-    try:
-        prices = [Decimal(str(value)) for value in pricing.values()]
-        free = all(price.is_finite() and price == 0 for price in prices)
-    except (InvalidOperation, ValueError):
-        free = False
-    if not free:
-        raise WorkbenchError("OpenRouter model pricing is not entirely zero; no task submitted")
-    return {"id": model_id, "pricing": pricing}
+    """Retain the verification script's injectable transport for regression tests."""
+    return shared_catalog_model(model, fetch=urlopen)
 
 
 def task_passed(report):

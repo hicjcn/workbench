@@ -4,13 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-workbench"
-version = "0.1.0"
-description = "Local workspace and OpenCode runtime verification tools"
+version = "0.2.0"
+description = "Local development workbench with a persistent API and isolated OpenCode Runner"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+server = [
+  "fastapi==0.141.1",
+  "uvicorn==0.52.1",
+  "SQLAlchemy==2.1.6",
+  "alembic==1.20.1",
+  "httpx==0.28.1",
+]
+postgres = ["psycopg[binary]==3.3.6"]
+browser = ["playwright==1.62.0"]
+
 [project.scripts]
 agent-workbench = "agent_workbench.cli:main"
+agent-workbench-api = "agent_workbench.server:main"
+agent-workbench-runner = "agent_workbench.runner:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
