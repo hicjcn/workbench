@@ -1,0 +1,15 @@
+{
+  "status": "PASSED",
+  "checks": [
+    "management_navigation_and_builtin_compatibility_config",
+    "wrapper_command_templates_timeout_credentials_and_default_can_be_saved",
+    "immutable_versions_history_and_explicit_default_switch",
+    "project_can_override_new_default_with_specific_historical_version",
+    "already_prepared_sample_does_not_switch_when_default_changes",
+    "browser_persistence_and_export_include_cli_versions_and_default",
+    "management_page_and_navigation_fit_mobile",
+    "no_browser_errors_or_backend_cli_execution_requests"
+  ],
+  "checks_passed": 8,
+  "real_execution": false
+}

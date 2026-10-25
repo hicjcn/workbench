@@ -189,7 +189,7 @@ class MaintenanceTests(DeliveryFixture):
     def stamp(self):
         with self.store.engine.begin() as connection:
             connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)"))
-            connection.execute(text("INSERT INTO alembic_version VALUES ('0007')"))
+            connection.execute(text("INSERT INTO alembic_version VALUES ('0008')"))
 
     def test_private_backup_restores_new_paths_tokens_and_all_code(self):
         self.confirm(); self.integrate(); self.run_delivery("archive"); self.stamp()

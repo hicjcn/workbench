@@ -6,6 +6,8 @@ M1—M9 已合并到 main。M10 增加完整样例的逐步验收工具、固定
 
 新增「Docker 镜像」与「容器管理」入口：维护 Dockerfile 版本、构建/拉取/移除镜像，集中启动和停止各需求环境。具体操作、仅 Dockerfile 构建上下文及 Sites 试用边界见 [Docker 管理说明](docs/24-docker-management.md)。
 
+「Agent CLI 配置」支持切换到基于 OpenCode 封装的兼容 CLI：维护启动/任务/版本命令、超时和凭据变量名，设置新工作区默认值或为项目固定版本。已有需求保留原配置，详见 [封装 CLI 接入](docs/26-agent-cli.md)。
+
 ## 运行工作台
 
 需要 Linux、Python 3.11+、Node.js 22.12+、Git 和 Docker：

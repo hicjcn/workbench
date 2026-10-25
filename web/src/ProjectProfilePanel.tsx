@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { api, timeLabel } from "./api";
 import type { Project } from "./api";
 import { Modal } from "./Forms";
+import type { AgentCliState } from "./AgentCliPanel";
 
 export type RuntimeProfile = {
   id: string;
@@ -12,6 +13,7 @@ export type RuntimeProfile = {
   reason: string;
   created_at: number;
   content: {
+    agent_cli_id?: string | null;
     image: string;
     cpus: number;
     memory_mib: number;
@@ -136,6 +138,12 @@ function ProfileForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const defaults = current?.content;
+  const [agents, setAgents] = useState<AgentCliState | null>(null);
+  useEffect(() => {
+    let live = true;
+    void api<AgentCliState>("/agent-clis").then(value => { if (live) setAgents(value); }).catch(failure => { if (live) setError(failure.message); });
+    return () => { live = false; };
+  }, []);
   const [postgres, setPostgres] = useState(
     Boolean(current?.content.dependencies?.length),
   );
@@ -145,6 +153,7 @@ function ProfileForm({
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    if (!agents) { setError("请先等待 Agent CLI 配置列表加载，失败时关闭表单后重试"); return; }
     setBusy(true);
     setError("");
     try {
@@ -153,6 +162,7 @@ function ProfileForm({
         actor: data.get("actor"),
         reason: data.get("reason"),
         content: {
+          agent_cli_id: data.get("agent_cli") || null,
           image: data.get("image"),
           cpus: Number(data.get("cpus")),
           memory_mib: Number(data.get("memory")),
@@ -193,8 +203,7 @@ function ProfileForm({
   return (
     <form className="form-stack" onSubmit={save}>
       <p className="hint">
-        先在本机构建包含 OpenCode 1.19.4 和已锁定 Superpowers
-        的镜像。新版本只影响后续工作区；已有需求继续使用自己的固定版本。
+        先在本机构建包含所选 CLI 的镜像。内置配置沿用 OpenCode 1.19.4 与已锁定的 Superpowers；兼容封装应提供相同服务和技能能力。新版本只影响后续工作区。
       </p>
       <label>
         运行镜像
@@ -205,6 +214,8 @@ function ProfileForm({
           maxLength={240}
         />
       </label>
+      <label>Agent CLI 配置<select aria-label="Agent CLI 配置" name="agent_cli" defaultValue={defaults?.agent_cli_id ?? ""} disabled={!agents}><option value="">跟随系统默认（准备工作区时固定）</option>{agents?.configs.map(item => <option value={item.id} key={item.id}>{item.name} · v{item.number}</option>)}</select></label>
+      <p className="hint">选择兼容封装 CLI 时，镜像必须已经包含相应程序。只影响后续新工作区，已有需求继续使用其固定版本。</p>
       <div className="profile-resources">
         <label>
           CPU 核数

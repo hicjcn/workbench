@@ -1,0 +1,17 @@
+{
+  "status": "PASSED_COMPATIBLE_WRAPPER_TRANSPORT",
+  "model_inference": false,
+  "controlled_task_fixture": true,
+  "user_specific_wrapper_verified": false,
+  "checks": [
+    "build_actual_delegating_opencode_wrapper_image",
+    "prepare_pin_and_preflight_really_use_wrapper_version_and_serve_command",
+    "wrapper_exposes_real_opencode_authenticated_health_config_skills_and_session_api",
+    "controlled_stdin_json_task_uses_pinned_wrapper_after_default_switch_and_redacts_fixture_token",
+    "readonly_attempt_inherits_wrapper_and_kernel_refuses_source_write",
+    "real_browser_lists_wrapper_and_stops_its_owned_environment",
+    "sqlite_0008_backup_restore_preserves_cli_history_and_pins_without_replaying_tasks"
+  ],
+  "checks_passed": 7,
+  "backup_sha256": "3a76f342bbf54f9809856f462ad253fdc9e5221c96dc397a13fbd6a62281786e"
+}

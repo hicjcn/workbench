@@ -39,7 +39,7 @@ class SQLiteStorageTests(unittest.TestCase):
             self.assertNotIn("never-print", result.stdout + result.stderr)
             self.assertIn("SQLite 本地文件", result.stdout)
             with sqlite3.connect(root / "workbench.db") as database:
-                self.assertEqual(database.execute("SELECT version_num FROM alembic_version").fetchone()[0], "0007")
+                self.assertEqual(database.execute("SELECT version_num FROM alembic_version").fetchone()[0], "0008")
 
     def test_persistence_and_runtime_storage_survive_api_restart_without_docker(self):
         with tempfile.TemporaryDirectory() as temporary:

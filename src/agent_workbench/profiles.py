@@ -47,6 +47,7 @@ class Mount(Input):
 
 
 class Content(Input):
+    agent_cli_id: str | None = Field(default=None, max_length=40)
     image: str = Field(default="agent-workbench-m1:local", max_length=240, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$")
     cpus: float = Field(default=1, ge=0.25, le=16, allow_inf_nan=False)
     memory_mib: int = Field(default=1536, ge=256, le=32768)
@@ -148,6 +149,9 @@ class Profiles:
             path = checked_source(item["source"], self.data_dir)
             item["sha256"] = file_hash(path)
         with self.store.engine.begin() as connection:
+            if content.get("agent_cli_id"):
+                from .agent_clis import get
+                get(connection, content["agent_cli_id"])
             if not connection.execute(select(projects.c.id).where(projects.c.id == project_id).with_for_update()).first(): raise Missing("项目不存在")
             previous = connection.execute(select(profiles).where(and_(profiles.c.project_id == project_id, profiles.c.is_current.is_(True)))).mappings().first()
             if value["expected_profile"] != (previous["id"] if previous else None): raise Conflict("项目配置已经变化，请重新载入")
@@ -193,6 +197,8 @@ def configure(workspace, profile, data_dir):
 
 
 def inherit(source, target, data_dir):
+    from .agent_clis import inherit as inherit_agent
+    inherit_agent(source, target)
     manifest = json.loads((source / "workspace.json").read_text())
     if manifest.get("runtime_profile"):
         fixed = manifest["runtime_profile"]
@@ -204,8 +210,9 @@ def inherit(source, target, data_dir):
 def runtime_options(workspace, data_dir):
     manifest = json.loads((workspace / "workspace.json").read_text())
     profile = manifest.get("runtime_profile")
-    if not profile: return {}
+    agent_options = {"agent_cli": manifest["agent_cli"]} if manifest.get("agent_cli") else {}
+    if not profile: return agent_options
     if digest(profile["content"]) != profile["content_digest"]: raise WorkbenchError("运行配置摘要不符")
     Content.model_validate(profile["content"])
-    return {"image": profile["image_id"], "limits": {key: profile["content"][key] for key in ("cpus", "memory_mib", "pids_limit")},
+    return {**agent_options, "image": profile["image_id"], "limits": {key: profile["content"][key] for key in ("cpus", "memory_mib", "pids_limit")},
         "config_mounts": staged_mounts(workspace, profile, data_dir)}

@@ -44,6 +44,7 @@ export type Review = {
   created_at: number;
 };
 export type Detail = Omit<Requirement, "workspace"> & {
+  agent_cli?: import("./AgentCliPanel").AgentCliConfig;
   workspace: Workspace;
   project: Project;
   jobs: Job[];

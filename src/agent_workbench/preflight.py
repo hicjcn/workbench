@@ -31,9 +31,10 @@ const {spawnSync} = require('node:child_process');
 const fs = require('node:fs');
 const config = JSON.parse(process.argv[1]);
 function version(exe) { const result = spawnSync(exe, ['--version'], {encoding:'utf8', timeout:20000, maxBuffer:65536}); return {ok:result.status===0, value:(result.stdout||'').trim().slice(0,200)}; }
+function cliVersion() { const args = config.version_argv || ['opencode','--version']; const result = spawnSync(args[0],args.slice(1),{encoding:'utf8',timeout:20000,maxBuffer:65536}); return {ok:result.status===0,value:(result.stdout||'').trim().slice(0,200)}; }
 const commands = Object.entries(config.commands).map(([name, argv]) => ({name, argv, available:!argv.length || spawnSync('sh',['-c','command -v "$1"','awb',argv[0]],{encoding:'utf8',timeout:5000}).status===0}));
 const mounts = config.mounts.map(target => ({target, readable: (()=>{try { fs.accessSync(target,fs.constants.R_OK); return true;}catch{return false;}})()}));
-console.log(JSON.stringify({node:version('node'),git:version('git'),opencode:version('opencode'),commands,mounts}));
+console.log(JSON.stringify({node:version('node'),git:version('git'),opencode:cliVersion(),commands,mounts}));
 '''
 
 
@@ -68,13 +69,18 @@ def execute(executor, job, workspace, emit, canceled):
         labels = details["Config"].get("Labels") or {}
         config = {"commands": {"build": command(profile["content"]["build_command"]), "verify": command(profile["content"]["verification_command"])},
             "mounts": [item["target"] for item in profile["content"]["mounts"]]}
+        from .agent_clis import checked, command as cli_command
+        agent_cli = json.loads((isolated / "workspace.json").read_text()).get("agent_cli")
+        cli_content = checked(agent_cli)
+        config["version_argv"] = cli_command(agent_cli, "version")
+        if agent_cli: report["agent_cli"] = {key: agent_cli[key] for key in ("id", "name", "number", "content_digest")}
         if profile["content"].get("application"): config["commands"]["application"] = command(profile["content"]["application"]["start_command"])
         result = runtime.docker("exec", state["container"], "node", "-e", CHECK_SCRIPT, json.dumps(config))
-        tools = json.loads(result.stdout)
+        tools = json.loads(executor.redact(result.stdout, isolated))
         report["tools"] = tools; report["capabilities"] = capabilities
         checks = {
             "image_id": details["Image"] == fixed["image_id"],
-            "opencode_version": tools["opencode"]["ok"] and tools["opencode"]["value"] == OPENCODE,
+            "opencode_version": tools["opencode"]["ok"] and bool(tools["opencode"]["value"]) and (not cli_content["expected_version"] or tools["opencode"]["value"] == cli_content["expected_version"]),
             "superpowers_revision": labels.get("org.agent-workbench.superpowers-commit") == SUPERPOWERS,
             "superpowers_loaded": capabilities.get("superpowers_configured") and "using-superpowers" in capabilities.get("skill_names", []),
             "node_and_git": tools["node"]["ok"] and tools["git"]["ok"],

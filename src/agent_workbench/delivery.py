@@ -254,6 +254,8 @@ class Delivery:
                 if panorama:
                     from .profiles import binding
                     payload_members[-1]["profile"] = binding(connection, item["requirement_id"])
+                    from .agent_clis import selection
+                    payload_members[-1]["agent_cli"] = selection(connection, item["requirement_id"])
             payload = {"request": supplied, "group_id": group_id, "revision": state["revision"], "members": payload_members, "context_digest": state["context_digest"], "scope_decision": state["scope_decision"], "integration": state["integration"]}
             if panorama: payload["panorama_basis"] = basis(state["members"])
             elif not reconcile: payload["panorama_history"] = state["panorama"]["history"]
