@@ -55,6 +55,7 @@ class Content(Input):
     verification_command: str = Field(default="node --test", min_length=1, max_length=2000)
     mounts: list[Mount] = Field(default_factory=list, max_length=8)
     dependencies: list["Postgres"] = Field(default_factory=list, max_length=1)
+    application: "Application | None" = None
 
     @model_validator(mode="after")
     def validate_content(self):
@@ -72,6 +73,20 @@ class Postgres(Input):
     cpus: float = Field(default=0.5, ge=0.25, le=4, allow_inf_nan=False)
     memory_mib: int = Field(default=512, ge=256, le=4096)
     pids_limit: int = Field(default=128, ge=64, le=512)
+
+
+class Application(Input):
+    start_command: str = Field(min_length=1, max_length=2000)
+    port: int = Field(default=3000, ge=1024, le=65535)
+    health_path: str = Field(default="/health", max_length=500, pattern=r"^/[A-Za-z0-9/_~.%-]*$")
+    expected_status: int = Field(default=200, ge=200, le=299)
+    ready_timeout_seconds: int = Field(default=30, ge=1, le=60)
+
+    @field_validator("start_command")
+    @classmethod
+    def start_argv(cls, value):
+        if not command(value): raise ValueError("请填写服务启动命令")
+        return value
 
 
 Content.model_rebuild()

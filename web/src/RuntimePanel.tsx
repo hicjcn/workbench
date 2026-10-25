@@ -16,6 +16,7 @@ type Status = {
         id: string;
         name: string;
         workspace: string;
+        kind?: string;
         orphan: boolean;
         verified: boolean;
         running: boolean;
@@ -113,7 +114,12 @@ export function RuntimePanel() {
                 </strong>
                 <code className="path">{item.workspace}</code>
                 <p className="hint">
-                  {item.cpu_limit} CPU ·{" "}
+                  {item.kind === "application"
+                    ? "应用服务"
+                    : item.kind === "postgres"
+                      ? "PostgreSQL"
+                      : "Agent 环境"}{" "}
+                  · {item.cpu_limit} CPU ·{" "}
                   {(item.memory_limit / 1024 ** 2).toFixed(0)} MiB
                 </p>
               </div>
@@ -132,7 +138,8 @@ export function RuntimePanel() {
             <pre className="maintenance-commands">{`${command} inspect --data-dir ${quoted}\n${command} stop --data-dir ${quoted}\n${command} backup --data-dir ${quoted}\n\n# 恢复到尚不存在的新目录\n${command} restore --archive '/path/to/backup.zip' --destination '/path/to/new-data'`}</pre>
             <p className="hint">
               备份包含源码与 Git 历史，应私密保存。访问令牌、Agent
-              认证、运行密码不复制；恢复会生成新令牌，需重新配置模型认证。外部数据库和业务测试数据需独立备份。
+              认证、运行密码不复制；恢复会生成新令牌，需重新配置模型认证。内置
+              PostgreSQL 数据快照随备份保存，其他外部数据库需独立备份。
             </p>
           </section>
           <section className="panel">

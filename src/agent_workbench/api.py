@@ -52,7 +52,7 @@ class RequirementInput(Input):
 
 
 class ActionInput(Input):
-    action: Literal["prepare", "start", "stop", "refresh", "task", "reconcile", "preflight", "build", "verify"]
+    action: Literal["prepare", "start", "stop", "refresh", "task", "reconcile", "preflight", "build", "verify", "app_start", "app_stop", "app_check", "app_logs"]
     prompt: str = Field(default="", max_length=32000)
 
 
@@ -256,11 +256,13 @@ def create_app(settings: Settings, store: Store | None = None):
         from .profiles import binding
         from .preflight import read_report
         from .dependencies import status as dependency_status
+        from .application import status as application_status
         with database.engine.connect() as connection: profile = binding(connection, requirement_id)
         workspace = database.get(tables.workspaces, requirement_id)
         return {**requirement, "project": database.get(tables.projects, requirement["project_id"]), "profile": profile,
             "preflight": read_report(Path(workspace["path"])),
             "dependency": dependency_status(Path(workspace["path"])),
+            "application": application_status(Path(workspace["path"]), workspace.get("snapshot", {}).get("tree_digest") if workspace.get("snapshot") else None),
             "workspace": database.get(tables.workspaces, requirement_id),
             "jobs": database.job_history(requirement_id),
             "reviews": database.list(tables.reviews, tables.reviews.c.requirement_id == requirement_id)}

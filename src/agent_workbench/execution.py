@@ -111,10 +111,8 @@ class Executor:
                 return self._execute(job, workspace, emit, canceled)
             except Canceled:
                 try:
-                    if (workspace / "runtime.json").exists():
-                        runtime.stop(workspace)
-                    from .dependencies import stop
-                    stop(self.settings.data_dir, workspace)
+                    from .resources import stop_workspace
+                    stop_workspace(self.settings.data_dir, workspace)
                 except (WorkbenchError, subprocess.TimeoutExpired):
                     raise Unknown("中止尚未核实，工作区保持阻塞") from None
                 raise
@@ -143,7 +141,7 @@ class Executor:
         if action == "preflight":
             from .preflight import execute
             return execute(self, job, workspace, emit, canceled)
-        if action in ("start", "task", "workflow", "materials", "build", "verify") and job.get("profile"):
+        if action in ("start", "task", "workflow", "materials", "build", "verify", "app_start", "app_check") and job.get("profile"):
             from .preflight import require_passed
             require_passed(workspace, job["profile"])
         if action in ("stop", "reconcile"):
@@ -174,6 +172,9 @@ class Executor:
             if action == "review" and observed["diff_truncated"]:
                 raise WorkbenchError("差异超出当前界面限制，暂不能在此确认")
             return observed
+        if action in ("app_start", "app_stop", "app_check", "app_logs"):
+            from .application import execute
+            return execute(self, job, workspace, emit, canceled)
         if action == "task":
             return self.task(job, workspace, emit, canceled)
         if action in ("build", "verify"):
@@ -219,6 +220,7 @@ class Executor:
             content = job["profile"]["content"]
             context = {"profile_id": job["profile"]["id"], "build_command": content["build_command"], "verification_command": content["verification_command"],
                 "configuration_files": [item["target"] for item in content["mounts"]], "dependencies": [item["kind"] for item in content.get("dependencies", [])],
+                "application": content.get("application"),
                 "database_access": "not_connected_in_readonly_session" if read_only else "use_PGHOST_PGPORT_PGUSER_PGDATABASE_PGPASSWORD_environment_variables"}
             prompt += "\n固定运行配置（不包含认证内容，不在答复或产物中写入凭据）：" + json.dumps(context, ensure_ascii=False)
         command = ["docker", "--host=unix:///var/run/docker.sock", "exec", "-i", state["container"], "opencode", "run",

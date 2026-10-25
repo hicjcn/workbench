@@ -2,7 +2,7 @@
 
 面向后端开发者的本地 Agent 开发工作台。以 OpenCode 为主要执行工具，结合 Superpowers，在独立 Docker 工作区中组织需求、代码、运行和人工确认。
 
-M1—M6 已合并到 main。M7 首轮实现加入每个需求独立的 PostgreSQL、数据保留、快照和新目录恢复。在线模型串联与用户业务项目仍待验收。
+M1—M7 已合并到 main。M8 首轮实现增加独立应用服务、启动停止、日志和固定路径 HTTP 检查，并沿用 PostgreSQL 隔离与恢复。在线模型串联与用户业务项目仍待验收。
 
 ## 运行工作台
 
@@ -46,6 +46,8 @@ docker build -t agent-workbench-m1:local poc/container
 15. [M6 验证报告](docs/15-m6-validation.md)：真实样例构建测试、新旧配置隔离及旧备份恢复。
 16. [M7 业务依赖](docs/16-m7-dependencies.md)：独立 PostgreSQL、连接约定、停止保留和备份恢复。
 17. [M7 验证报告](docs/17-m7-validation.md)：双需求数据/网络隔离、真实 SQL 测试和新数据卷恢复。
+18. [M8 应用服务](docs/18-m8-application.md)：运行命令、应用生命周期、HTTP 检查与恢复边界。
+19. [M8 验证报告](docs/19-m8-validation.md)：真实应用、数据库与浏览器演练。
 
 ## 运行 M1
 

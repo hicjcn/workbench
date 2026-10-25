@@ -26,6 +26,13 @@ export type RuntimeProfile = {
       memory_mib: number;
       pids_limit: number;
     }[];
+    application?: {
+      start_command: string;
+      port: number;
+      health_path: string;
+      expected_status: number;
+      ready_timeout_seconds: number;
+    } | null;
   };
 };
 type ProfileState = {
@@ -132,6 +139,9 @@ function ProfileForm({
   const [postgres, setPostgres] = useState(
     Boolean(current?.content.dependencies?.length),
   );
+  const [application, setApplication] = useState(
+    Boolean(defaults?.application),
+  );
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -150,6 +160,15 @@ function ProfileForm({
           build_command: data.get("build"),
           verification_command: data.get("verify"),
           mounts,
+          application: application
+            ? {
+                start_command: data.get("app_command"),
+                port: Number(data.get("app_port")),
+                health_path: data.get("app_health"),
+                expected_status: Number(data.get("app_status")),
+                ready_timeout_seconds: Number(data.get("app_timeout")),
+              }
+            : null,
           dependencies: postgres
             ? current?.content.dependencies?.length
               ? current.content.dependencies
@@ -324,6 +343,80 @@ function ProfileForm({
           每个需求独立数据库、内部网络、数据卷和认证，不开放宿主端口。依赖占用一个容器名额；启动前需备好
           postgres:17-bookworm 镜像。停止会先保存快照并保留数据卷。
         </p>
+      </fieldset>
+      <fieldset>
+        <legend>应用服务</legend>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={application}
+            onChange={(event) => setApplication(event.target.checked)}
+          />
+          启用应用服务与 HTTP 检查
+        </label>
+        <p className="hint">
+          应用另占一个容器名额，使用固定镜像和只读代码；连接本需求数据库。通过
+          PORT 环境变量设置端口，检查在容器内执行。
+        </p>
+        {application && (
+          <>
+            <label>
+              服务启动命令
+              <input
+                name="app_command"
+                required
+                maxLength={2000}
+                defaultValue={
+                  defaults?.application?.start_command ?? "node server.cjs"
+                }
+              />
+            </label>
+            <label>
+              服务端口
+              <input
+                name="app_port"
+                type="number"
+                required
+                min={1024}
+                max={65535}
+                defaultValue={defaults?.application?.port ?? 3000}
+              />
+            </label>
+            <label>
+              HTTP 检查路径
+              <input
+                name="app_health"
+                required
+                maxLength={500}
+                defaultValue={defaults?.application?.health_path ?? "/health"}
+              />
+            </label>
+            <label>
+              预期 HTTP 状态
+              <input
+                name="app_status"
+                type="number"
+                required
+                min={200}
+                max={299}
+                defaultValue={defaults?.application?.expected_status ?? 200}
+              />
+            </label>
+            <label>
+              就绪等待秒数
+              <input
+                name="app_timeout"
+                type="number"
+                required
+                min={1}
+                max={60}
+                defaultValue={
+                  defaults?.application?.ready_timeout_seconds ?? 30
+                }
+              />
+            </label>
+          </>
+        )}
       </fieldset>
       <label>
         登记人

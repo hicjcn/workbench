@@ -10,6 +10,7 @@
     "build_command": "node --check dataset.cjs",
     "verification_command": "node --test dataset.test.cjs",
     "mounts": [],
+    "application": { "start_command": "node server.cjs", "port": 3000, "health_path": "/health", "expected_status": 200, "ready_timeout_seconds": 30 },
     "dependencies": [{ "kind": "postgres", "image": "postgres:17-bookworm", "cpus": 0.5, "memory_mib": 512, "pids_limit": 128 }]
   }
 }
