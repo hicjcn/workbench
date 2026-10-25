@@ -1,0 +1,15 @@
+{
+  "expected_profile": null,
+  "actor": "本机开发者",
+  "reason": "PostgreSQL 样例接入",
+  "content": {
+    "image": "agent-workbench-postgres:local",
+    "cpus": 1,
+    "memory_mib": 1536,
+    "pids_limit": 256,
+    "build_command": "node --check dataset.cjs",
+    "verification_command": "node --test dataset.test.cjs",
+    "mounts": [],
+    "dependencies": [{ "kind": "postgres", "image": "postgres:17-bookworm", "cpus": 0.5, "memory_mib": 512, "pids_limit": 128 }]
+  }
+}

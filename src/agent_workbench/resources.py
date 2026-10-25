@@ -42,8 +42,17 @@ def inventory(root):
         verified = bool(path and path.is_relative_to(root) and path.resolve() == path and path.name and
             hashlib.sha256(str(path).encode()).hexdigest()[:10] == labels.get("awb.workspace") and
             (path.is_relative_to(root / "workspaces") or path.is_relative_to(root / "attempts")))
+        kind = labels.get("awb.kind", "agent")
+        journal = "runtime.json"
+        if kind == "postgres":
+            from . import dependencies
+            path = known.get(labels.get("awb.workspace"))
+            data = dependencies.read(path, dependencies.STATE) if path else None
+            owned = dependencies.checked_container(root, path, data) if data else None
+            verified = bool(owned and owned["Id"] == detail["Id"])
+            journal = dependencies.JOURNAL
         result.append({"id": identity, "name": detail["Name"].lstrip("/"), "workspace": str(path) if path else None,
-            "verified": verified, "orphan": bool(path and not (path / "runtime.json").exists()), "running": detail["State"]["Running"],
+            "kind": kind, "verified": verified, "orphan": bool(path and not (path / journal).exists()), "running": detail["State"]["Running"],
             "image_id": detail["Image"], "memory_limit": detail["HostConfig"].get("Memory"), "cpu_limit": detail["HostConfig"].get("NanoCpus", 0) / 1e9,
             "networks": list(detail.get("NetworkSettings", {}).get("Networks", {}))})
     return result
@@ -53,10 +62,12 @@ def stop_workspace(root, workspace):
     if (workspace / "runtime.json").exists(): runtime.stop(workspace)
     removed = False
     for item in inventory(root):
-        if item["workspace"] == str(workspace):
+        if item["workspace"] == str(workspace) and item["kind"] != "postgres":
             if not item["verified"]: raise WorkbenchError("发现归属不明资源，不能自动清理")
             runtime.docker("rm", "--force", item["id"])
             removed = True
+    from .dependencies import stop
+    stop(root, workspace)
     if removed: cleanup_networks(root)
 
 
@@ -77,7 +88,9 @@ def stop_all(root):
     for workspace in known_workspaces(root):
         if (workspace / "runtime.json").exists(): runtime.stop(workspace)
     for item in inventory(root):
-        runtime.docker("rm", "--force", item["id"])
+        if item["kind"] != "postgres": runtime.docker("rm", "--force", item["id"])
+    from .dependencies import stop
+    for workspace in known_workspaces(root): stop(root, workspace)
     # A network without a container is also identified by controller label or known name.
     cleanup_networks(root, strict=True)
     if inventory(root): raise WorkbenchError("仍有托管容器，停止状态未核实")

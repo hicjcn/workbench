@@ -1,0 +1,22 @@
+{
+  "status": "PASSED_M7_POSTGRES_ISOLATION_RESTORE",
+  "model_inference": false,
+  "real_postgres_tests": true,
+  "user_business_project_tested": false,
+  "checks": {
+    "sample_postgres_client_image_builds_with_tls": "PASSED",
+    "browser_register_per_requirement_postgres": "PASSED",
+    "readonly_preflight_never_connects_or_provisions_database": "PASSED",
+    "two_live_requirements_have_independent_data_volumes_credentials_and_no_host_ports": "PASSED",
+    "cross_requirement_database_ip_access_is_blocked": "PASSED",
+    "real_postgres_write_read_test_runs_inside_development_container": "PASSED",
+    "orphan_writer_stop_checkpoints_data_and_restart_preserves_it": "PASSED",
+    "explicit_reconciliation_recovers_stopped_database_without_losing_data": "PASSED",
+    "browser_dependency_status_and_mobile_layout": "PASSED",
+    "v2_backup_contains_two_data_dumps_without_authentication_or_auto_replay": "PASSED",
+    "fresh_directory_restores_both_datasets_to_new_volumes_and_new_credentials": "PASSED",
+    "original_code_unchanged": "PASSED",
+    "actual_m6_v1_backup_remains_restorable": "PASSED"
+  },
+  "backup_sha256": "afaa84338835e0cb6c64928da7ef185f6e4c1da6b03c94e2efb79be58e711748"
+}
