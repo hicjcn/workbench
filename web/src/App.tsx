@@ -205,7 +205,7 @@ export default function App() {
           </div>
         </div>
         <div className="topbar-right">
-          <span className="version-pill">M8 · 本地运行</span>
+          <span className="version-pill">M9 · 本地运行</span>
           <button
             className="text-button"
             onClick={() =>
@@ -705,7 +705,7 @@ export default function App() {
         </main>
       )}
       <footer className="page-footer">
-        <span>WORKBENCH / M8</span>
+        <span>WORKBENCH / M9</span>
         <span>源码独立 · 过程可追溯 · 结果由你确认</span>
       </footer>
       {modal ? (

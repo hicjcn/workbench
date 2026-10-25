@@ -1330,6 +1330,10 @@ code {
   padding: 16px;
   margin: 8px 0;
 }
+
+.panorama-panel code {
+  overflow-wrap: anywhere;
+}
 @media (max-width: 600px) {
   .profile-resources {
     grid-template-columns: 1fr;

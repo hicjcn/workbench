@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-workbench"
-version = "0.8.0"
+version = "0.9.0"
 description = "Local development workbench with a persistent API and isolated OpenCode Runner"
 requires-python = ">=3.11"
 dependencies = []

@@ -41,6 +41,7 @@ def build(executor, job, observations):
         "captured_at": datetime.now(timezone.utc).isoformat(), "scope": payload["revision"]["content"],
         "scope_decision": payload["scope_decision"], "approval": payload["request"], "projects": []}
     header["integration"] = payload["integration"]
+    if payload.get("panorama_history"): header["panorama_history"] = payload["panorama_history"]
     entries, baselines = [], {}
     for member in payload["members"]:
         if not member["required"]:

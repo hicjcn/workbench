@@ -79,10 +79,16 @@ def describe(connection, group_id, ignore_job=None, full=False):
         "revision": item["baseline"]["revision_id"] if item["required"] else digest(item["requirement"]),
         "analysis": item["analysis"] if item["required"] else None, "analysis_ref": item["analysis_ref"] if item["required"] else None} for item in children]
     scope_digest = digest({"revision": rev["id"], "members": scope_items})
+    from .panorama import describe as describe_panorama
+    panorama = describe_panorama(connection, group_id, rev["id"], children)
+    if panorama["analysis"]:
+        scope_digest = digest({"scope": scope_digest, "panorama": panorama["analysis"]["id"]})
     decision = connection.execute(select(decisions).where(and_(decisions.c.revision_id == rev["id"], decisions.c.kind == "SCOPE"))
         .order_by(decisions.c.created_at.desc()).limit(1)).mappings().first()
     decision = public(decision)
     scope_ready = all(item["analysis"] for item in children if item["required"])
+    if panorama["analysis_required"] and not panorama["analysis"]: scope_ready = False
+    if panorama["analysis"] and not panorama["analysis"]["requirements_current"]: scope_ready = False
     scope_approved = bool(scope_ready and decision and decision["input_digest"] == scope_digest and decision["payload"]["decision"] == "APPROVED")
     baseline_digest = digest({"scope": scope_digest, "decision": decision["id"] if scope_approved else None,
         "baselines": [item["baseline"] for item in children if item["required"]]})
@@ -90,7 +96,7 @@ def describe(connection, group_id, ignore_job=None, full=False):
         .order_by(decisions.c.created_at.desc()).limit(1)).mappings().first())
     integration_valid = bool(integration and integration["input_digest"] == baseline_digest and integration["payload"]["result"] in ("PASS", "NOT_REQUIRED"))
     context = digest({"baseline": baseline_digest, "integration": integration["id"] if integration_valid else None})
-    result = {**group, "revision": public(rev), "members": children, "scope_digest": scope_digest,
+    result = {**group, "revision": public(rev), "members": children, "scope_digest": scope_digest, "panorama": panorama,
         "scope_ready": bool(scope_ready), "scope_approved": scope_approved, "scope_decision": decision,
         "context_digest": context, "baseline_digest": baseline_digest, "integration": integration, "integration_valid": integration_valid,
         "members_ready": all(item["ready"] for item in children if item["required"]),
@@ -172,6 +178,8 @@ class Delivery:
                 guard_workspace(connection, item["requirement_id"])
                 if connection.execute(select(jobs.c.id).where(and_(jobs.c.requirement_id == item["requirement_id"], jobs.c.status.in_(ACTIVE)))).first(): raise Conflict("成员仍有执行或待核实")
             if not state["scope_ready"] or supplied["expected_scope"] != state["scope_digest"]: raise Conflict("请先取得全部必要项目分析，并重新检查范围")
+            if supplied["decision"] == "APPROVED" and state["panorama"]["analysis"] and not state["panorama"]["analysis"]["code_current"]:
+                raise Conflict("全景分析的代码基线已变化，请重新分析后再确认范围")
             if state["state"] != "ACTIVE": raise Conflict("归档交付不能修改范围决定")
             value = dict(id=identifier("dd"), group_id=group_id, revision_id=state["revision"]["id"], kind="SCOPE", input_digest=state["scope_digest"], payload_json=encoded(supplied), created_at=time.time())
             connection.execute(insert(decisions).values(**value)); return public(value)
@@ -218,19 +226,24 @@ class Delivery:
                     if json.loads(previous["input_json"])["request"] != supplied: raise Conflict("相同请求标识对应不同交付操作")
                     return public(previous)
             state = describe(connection, group_id, full=True)
-            if supplied["context_digest"] != state["context_digest"]: raise Conflict("项目版本或交付范围已变化，请重新载入")
+            from .panorama import KINDS, basis
+            panorama = supplied["kind"] in KINDS
+            expected_context = state["panorama"]["context_digest"] if panorama else state["context_digest"]
+            if supplied["context_digest"] != expected_context: raise Conflict("项目版本或交付范围已变化，请重新载入")
             reconcile = supplied["kind"] == "reconcile"
+            if panorama and (state["state"] != "ACTIVE" or any(not item["baseline"]["code_digest"] for item in state["members"])):
+                raise Conflict("请先准备全部候选项目工作区，并使用活动交付")
             if supplied["kind"] == "archive" and state["state"] == "ARCHIVED": raise Conflict("交付已经归档")
             for identity in ids:
                 reserved = connection.execute(select(reservations).where(reservations.c.requirement_id == identity)).mappings().first()
                 if reserved and (not reconcile or reserved["group_id"] != group_id): raise Conflict("成员已被其他操作预留")
                 statuses = ["QUEUED", "RUNNING"] if reconcile else ACTIVE
                 if connection.execute(select(jobs.c.id).where(and_(jobs.c.requirement_id == identity, jobs.c.status.in_(statuses)))).first(): raise Conflict("成员尚有执行或待核实任务")
-            if not reconcile and not state["ready"]: raise Conflict("范围、必要项目、材料测试或反馈尚未完成，不能交付")
+            if not reconcile and not panorama and not state["ready"]: raise Conflict("范围、必要项目、材料测试或反馈尚未完成，不能交付")
             payload_members = []
             for item in state["members"]:
                 history = []
-                if item["required"] and not reconcile:
+                if item["required"] and not reconcile and not panorama:
                     round_ids = select(material_rounds.c.id).where(material_rounds.c.requirement_id == item["requirement_id"])
                     from .store import revisions as requirement_revisions
                     history = {"requirement_revisions": [public(row) for row in connection.execute(select(requirement_revisions).where(requirement_revisions.c.requirement_id == item["requirement_id"])).mappings()],
@@ -238,7 +251,12 @@ class Delivery:
                         "material_versions": [public(row) for row in connection.execute(select(documents).where(documents.c.round_id.in_(round_ids))).mappings()],
                         "material_records": [public(row) for row in connection.execute(select(material_records).where(material_records.c.round_id.in_(round_ids))).mappings()]}
                 payload_members.append({**{name: item[name] for name in ("requirement_id", "project_id", "position", "required", "skip_reason", "workspace_path", "baseline", "requirement", "project")}, "history": history})
+                if panorama:
+                    from .profiles import binding
+                    payload_members[-1]["profile"] = binding(connection, item["requirement_id"])
             payload = {"request": supplied, "group_id": group_id, "revision": state["revision"], "members": payload_members, "context_digest": state["context_digest"], "scope_decision": state["scope_decision"], "integration": state["integration"]}
+            if panorama: payload["panorama_basis"] = basis(state["members"])
+            elif not reconcile: payload["panorama_history"] = state["panorama"]["history"]
             if len(encoded(payload).encode()) > 16 * 1024 * 1024: raise Conflict("本轮历史元数据超过 16 MiB，请缩小范围或先整理历史")
             job = self.store.enqueue(ids[0], "delivery", payload, key, connection=connection, allow_reserved=reconcile)
             if reconcile: connection.execute(delete(reservations).where(reservations.c.group_id == group_id))
@@ -253,6 +271,8 @@ def complete(connection, job, status, result, error, data_dir):
     observations = result.get("delivery_observations", [])
     if not result.get("delivery_stopped") or {item["requirement_id"] for item in observations} != set(ids):
         return "UNKNOWN", error or "成员运行资源或代码状态尚未全部核实"
+    if status == "SUCCEEDED" and job["cancel_requested"] and payload["request"]["kind"] in ("panorama", "panorama_check"):
+        status, error = "CANCELED", "全景操作已取消，运行资源已停止，不发布分析或环境结论"
     from .workflow import invalidate
     for item in observations:
         invalidate(connection, item["requirement_id"], item["tree_digest"])
@@ -261,6 +281,32 @@ def complete(connection, job, status, result, error, data_dir):
         if payload["request"]["kind"] == "reconcile":
             related = select(attempts.c.job_id).where(attempts.c.group_id == payload["group_id"])
             connection.execute(update(jobs).where(and_(jobs.c.id.in_(related), jobs.c.status == "UNKNOWN")).values(status="CANCELED", error="跨项目运行资源已停止并核实", updated_at=time.time()))
+        elif payload["request"]["kind"] in ("panorama", "panorama_check"):
+            state = describe(connection, payload["group_id"], ignore_job=job["id"])
+            output = result.get("panorama_output", {})
+            from .panorama import basis
+            if (state["state"] != "ACTIVE" or state["context_digest"] != payload["context_digest"] or basis(state["members"]) != payload["panorama_basis"] or output.get("basis") != payload["panorama_basis"] or
+                any(item["tree_digest"] != next(member["code_digest"] for member in payload["panorama_basis"] if member["requirement_id"] == item["requirement_id"]) for item in observations)):
+                status, error = "FAILED", "全景分析的需求、范围或代码基线已变化，结果不能生效"
+            else:
+                expected_model = payload["request"]["model"] if payload["request"]["kind"] == "panorama" else None
+                from .panorama import Report
+                valid = output.get("model") == expected_model and output.get("mode") == payload["request"]["kind"]
+                coverage = output.get("coverage", [])
+                valid = valid and len(coverage) == len(payload["members"]) and {item.get("project_id") for item in coverage} == {item["project_id"] for item in payload["members"]} and all(item.get("readonly") and item.get("readable") and item.get("samples_match") for item in coverage)
+                if expected_model:
+                    try:
+                        report = Report.model_validate(output.get("report"))
+                        valid = valid and all(item.file_sha256 for project in report.projects for item in project.evidence)
+                        valid = valid and len(report.projects) == len(payload["members"]) and {item.project_id for item in report.projects} == {item["project_id"] for item in payload["members"]}
+                    except ValueError: valid = False
+                    valid = valid and output.get("model_execution") == "COMPLETED"
+                else: valid = valid and output.get("model_execution") == "NOT_ATTEMPTED" and not output.get("report")
+                if not valid: status, error = "FAILED", "全景结果与固定执行类型不一致"
+                else:
+                    connection.execute(insert(decisions).values(id=identifier("dd"), group_id=payload["group_id"], revision_id=payload["revision"]["id"],
+                        kind="PANORAMA" if expected_model else "PANORAMA_CHECK", input_digest=digest(payload["panorama_basis"]),
+                        payload_json=encoded({**output, "job_id": job["id"], "request": payload["request"], "actor": payload["request"]["actor"], "reason": payload["request"]["reason"]}), created_at=time.time()))
         else:
             state = describe(connection, payload["group_id"], ignore_job=job["id"])
             expected = {item["requirement_id"]: item["baseline"]["code_digest"] for item in payload["members"] if item["required"]}

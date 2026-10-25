@@ -46,6 +46,19 @@ class Operation(Evidence):
     context_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+class PanoramaOperation(Evidence):
+    kind: Literal["panorama", "panorama_check"]
+    context_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    model: str = Field(default="opencode/glm-5.3-flash-free", max_length=240)
+    prompt: str = Field(default="", max_length=8000)
+
+    @model_validator(mode="after")
+    def model_allowed(self):
+        from .runtime import model_config
+        model_config(self.model, True)
+        return self
+
+
 class Integration(Evidence):
     expected_baseline: str = Field(pattern=r"^[a-f0-9]{64}$")
     result: Literal["PASS", "FAIL", "NOT_REQUIRED"]

@@ -33,7 +33,10 @@ def execute(executor, job, emit, canceled):
             stopped = True
             if canceled.is_set(): raise Canceled("交付操作已取消，所有成员已停止，代码与证据保留")
             result = {"delivery_observations": observations, "delivery_stopped": True}
-            if job["input"]["request"]["kind"] != "reconcile":
+            if job["input"]["request"]["kind"] in ("panorama", "panorama_check"):
+                from .panorama import execute as execute_panorama
+                result["panorama_output"] = execute_panorama(executor, job, emit, canceled)
+            elif job["input"]["request"]["kind"] != "reconcile":
                 from .delivery_export import build
                 result["delivery_export"] = build(executor, job, observations)
             return result

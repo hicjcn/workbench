@@ -86,10 +86,15 @@ def opencode_free_config(model: str) -> dict:
     }
 
 
-def model_config(model: str, read_only: bool = False) -> dict:
+def model_config(model: str, read_only: bool = False, context_paths: list | None = None) -> dict:
     config = openrouter_config(model) if model.startswith("openrouter/") else opencode_free_config(model)
     if read_only:
         config["permission"] = {"*": "deny", "read": "allow", "glob": "allow", "grep": "allow", "list": "allow"}
+        if context_paths:
+            if any(not re.fullmatch(r"/workspace/candidates/prj_[a-f0-9]{32}", path) for path in context_paths):
+                raise WorkbenchError("只读上下文路径不正确")
+            config["permission"]["external_directory"] = {path + "/*": "allow" for path in context_paths}
+    elif context_paths: raise WorkbenchError("多项目上下文仅用于只读角色")
     return config
 
 
@@ -97,7 +102,7 @@ def model_config(model: str, read_only: bool = False) -> dict:
 def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
           openrouter_model: str | None = None, opencode_model: str | None = None, read_only_source: bool = False, controller: str | None = None,
           limits: dict | None = None, config_mounts: list | None = None,
-          dependency_network: str | None = None, dependency_environment: dict | None = None) -> dict:
+          dependency_network: str | None = None, dependency_environment: dict | None = None, context_mounts: list | None = None) -> dict:
     workspace, manifest = load_workspace(workspace)
     configuration = {"plugin": ["/opt/superpowers"], "permission": "allow"}
     provider_environment = {}
@@ -113,7 +118,8 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     if read_only_source:
         if not (openrouter_model or opencode_model):
             raise WorkbenchError("Read-only roles require an explicit model")
-        configuration = model_config(openrouter_model or opencode_model, True)
+        configuration = model_config(openrouter_model or opencode_model, True, [item["target"] for item in context_mounts or []])
+    elif context_mounts: raise WorkbenchError("多项目上下文仅用于只读角色")
     suffix = hashlib.sha256(str(workspace).encode()).hexdigest()[:10]
     limits = limits or {"cpus": 1, "memory_mib": 1536, "pids_limit": 256}
     requirement_suffix = hashlib.sha256(str(workspace.parent).encode()).hexdigest()[:10]
@@ -141,6 +147,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     password = secrets.token_urlsafe(32)
     state = {"container": container, "network": network, "password": password,
              "phase": "PREPARING", "image": image}
+    if context_mounts: state["context_paths"] = [item["target"] for item in context_mounts]
     write_json(workspace / "runtime.json", state, private=True)
     command = [
         "run", "--detach", "--name", container,
@@ -162,6 +169,8 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     for name in dependency_environment or {}: command += ["--env", name]
     if controller: command += ["--label", f"awb.controller={controller}"]
     for mount in config_mounts or []:
+        command += ["--mount", f"type=bind,src={mount['source']},dst={mount['target']},readonly"]
+    for mount in context_mounts or []:
         command += ["--mount", f"type=bind,src={mount['source']},dst={mount['target']},readonly"]
     # Docker's configured proxy environment remains in effect. Mount session CA only at runtime.
     if proxy_ca:

@@ -1,0 +1,23 @@
+{
+  "status": "PASSED_M9_MULTI_PROJECT_READONLY_ENVIRONMENT",
+  "model_inference": false,
+  "model_report_generated": false,
+  "user_business_project_tested": false,
+  "checks": {
+    "three_explicit_candidates_include_optional_project_without_starting_development": "PASSED",
+    "browser_runs_one_real_readonly_container_over_all_three_repositories": "PASSED",
+    "environment_success_never_becomes_analysis_or_scope_approval": "PASSED",
+    "candidate_snapshots_exclude_credentials_and_have_scoped_external_directory_permissions": "PASSED",
+    "desktop_and_mobile_show_environment_and_analysis_separately": "PASSED",
+    "actual_running_cancel_stops_role_and_releases_all_candidate_reservations": "PASSED",
+    "all_original_repositories_unchanged": "PASSED",
+    "backup_restores_joint_environment_history_without_model_reports_or_auto_replay": "PASSED",
+    "actual_m8_v2_archive_restores_without_automatic_containers": "PASSED"
+  },
+  "backup_sha256": "24adc38859ebc19fcae60686cdca2284f7007ebfc44aa19ef170cf387ef4dfe5",
+  "previous_backup": {
+    "format": "workbench-backup/v2",
+    "schema_revision": "0006",
+    "sha256": "7684b188c94319ac702ebc622c069a9f9432e53049397b5146226e118b86b732"
+  }
+}
