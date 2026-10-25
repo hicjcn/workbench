@@ -35,9 +35,10 @@ def main():
             "--env", "POSTGRES_PASSWORD", "postgres:17-bookworm", environment={"POSTGRES_PASSWORD": password})
         address = runtime.docker("port", container, "5432/tcp").stdout.strip()
         for _ in range(60):
-            if runtime.docker("exec", container, "pg_isready", "--username", "postgres", check=False).returncode == 0:
+            if runtime.docker("exec", "--env", "PGPASSWORD", container, "psql", "--host", "127.0.0.1", "--username", "postgres", "--dbname", "postgres", "--no-password", "--tuples-only", "--command", "SELECT 1", environment={"PGPASSWORD": password}, check=False, timeout=10).returncode == 0:
                 break
             time.sleep(0.5)
+        else: raise AssertionError("Owned PostgreSQL did not reach authenticated TCP readiness")
         source = root / "source"
         source.mkdir()
         (source / "file.txt").write_text("fixture\n")
@@ -206,6 +207,13 @@ def main():
             profile_service.save(project["id"], {"expected_profile": saved_profiles[0]["id"], "content": Content(cpus=2, dependencies=[{"kind": "postgres"}], application={"start_command": "node server.cjs"}).model_dump(), "actor": "PG fixture", "reason": "next version"})
             assert client.get(f"/api/v1/requirements/{profile_requirement['id']}").json()["profile"]["id"] == saved_profiles[0]["id"]
             assert client.get(f"/api/v1/requirements/{requirement['id']}").json()["profile"] is None
+            from agent_workbench.maintenance import metadata_digest, rows_snapshot
+            metadata_before_audit = metadata_digest(rows_snapshot(database))
+            audit = client.get(f"/api/v1/requirements/{requirement['id']}/acceptance").json()
+            assert audit["status"] == "INCOMPLETE" and not audit["provider_identity_verified"] and not audit["manual_identity_verified"]
+            assert any(item["category"] == "model" and item["status"] == "PENDING" for item in audit["checks"])
+            assert password not in json.dumps(audit)
+            assert metadata_digest(rows_snapshot(database)) == metadata_before_audit
             backed_up = backup(settings)
             restore(Path(backed_up["file"]), root / "restored-sqlite")
             restored = Store(f"sqlite:///{root / 'restored-sqlite/workbench.db'}")
@@ -217,12 +225,14 @@ def main():
                 assert Profiles(restored, root / "restored-sqlite").read(project["id"])["current"]["content"]["application"]["start_command"] == "node server.cjs"
                 assert Delivery(restored).read(group)["panorama"]["environment"]["id"] == panorama_state["panorama"]["environment"]["id"]
                 assert Delivery(restored).read(group)["panorama"]["analysis"] is None
+                from agent_workbench.acceptance_audit import inspect as inspect_acceptance
+                assert inspect_acceptance(restored, requirement["id"])["status"] == "INCOMPLETE"
             finally: restored.engine.dispose()
             database.engine.dispose()
         report.update(status="PASSED_POSTGRES_CONTROL_PLANE", controlled_model_report=True,
-            checks=["migrations", "idempotency", "exclusive_job", "claim", "durable_event", "completion", "workflow_gate", "revision_invalidation", "material_versions", "supervisor_gate", "test_definition_execution_separation", "material_acceptance", "material_export_download", "material_revision_invalidation", "concurrent_idempotent_material_intent", "delivery_scope_integration_gate", "concurrent_idempotent_delivery_intent", "all_member_reservations", "delivery_package", "group_unknown_reconcile", "concurrent_global_job_limit", "postgres_backup_to_new_sqlite_restore", "group_vs_legacy_enqueue_mutual_exclusion", "concurrent_profile_version_creation", "workspace_profile_pin_and_legacy_compatibility", "profile_versions_restore", "dependency_profile_json_preserved", "application_profile_json_preserved", "concurrent_panorama_intent", "panorama_environment_not_analysis", "panorama_history_restore"])
+            checks=["migrations", "idempotency", "exclusive_job", "claim", "durable_event", "completion", "workflow_gate", "revision_invalidation", "material_versions", "supervisor_gate", "test_definition_execution_separation", "material_acceptance", "material_export_download", "material_revision_invalidation", "concurrent_idempotent_material_intent", "delivery_scope_integration_gate", "concurrent_idempotent_delivery_intent", "all_member_reservations", "delivery_package", "group_unknown_reconcile", "concurrent_global_job_limit", "postgres_backup_to_new_sqlite_restore", "group_vs_legacy_enqueue_mutual_exclusion", "concurrent_profile_version_creation", "workspace_profile_pin_and_legacy_compatibility", "profile_versions_restore", "dependency_profile_json_preserved", "application_profile_json_preserved", "concurrent_panorama_intent", "panorama_environment_not_analysis", "panorama_history_restore", "acceptance_records_not_inference", "acceptance_audit_readonly", "acceptance_audit_restore"])
     finally:
-        runtime.docker("rm", "--force", container, check=False)
+        runtime.docker("rm", "--force", "--volumes", container, check=False)
         if report["status"] == "RUNNING":
             report["status"] = "FAILED"
         write_json(root / "report.json", report)

@@ -11,6 +11,7 @@ import { RuntimePanel } from "./RuntimePanel";
 import { ProjectProfilePanel } from "./ProjectProfilePanel";
 import { EnvironmentPanel } from "./EnvironmentPanel";
 import { ApplicationPanel } from "./ApplicationPanel";
+import { AcceptancePanel } from "./AcceptancePanel";
 
 function Badge({ value }: { value: string }) {
   return (
@@ -205,7 +206,7 @@ export default function App() {
           </div>
         </div>
         <div className="topbar-right">
-          <span className="version-pill">M9 · 本地运行</span>
+          <span className="version-pill">M10 · 本地运行</span>
           <button
             className="text-button"
             onClick={() =>
@@ -426,6 +427,10 @@ export default function App() {
                   setDetail(await api<Detail>(`/requirements/${detail.id}`));
                   await reload();
                 }}
+              />
+              <AcceptancePanel
+                key={`acceptance-${detail.id}`}
+                requirementId={detail.id}
               />
               <MaterialPanel
                 key={`materials-${detail.id}`}
@@ -705,7 +710,7 @@ export default function App() {
         </main>
       )}
       <footer className="page-footer">
-        <span>WORKBENCH / M9</span>
+        <span>WORKBENCH / M10</span>
         <span>源码独立 · 过程可追溯 · 结果由你确认</span>
       </footer>
       {modal ? (
