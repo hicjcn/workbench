@@ -64,6 +64,12 @@ class Executor:
         from .dependencies import read, PRIVATE
         dependency = read(workspace, PRIVATE) if workspace.exists() else None
         if dependency: values.append(dependency["password"])
+        manifest = workspace / "workspace.json"
+        if manifest.exists() and not manifest.is_symlink():
+            agent = json.loads(manifest.read_text()).get("agent_cli")
+            if agent:
+                from .agent_clis import checked
+                values.extend(os.environ.get(name, "") for name in checked(agent)["credential_env"])
         return [value for value in values if value]
 
     def redact(self, text, workspace):
@@ -142,6 +148,8 @@ class Executor:
             check()
             from .profiles import configure
             configure(workspace, job.get("profile"), self.settings.data_dir)
+            from .agent_clis import configure as configure_agent
+            configure_agent(workspace, job.get("agent_cli"))
             return self.observe(workspace, "STOPPED")
         if action == "reconcile" and not (workspace / "workspace.json").exists():
             self.cleanup_attempts(job["requirement_id"])
@@ -149,6 +157,9 @@ class Executor:
         if not (workspace / "workspace.json").exists():
             raise WorkbenchError("请先创建需求工作区")
         load_workspace(workspace)
+        if action in ("start", "task", "workflow", "materials", "preflight"):
+            from .agent_clis import verify_workspace
+            verify_workspace(workspace, job.get("agent_cli"))
         if action == "preflight":
             from .preflight import execute
             return execute(self, job, workspace, emit, canceled)
@@ -163,7 +174,7 @@ class Executor:
             return self.observe(workspace, "STOPPED")
         if action == "start":
             if not (workspace / "runtime.json").exists():
-                emit("stage", {"text": "正在启动隔离环境和 OpenCode"})
+                emit("stage", {"text": "正在启动隔离环境和固定 Agent CLI"})
                 options = {"openrouter_model": self.settings.model} if self.settings.model.startswith("openrouter/") else {"opencode_model": self.settings.model}
                 ca = Path(os.environ["CODEX_PROXY_CERT"]) if os.environ.get("CODEX_PROXY_CERT") else None
                 self.start_runtime(workspace, job["project"]["image"], ca, **options)
@@ -173,7 +184,7 @@ class Executor:
                 try:
                     capabilities = runtime.probe(workspace)
                     if capabilities["health"].get("healthy"):
-                        emit("stage", {"text": "OpenCode 已就绪，技能加载完成"})
+                        emit("stage", {"text": "兼容 OpenCode 的 Agent 服务已就绪，技能配置已收集"})
                         return {**self.observe(workspace, "RUNNING"), "capabilities": capabilities}
                 except WorkbenchError:
                     time.sleep(0.5)
@@ -222,7 +233,7 @@ class Executor:
             openrouter_catalog_model(model)
         expected = runtime.model_config(model, read_only, state.get("context_paths"))
         configuration = safe_path(workspace, "agent-home/.config/opencode/opencode.json")
-        if json.loads(configuration.read_text()) != expected:
+        if not runtime.matches_model_config(json.loads(configuration.read_text()), expected):
             raise WorkbenchError("运行环境模型配置已变化，请停止并重新启动环境")
         prompt = prompt or (f"需求：{job['requirement']['title']}\n背景：{job['requirement']['description']}\n"
                   f"验收标准：{job['requirement']['acceptance']}\n本次任务：{job['input']['prompt']}\n"
@@ -234,14 +245,18 @@ class Executor:
                 "application": content.get("application"),
                 "database_access": "not_connected_in_readonly_session" if read_only else "use_PGHOST_PGPORT_PGUSER_PGDATABASE_PGPASSWORD_environment_variables"}
             prompt += "\n固定运行配置（不包含认证内容，不在答复或产物中写入凭据）：" + json.dumps(context, ensure_ascii=False)
-        command = ["docker", "--host=unix:///var/run/docker.sock", "exec", "-i", state["container"], "opencode", "run",
-                   "--attach", "http://127.0.0.1:4096", "--model", model, "--format", "json"]
+        from .agent_clis import builtin, checked, command as agent_command
+        selected = state.get("agent_cli") or builtin()
+        if job.get("agent_cli") and (selected["id"] != job["agent_cli"]["id"] or selected["content_digest"] != job["agent_cli"]["content_digest"]):
+            raise WorkbenchError("任务与运行环境的 Agent CLI 固定版本不一致，请停止并核实")
+        cli_content = checked(selected)
+        command = ["docker", "--host=unix:///var/run/docker.sock", "exec", "-i", state["container"], *agent_command(selected, "run", model=model)]
         environment = os.environ.copy()
         for name in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
             environment.pop(name, None)
         emit("stage", {"text": "正在提交一次 Agent 任务并收集输出", "model": model})
         try:
-            timeout = float(os.environ.get("AWB_TASK_TIMEOUT", "300"))
+            timeout = float(os.environ.get("AWB_TASK_TIMEOUT", "300")) if selected["id"] == "builtin-opencode" else cli_content["timeout_seconds"]
             if not math.isfinite(timeout) or timeout <= 0:
                 raise ValueError
         except ValueError:
@@ -330,9 +345,9 @@ class Executor:
                 raise Unknown("Agent 输入传输未确认完成，结果需核实")
             if not completed:
                 raise Unknown("没有观察到明确结束事件，结果需核实；任务不会重放")
-            emit("model_completion", {"schema": "workbench-model-completion/v1", "model": model, "completed": True,
+            emit("model_completion", {"schema": "workbench-model-completion/v1", "model": model, "completed": True, "agent_cli_id": selected["id"],
                 "text_seen": bool(text_seen), "skills": sorted(skill_reads), "stream_digest": stream_digest.hexdigest()})
-            result = {**self.observe(workspace, "RUNNING"), "model": model}
+            result = {**self.observe(workspace, "RUNNING"), "model": model, "agent_cli": {key: selected[key] for key in ("id", "name", "number", "content_digest")}}
             if collect_text:
                 # Earlier assistant text may announce a skill or explain tool use.
                 # Only the final text part is the report; all parts stay in events.

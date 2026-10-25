@@ -153,7 +153,7 @@ class DockerManagementTests(ControlFixture):
     def test_backup_restores_dockerfiles_and_completed_jobs_without_running_them(self):
         self.recipe(); record = self.operation().json(); self.client.post(f"/api/v1/docker/operations/{record['id']}/cancel", json={})
         with self.store.engine.begin() as c:
-            c.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")); c.execute(text("INSERT INTO alembic_version VALUES ('0007')"))
+            c.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")); c.execute(text("INSERT INTO alembic_version VALUES ('0008')"))
         with patch("agent_workbench.resources.inventory", return_value=[]): report = backup(self.settings)
         destination = self.root / "restored"; restore(Path(report["file"]), destination)
         from agent_workbench.store import Store

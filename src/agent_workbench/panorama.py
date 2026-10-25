@@ -111,6 +111,8 @@ def execute(executor, job, emit, canceled):
     bundle, copies = [], []
     for member in payload["members"]:
         source = Path(member["workspace_path"])
+        from .agent_clis import verify_workspace
+        verify_workspace(source, member.get("agent_cli"))
         executor.guard_git(source / "repo")
         current = snapshot(source / "repo")
         if current["tree_digest"] != member["baseline"]["code_digest"]: raise WorkbenchError("候选项目代码已变化，请刷新后重新开始全景分析")
@@ -124,6 +126,8 @@ def execute(executor, job, emit, canceled):
             "name": member["project"]["name"], "requirement": member["requirement"], "code_digest": current["tree_digest"],
             "target": "/workspace/candidates/" + member["project_id"], "files": current["files"]})
     primary = copies[0]
+    from .agent_clis import inherit as inherit_agent
+    inherit_agent(Path(payload["members"][0]["workspace_path"]), primary)
     _, source_manifest = load_workspace(Path(payload["members"][0]["workspace_path"]))
     profile = source_manifest.get("runtime_profile")
     image = profile["image_id"] if profile else payload["members"][0]["project"]["image"]

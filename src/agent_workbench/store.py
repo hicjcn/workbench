@@ -149,6 +149,17 @@ docker_jobs = Table("docker_jobs", metadata,
     Column("owner", String(80)), Column("epoch", Integer, nullable=False, default=0),
     Column("lease_until", Float), Column("result_json", Text), Column("error", Text),
     Column("created_at", Float, nullable=False), Column("updated_at", Float, nullable=False))
+agent_cli_configs = Table("agent_cli_configs", metadata,
+    Column("id", String(40), primary_key=True), Column("family", String(40), nullable=False),
+    Column("number", Integer, nullable=False), Column("name", String(160), nullable=False),
+    Column("content_json", Text, nullable=False), Column("content_digest", String(64), nullable=False),
+    Column("actor", String(160), nullable=False), Column("reason", Text, nullable=False), Column("created_at", Float, nullable=False),
+    UniqueConstraint("family", "number", name="uq_agent_cli_version"))
+agent_cli_default = Table("agent_cli_default", metadata,
+    Column("id", Integer, primary_key=True), Column("config_id", ForeignKey("agent_cli_configs.id")))
+workspace_agents = Table("workspace_agents", metadata,
+    Column("requirement_id", ForeignKey("requirements.id"), primary_key=True),
+    Column("config_id", ForeignKey("agent_cli_configs.id")))
 
 
 def identifier(prefix):
@@ -273,6 +284,8 @@ class Store:
         if action == "prepare":
             from .profiles import pin
             pin(connection, requirement_id)
+            from .agent_clis import pin as pin_agent
+            pin_agent(connection, requirement_id)
         now = time.time()
         value = dict(id=identifier("job"), requirement_id=requirement_id, action=action,
             input_json=encoded(payload), status="QUEUED", idempotency_key=key,
@@ -309,8 +322,9 @@ class Store:
             project = connection.execute(select(projects).where(projects.c.id == requirement["project_id"])).mappings().one()
             workspace = connection.execute(select(workspaces).where(workspaces.c.requirement_id == requirement["id"])).mappings().one()
             from .profiles import binding
+            from .agent_clis import selection
             return {**public(result), "requirement": public(requirement), "project": public(project), "workspace": public(workspace),
-                "profile": binding(connection, requirement["id"])}
+                "profile": binding(connection, requirement["id"]), "agent_cli": selection(connection, requirement["id"])}
 
     def owned(self, connection, job_id, owner, epoch):
         row = connection.execute(select(jobs).where(jobs.c.id == job_id).with_for_update()).mappings().first()

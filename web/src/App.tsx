@@ -1,3 +1,4 @@
+import { AgentCliPanel } from "./AgentCliPanel";
 import { DockerImagesPanel } from "./DockerImagesPanel";
 import { ContainersPanel } from "./ContainersPanel";
 import { useCallback, useEffect, useState } from "react";
@@ -35,8 +36,8 @@ export default function App() {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [modal, setModal] = useState<"project" | "requirement" | null>(null);
   const [view, setView] = useState<
-    "requirements" | "projects" | "deliveries" | "runtime" | "images" | "containers"
-  >("requirements");
+    "requirements" | "projects" | "deliveries" | "runtime" | "images" | "containers" | "agents"
+  >(() => location.hash === "#agent-clis" ? "agents" : "requirements");
   const [task, setTask] = useState("");
   const [reason, setReason] = useState("");
   const [logId, setLogId] = useState("");
@@ -312,8 +313,9 @@ export default function App() {
         </button>
         <button className={view === "images" ? "selected" : ""} aria-pressed={view === "images"} onClick={() => setView("images")}>Docker 镜像</button>
         <button className={view === "containers" ? "selected" : ""} aria-pressed={view === "containers"} onClick={() => setView("containers")}>容器管理</button>
+        <button className={view === "agents" ? "selected" : ""} aria-pressed={view === "agents"} onClick={() => setView("agents")}>Agent CLI 配置</button>
       </nav>
-      {view === "images" ? <DockerImagesPanel configureProjects={() => setView("projects")} /> : view === "containers" ? <ContainersPanel requirements={requirements} projects={projects} configureProjects={() => setView("projects")} openRequirement={(id) => { setSelected(id); setView("requirements"); }} /> : view === "deliveries" ? (
+      {view === "agents" ? <AgentCliPanel configureProjects={() => setView("projects")} openContainers={() => setView("containers")} /> : view === "images" ? <DockerImagesPanel configureProjects={() => setView("projects")} /> : view === "containers" ? <ContainersPanel requirements={requirements} projects={projects} configureProjects={() => setView("projects")} openRequirement={(id) => { setSelected(id); setView("requirements"); }} /> : view === "deliveries" ? (
         <DeliveryPanel
           requirements={requirements}
           projects={projects}
@@ -400,7 +402,7 @@ export default function App() {
               <section className="panel detail-heading">
                 <div className="section-kicker">
                   {detail.project.name}
-                  <span>独立开发</span>
+                  <span>独立开发</span><span>{detail.agent_cli?.name ?? "OpenCode"} · v{detail.agent_cli?.number ?? 1}{detail.agent_cli?.fixed ? "（已固定）" : "（准备时固定）"}</span>
                 </div>
                 <h2>{detail.title}</h2>
                 <p>{detail.description || "尚未补充需求背景"}</p>

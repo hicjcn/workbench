@@ -98,14 +98,32 @@ def model_config(model: str, read_only: bool = False, context_paths: list | None
     return config
 
 
+def matches_model_config(actual, expected):
+    if not isinstance(actual, dict): return False
+    actual = dict(actual)
+    # OpenCode 1.19.4 writes its editor schema on first use; it does not change permissions.
+    if actual.get("$schema") == "https://opencode.ai/config.json": actual.pop("$schema")
+    return actual == expected
+
+
 @exclusive_workspace
 def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
           openrouter_model: str | None = None, opencode_model: str | None = None, read_only_source: bool = False, controller: str | None = None,
           limits: dict | None = None, config_mounts: list | None = None,
-          dependency_network: str | None = None, dependency_environment: dict | None = None, context_mounts: list | None = None) -> dict:
+          dependency_network: str | None = None, dependency_environment: dict | None = None, context_mounts: list | None = None, agent_cli: dict | None = None) -> dict:
     workspace, manifest = load_workspace(workspace)
     configuration = {"plugin": ["/opt/superpowers"], "permission": "allow"}
     provider_environment = {}
+    if agent_cli:
+        from .agent_clis import checked, command as agent_command
+        cli_content = checked(agent_cli)
+        serve_argv = agent_command(agent_cli, "serve")
+    else:
+        # Keep the standalone M1 runtime usable without controller dependencies.
+        cli_content = {"credential_env": []}
+        serve_argv = ["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"]
+    for name in cli_content["credential_env"]:
+        if name in os.environ: provider_environment[name] = os.environ[name]
     if openrouter_model is not None and opencode_model is not None:
         raise WorkbenchError("Select only one verification provider")
     if opencode_model is not None:
@@ -147,6 +165,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     password = secrets.token_urlsafe(32)
     state = {"container": container, "network": network, "password": password,
              "phase": "PREPARING", "image": image}
+    if agent_cli: state["agent_cli"] = agent_cli
     if context_mounts: state["context_paths"] = [item["target"] for item in context_mounts]
     write_json(workspace / "runtime.json", state, private=True)
     command = [
@@ -178,7 +197,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
                     "--env", "NODE_EXTRA_CA_CERTS=/run/proxy-ca.pem",
                     "--env", "SSL_CERT_FILE=/run/proxy-ca.pem",
                     "--env", "GIT_SSL_CAINFO=/run/proxy-ca.pem"]
-    command += [image, "opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"]
+    command += [image, *serve_argv]
     try:
         docker(*command, environment={"OPENCODE_SERVER_PASSWORD": password, **provider_environment, **(dependency_environment or {})})
         if dependency_network: docker("network", "connect", dependency_network, container)
@@ -201,6 +220,8 @@ def probe(workspace: Path) -> dict:
     if state.get("phase") != "STARTED":
         raise WorkbenchError("Runtime is not ready for capability probing")
     report = OpenCodeClient(state["base_url"], state["password"]).probe()
+    if state.get("agent_cli"):
+        report["agent_cli"] = {key: state["agent_cli"][key] for key in ("id", "name", "number", "content_digest")}
     details = json.loads(docker("inspect", state["container"]).stdout)[0]
     mounts = details["Mounts"]
     report["runtime"] = {

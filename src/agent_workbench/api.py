@@ -190,6 +190,8 @@ def create_app(settings: Settings, store: Store | None = None):
     install_delivery_routes(app, settings, database, user, runner)
     from .profile_api import install as install_profile_routes
     install_profile_routes(app, settings, database, user)
+    from .agent_cli_api import install as install_agent_cli_routes
+    install_agent_cli_routes(app, database, user)
     from .docker_api import install as install_docker_routes
     install_docker_routes(app, settings, database, user, runner, Claim, Lease, Finish)
 
@@ -259,9 +261,12 @@ def create_app(settings: Settings, store: Store | None = None):
         from .preflight import read_report
         from .dependencies import status as dependency_status
         from .application import status as application_status
-        with database.engine.connect() as connection: profile = binding(connection, requirement_id)
+        with database.engine.connect() as connection:
+            profile = binding(connection, requirement_id)
+            from .agent_clis import selection
+            agent_cli = selection(connection, requirement_id)
         workspace = database.get(tables.workspaces, requirement_id)
-        return {**requirement, "project": database.get(tables.projects, requirement["project_id"]), "profile": profile,
+        return {**requirement, "project": database.get(tables.projects, requirement["project_id"]), "profile": profile, "agent_cli": agent_cli,
             "preflight": read_report(Path(workspace["path"])),
             "dependency": dependency_status(Path(workspace["path"])),
             "application": application_status(Path(workspace["path"]), workspace.get("snapshot", {}).get("tree_digest") if workspace.get("snapshot") else None),

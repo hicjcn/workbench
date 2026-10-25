@@ -119,7 +119,7 @@ export function EnvironmentPanel({
 }
 const checkLabels: Record<string, string> = {
   image_id: "实际镜像一致",
-  opencode_version: "OpenCode 版本匹配",
+  opencode_version: "Agent CLI 版本符合配置",
   superpowers_revision: "Superpowers 版本匹配",
   superpowers_loaded: "Superpowers 技能已加载",
   node_and_git: "Node 与 Git 可用",
