@@ -40,7 +40,7 @@ python3 -m venv .venv
 npm ci --prefix web
 npm run --prefix web build
 docker build -t agent-workbench-m1:local poc/container
-.venv/bin/python -m agent_workbench.server --data-dir /absolute/path/workbench-data
+.venv/bin/python -m agent_workbench.server --sqlite --data-dir /absolute/path/workbench-data
 ```
 
 另一终端：
@@ -52,6 +52,8 @@ docker build -t agent-workbench-m1:local poc/container
 API 默认仅监听 `127.0.0.1:8340`。打开本机地址，读取启动提示中的 `access-token` 私有文件，在登录表单输入令牌。Cookie 为 HttpOnly、SameSite Strict；写请求检查来源，内部 Runner 接口使用独立凭据。
 
 启动会应用数据库迁移，既有需求及执行记录保留。手动初始化可加 `--init-only`。后台代码不会自动重放旧执行。
+
+默认使用数据目录中的 `workbench.db`，不需要额外数据库服务。`--sqlite` 强制使用该文件，忽略已有 `AWB_DATABASE_URL`；空 URL 也采用 SQLite 默认值。数据库路径可在「资源与恢复」查看，持久化与维护命令见 [本地 SQLite 存储](25-local-sqlite.md)。
 
 构建和运行需要代理证书时，按 M1 操作说明传入 BuildKit secret。Runner 检测到 `CODEX_PROXY_CERT` 时将证书只读挂载到容器，继承已有代理，不关闭 TLS 检查。
 

@@ -330,16 +330,17 @@ function ProfileForm({
         </button>
       </fieldset>
       <fieldset>
-        <legend>业务依赖</legend>
+        <legend>业务项目的可选依赖</legend>
         <label className="checkbox-label">
           <input
             type="checkbox"
             checked={postgres}
             onChange={(event) => setPostgres(event.target.checked)}
           />
-          为每个需求启用独立 PostgreSQL 17
+          业务项目需要时，为每个需求启用 PostgreSQL 17
         </label>
         <p className="hint">
+          默认不启用。工作台默认使用本地 SQLite，无需数据库服务；只有待开发的业务项目需要 PostgreSQL 时才勾选。
           每个需求独立数据库、内部网络、数据卷和认证，不开放宿主端口。依赖占用一个容器名额；启动前需备好
           postgres:17-bookworm 镜像。停止会先保存快照并保留数据卷。
         </p>

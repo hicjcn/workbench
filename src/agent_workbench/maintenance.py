@@ -213,6 +213,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["inspect", "stop", "backup", "restore"])
     parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--sqlite", action="store_true", help="维护数据目录中的本地 workbench.db，忽略 AWB_DATABASE_URL")
     parser.add_argument("--archive", type=Path)
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--project-map", action="append", default=[])
@@ -222,7 +223,7 @@ def main():
             if not args.archive or not args.destination: raise WorkbenchError("恢复需要 --archive 和 --destination")
             report = restore(args.archive, args.destination, dict(item.split("=", 1) for item in args.project_map))
         else:
-            settings = Settings.load(args.data_dir)
+            settings = Settings.load(args.data_dir, sqlite=args.sqlite)
             report = {"containers": resources.inventory(settings.data_dir)} if args.action == "inspect" else stop(settings) if args.action == "stop" else backup(settings)
         print(json.dumps(report, ensure_ascii=False, indent=2))
     except WorkbenchError as failure: parser.exit(1, str(failure) + "\n")
