@@ -1,0 +1,22 @@
+{
+  "status": "PASSED_M6_SAMPLE_ONBOARDING",
+  "model_inference": false,
+  "sample_tests_executed": true,
+  "user_business_project_tested": false,
+  "checks": {
+    "custom_sample_dockerfile_builds_from_pinned_toolchain": "PASSED",
+    "browser_save_versioned_profile_without_file_contents": "PASSED",
+    "real_readonly_preflight_tools_skills_mounts_and_cleanup": "PASSED",
+    "runtime_uses_pinned_image_limits_and_readonly_config": "PASSED",
+    "real_container_build_and_three_sample_tests": "PASSED",
+    "profile_revision_and_host_change_leave_existing_workspace_independent": "PASSED",
+    "browser_mobile_without_errors_or_overflow": "PASSED",
+    "new_workspace_uses_new_profile_and_missing_command_blocks_start": "PASSED",
+    "original_source_and_host_config_not_modified_by_container": "PASSED",
+    "new_backup_restores_profile_metadata_without_config_contents": "PASSED",
+    "actual_m5_backup_restores_with_new_schema": "PASSED"
+  },
+  "backup_sha256": "7b2878824127d7d38c1874be9e07a070b8fd32fbbb4e7bea5b81786655370be6",
+  "image_id": "sha256:9c91853938032349005c0ddb711b52a3ca098e0faf56f0426b95a531cfc55c75",
+  "opencode": "1.19.4"
+}

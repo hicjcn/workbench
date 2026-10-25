@@ -124,6 +124,17 @@ lifecycles = Table("workspace_lifecycles", metadata,
 runtime_guard = Table("runtime_guard", metadata, Column("id", Integer, primary_key=True))
 runner_reports = Table("runner_reports", metadata,
     Column("owner", String(80), primary_key=True), Column("report_json", Text, nullable=False), Column("updated_at", Float, nullable=False))
+project_profiles = Table("project_profiles", metadata,
+    Column("id", String(40), primary_key=True), Column("project_id", ForeignKey("projects.id"), nullable=False),
+    Column("number", Integer, nullable=False), Column("is_current", Boolean, nullable=False),
+    Column("content_json", Text, nullable=False), Column("content_digest", String(64), nullable=False),
+    Column("actor", String(160), nullable=False), Column("reason", Text, nullable=False), Column("created_at", Float, nullable=False),
+    UniqueConstraint("project_id", "number", name="uq_project_profile_version"))
+Index("uq_current_project_profile", project_profiles.c.project_id, unique=True,
+    sqlite_where=project_profiles.c.is_current.is_(True), postgresql_where=project_profiles.c.is_current.is_(True))
+workspace_profiles = Table("workspace_profiles", metadata,
+    Column("requirement_id", ForeignKey("requirements.id"), primary_key=True),
+    Column("profile_id", ForeignKey("project_profiles.id"), nullable=False))
 
 
 def identifier(prefix):
@@ -245,6 +256,9 @@ class Store:
         if connection.execute(select(jobs.c.id).where(and_(jobs.c.requirement_id == requirement_id,
                 jobs.c.status.in_(statuses)))).first():
             raise Conflict("此需求有活动任务或待核实任务，请先处理后再操作")
+        if action == "prepare":
+            from .profiles import pin
+            pin(connection, requirement_id)
         now = time.time()
         value = dict(id=identifier("job"), requirement_id=requirement_id, action=action,
             input_json=encoded(payload), status="QUEUED", idempotency_key=key,
@@ -279,7 +293,9 @@ class Store:
             requirement = connection.execute(select(requirements).where(requirements.c.id == row["requirement_id"])).mappings().one()
             project = connection.execute(select(projects).where(projects.c.id == requirement["project_id"])).mappings().one()
             workspace = connection.execute(select(workspaces).where(workspaces.c.requirement_id == requirement["id"])).mappings().one()
-            return {**public(result), "requirement": public(requirement), "project": public(project), "workspace": public(workspace)}
+            from .profiles import binding
+            return {**public(result), "requirement": public(requirement), "project": public(project), "workspace": public(workspace),
+                "profile": binding(connection, requirement["id"])}
 
     def owned(self, connection, job_id, owner, epoch):
         row = connection.execute(select(jobs).where(jobs.c.id == job_id).with_for_update()).mappings().first()

@@ -48,6 +48,8 @@ export type Detail = Omit<Requirement, "workspace"> & {
   project: Project;
   jobs: Job[];
   reviews: Review[];
+  profile: import("./ProjectProfilePanel").RuntimeProfile | null;
+  preflight: { status: string; image_id: string; checks: { name: string; passed: boolean }[] } | null;
 };
 export type ExecutionEvent = {
   id: number;
@@ -81,6 +83,9 @@ export const labels: Record<string, string> = {
   workflow: "流程步骤",
   materials: "材料步骤",
   delivery: "跨项目交付",
+  preflight: "环境预检",
+  build: "项目构建",
+  verify: "项目验证",
 };
 export const timeLabel = (timestamp: number) =>
   new Date(timestamp * 1000).toLocaleString("zh-CN", {

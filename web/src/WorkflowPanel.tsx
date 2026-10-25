@@ -234,7 +234,9 @@ export function WorkflowPanel({
             <input
               name="command"
               required
-              defaultValue="npm test"
+              defaultValue={
+                detail.profile?.content.verification_command ?? "npm test"
+              }
               maxLength={2000}
             />
           </label>
@@ -343,7 +345,11 @@ export function WorkflowPanel({
           {node ? (
             <div className="flow-next">
               <h3>下一步：{node.label}</h3>
-              {node.error ? <p className="inline-error" role="alert">{node.error}</p> : null}
+              {node.error ? (
+                <p className="inline-error" role="alert">
+                  {node.error}
+                </p>
+              ) : null}
               {gate ? (
                 <>
                   <label className="form-stack">

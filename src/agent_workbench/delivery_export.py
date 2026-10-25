@@ -51,13 +51,15 @@ def build(executor, job, observations):
         prefix = "projects/" + member["project_id"]
         manifest = json.loads((workspace / "workspace.json").read_text())
         header["projects"].append({"project_id": member["project_id"], "requirement_id": member["requirement_id"], "status": "READY",
-            "baseline": member["baseline"], "source_commit": manifest["source_commit"], "source_baseline": manifest["source_baseline"]})
+            "baseline": member["baseline"], "source_commit": manifest["source_commit"], "source_baseline": manifest["source_baseline"],
+            "runtime_profile": manifest.get("runtime_profile")})
         entries.extend((prefix + "/code/" + item["path"], safe_path(repo, item["path"])) for item in current["files"])
         for item in current["files"]:
             data = safe_path(repo, item["path"]).read_bytes()
             if any(value.encode() in data for value in executor.secret_values(workspace)): raise WorkbenchError("源码包含已知凭据，交付已阻止")
         entries.append((prefix + "/changes.patch", full_diff(executor, workspace, current["files"])))
         if (workspace / "capability-report.json").exists(): entries.append((prefix + "/environment.json", workspace / "capability-report.json"))
+        if (workspace / "preflight-report.json").exists(): entries.append((prefix + "/preflight.json", workspace / "preflight-report.json"))
         entries.append((prefix + "/history.json", json.dumps(member["history"], ensure_ascii=False, indent=2).encode()))
     entries.append(("README.txt", "交付包固定各项目代码和结论，不会推送分支、合并代码或部署。外部证据保留引用；后续代码/需求变化使当前交付需要重新核实。\n".encode()))
     result = build_archive(package_path(executor.settings.data_dir, job["id"]), header, entries)
