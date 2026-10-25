@@ -80,6 +80,7 @@ export const labels: Record<string, string> = {
   review: "人工代码确认",
   workflow: "流程步骤",
   materials: "材料步骤",
+  delivery: "跨项目交付",
 };
 export const timeLabel = (timestamp: number) =>
   new Date(timestamp * 1000).toLocaleString("zh-CN", {

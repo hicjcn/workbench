@@ -26,6 +26,16 @@ class Executor:
     def __init__(self, settings):
         self.settings = settings
 
+    def start_runtime(self, workspace, image, proxy_ca=None, **options):
+        from . import resources
+        admission = self.settings.data_dir / "locks" / "runtime-admission.lock"
+        admission.parent.mkdir(parents=True, exist_ok=True)
+        with admission.open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if len(resources.inventory(self.settings.data_dir)) >= self.settings.max_containers:
+                raise WorkbenchError("托管容器达到上限，请停止不需要的环境后明确重试")
+            return runtime.start(workspace, image, proxy_ca, controller=resources.controller_id(self.settings.data_dir), **options)
+
     def secret_values(self, workspace):
         values = [self.settings.access_token, self.settings.runner_token, os.environ.get("OPENROUTER_API_KEY", "")]
         path = workspace / "runtime.json"
@@ -74,6 +84,9 @@ class Executor:
             raise WorkbenchError("工作区 Git 元数据包含符号链接")
 
     def execute(self, job, emit, canceled):
+        if job["action"] == "delivery":
+            from .delivery_execution import execute
+            return execute(self, job, emit, canceled)
         workspace = Path(job["workspace"]["path"])
         lock_dir = self.settings.data_dir / "locks"
         lock_dir.mkdir(parents=True, exist_ok=True)
@@ -122,7 +135,7 @@ class Executor:
                 emit("stage", {"text": "正在启动隔离环境和 OpenCode"})
                 options = {"openrouter_model": self.settings.model} if self.settings.model.startswith("openrouter/") else {"opencode_model": self.settings.model}
                 ca = Path(os.environ["CODEX_PROXY_CERT"]) if os.environ.get("CODEX_PROXY_CERT") else None
-                runtime.start(workspace, job["project"]["image"], ca, **options)
+                self.start_runtime(workspace, job["project"]["image"], ca, **options)
             deadline = time.monotonic() + 90
             while time.monotonic() < deadline:
                 check()
@@ -152,8 +165,9 @@ class Executor:
     def cleanup_attempts(self, requirement_id):
         root = self.settings.data_dir / "attempts"
         if root.exists():
-            for path in root.glob(f"*/{requirement_id}/*/runtime.json"):
-                runtime.stop(path.parent)
+            from .resources import stop_workspace
+            for path in root.glob(f"*/{requirement_id}/*/workspace.json"):
+                stop_workspace(self.settings.data_dir, path.parent)
 
     def task(self, job, workspace, emit, canceled, *, model=None, prompt=None, read_only=False, collect_text=False):
         state_path = workspace / "runtime.json"

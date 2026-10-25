@@ -113,15 +113,77 @@ def main():
             assert state["accepted"]
             exported = client.get(f"/api/v1/requirements/{requirement['id']}/materials/exports/{state['exports'][0]['id']}")
             assert exported.status_code == 200 and exported.content.startswith(b"PK")
+            from agent_workbench.delivery import Delivery
+            from agent_workbench.store import jobs, reservations
+            from sqlalchemy import update
+            delivery = Delivery(database)
+            other_project = client.post("/api/v1/projects", json={"name": "PG optional service", "source_path": str(source)}).json()
+            optional = client.post("/api/v1/requirements", json={"project_id": other_project["id"], "title": "Explicitly skipped PG service"}).json()
+            group = delivery.save({"title": "PG cross-project fixture", "description": "Controlled", "actor": "Fixture", "reason": "controlled PG", "expected_revision": None,
+                "members": [{"requirement_id": requirement["id"], "required": True, "skip_reason": ""}, {"requirement_id": optional["id"], "required": False, "skip_reason": "not affected by controlled change"}]})["id"]
+            delivery.decide(group, evidence(expected_scope=delivery.read(group)["scope_digest"], decision="APPROVED"))
+            delivery.integrate(group, evidence(expected_baseline=delivery.read(group)["baseline_digest"], result="NOT_REQUIRED", environment="controlled PG", actual="no business integration test executed"))
+            request = evidence(kind="capture", context_digest=delivery.read(group)["context_digest"])
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                captures = list(pool.map(lambda _: delivery.enqueue(group, request, "pg-delivery-same-intent"), range(4)))
+            assert len({item["id"] for item in captures}) == 1 and len(database.list(reservations)) == 2
+            assert client.post(f"/api/v1/requirements/{optional['id']}/actions", json={"action": "prepare"}).status_code == 409
+            claimed = database.claim("pg-delivery-worker")
+            result = Executor(settings).execute(claimed, lambda *_: None, __import__("threading").Event())
+            database.finish(claimed["id"], "pg-delivery-worker", claimed["epoch"], "SUCCEEDED", result, None)
+            assert delivery.read(group)["exports"][0]["validity"] == "CURRENT" and not database.list(reservations)
+            from agent_workbench.store import Conflict
+            from threading import Barrier
+            barrier = Barrier(2)
+            def competing_intent(kind):
+                barrier.wait()
+                try:
+                    return delivery.enqueue(group, evidence(kind="capture", context_digest=delivery.read(group)["context_digest"]), None) if kind == "group" else database.enqueue(optional["id"], "prepare", {"prompt": ""}, None)
+                except Conflict: return None
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                race = list(pool.map(competing_intent, ["group", "legacy"]))
+            winners = [item for item in race if item]
+            assert len(winners) == 1
+            database.cancel(winners[0]["id"])
+            assert not database.list(reservations)
+            unknown = delivery.enqueue(group, evidence(kind="capture", context_digest=delivery.read(group)["context_digest"]), None)
+            database.claim("pg-lost-worker")
+            with database.engine.begin() as connection: connection.execute(update(jobs).where(jobs.c.id == unknown["id"]).values(lease_until=0))
+            database.expire(); assert len(database.list(reservations)) == 2
+            delivery.enqueue(group, evidence(kind="reconcile", context_digest=delivery.read(group)["context_digest"]), None)
+            claimed = database.claim("pg-reconcile-worker")
+            result = Executor(settings).execute(claimed, lambda *_: None, __import__("threading").Event())
+            database.finish(claimed["id"], "pg-reconcile-worker", claimed["epoch"], "SUCCEEDED", result, None)
+            assert database.get(jobs, unknown["id"])["status"] == "CANCELED" and not database.list(reservations)
+            queued = []
+            for _ in range(3):
+                extra = client.post("/api/v1/requirements", json={"project_id": project["id"], "title": "PG concurrent admission"}).json()
+                queued.append(client.post(f"/api/v1/requirements/{extra['id']}/actions", json={"action": "prepare"}).json()["id"])
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                claims = list(pool.map(lambda index: database.claim(f"pg-limit-{index}"), range(6)))
+            claimed_jobs = [item for item in claims if item]
+            assert len(claimed_jobs) == 2 and len({item["id"] for item in claimed_jobs}) == 2
+            for item in claimed_jobs: database.finish(item["id"], item["owner"], item["epoch"], "FAILED", {}, "controlled admission completion")
+            for identity in queued:
+                if database.get(jobs, identity)["status"] == "QUEUED": database.cancel(identity)
             old = state["documents"]["summary_design"]
             material_step("edit_document", {"kind": "summary_design", "expected_version": old["id"], "content": {**old["content"], "markdown": "人工更新 PG 材料"}, "reason": "controlled update"})
             assert materials.read(requirement["id"])["current"]["stage"] == "SUPERVISOR_REVIEW"
             with database.engine.connect() as connection:
                 report["postgres_version"] = connection.execute(text("SHOW server_version")).scalar_one()
                 report["migration"] = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            from agent_workbench.maintenance import backup, restore
+            from agent_workbench.store import Store
+            backed_up = backup(settings)
+            restore(Path(backed_up["file"]), root / "restored-sqlite")
+            restored = Store(f"sqlite:///{root / 'restored-sqlite/workbench.db'}")
+            try:
+                assert Delivery(restored).read(group)["exports"][0]["sha256"] == delivery.read(group)["exports"][0]["sha256"]
+                assert len(restored.list(jobs)) == len(database.list(jobs))
+            finally: restored.engine.dispose()
             database.engine.dispose()
         report.update(status="PASSED_POSTGRES_CONTROL_PLANE", controlled_model_report=True,
-            checks=["migrations", "idempotency", "exclusive_job", "claim", "durable_event", "completion", "workflow_gate", "revision_invalidation", "material_versions", "supervisor_gate", "test_definition_execution_separation", "material_acceptance", "material_export_download", "material_revision_invalidation", "concurrent_idempotent_material_intent"])
+            checks=["migrations", "idempotency", "exclusive_job", "claim", "durable_event", "completion", "workflow_gate", "revision_invalidation", "material_versions", "supervisor_gate", "test_definition_execution_separation", "material_acceptance", "material_export_download", "material_revision_invalidation", "concurrent_idempotent_material_intent", "delivery_scope_integration_gate", "concurrent_idempotent_delivery_intent", "all_member_reservations", "delivery_package", "group_unknown_reconcile", "concurrent_global_job_limit", "postgres_backup_to_new_sqlite_restore", "group_vs_legacy_enqueue_mutual_exclusion"])
     finally:
         runtime.docker("rm", "--force", container, check=False)
         if report["status"] == "RUNNING":

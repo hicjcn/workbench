@@ -89,6 +89,41 @@ material_exports = Table("material_exports", metadata,
     Column("id", String(40), primary_key=True), Column("round_id", ForeignKey("material_rounds.id"), nullable=False),
     Column("job_id", ForeignKey("jobs.id"), nullable=False, unique=True), Column("sha256", String(64), nullable=False),
     Column("size", Integer, nullable=False), Column("manifest_json", Text, nullable=False), Column("created_at", Float, nullable=False))
+delivery_groups = Table("delivery_groups", metadata,
+    Column("id", String(40), primary_key=True), Column("state", String(30), nullable=False), Column("created_at", Float, nullable=False))
+delivery_revisions = Table("delivery_revisions", metadata,
+    Column("id", String(40), primary_key=True), Column("group_id", ForeignKey("delivery_groups.id"), nullable=False),
+    Column("number", Integer, nullable=False), Column("is_current", Boolean, nullable=False), Column("content_json", Text, nullable=False),
+    Column("created_at", Float, nullable=False), UniqueConstraint("group_id", "number", name="uq_delivery_revision"))
+Index("uq_current_delivery_revision", delivery_revisions.c.group_id, unique=True,
+    sqlite_where=delivery_revisions.c.is_current.is_(True), postgresql_where=delivery_revisions.c.is_current.is_(True))
+delivery_members = Table("delivery_members", metadata,
+    Column("revision_id", ForeignKey("delivery_revisions.id"), primary_key=True),
+    Column("requirement_id", ForeignKey("requirements.id"), primary_key=True),
+    Column("project_id", ForeignKey("projects.id"), nullable=False), Column("position", Integer, nullable=False),
+    Column("required", Boolean, nullable=False), Column("skip_reason", Text, nullable=False),
+    UniqueConstraint("revision_id", "project_id", name="uq_delivery_project"))
+delivery_decisions = Table("delivery_decisions", metadata,
+    Column("id", String(40), primary_key=True), Column("group_id", ForeignKey("delivery_groups.id"), nullable=False),
+    Column("revision_id", ForeignKey("delivery_revisions.id"), nullable=False), Column("kind", String(30), nullable=False),
+    Column("input_digest", String(64), nullable=False), Column("payload_json", Text, nullable=False), Column("created_at", Float, nullable=False))
+delivery_attempts = Table("delivery_attempts", metadata,
+    Column("job_id", ForeignKey("jobs.id"), primary_key=True), Column("group_id", ForeignKey("delivery_groups.id"), nullable=False),
+    Column("revision_id", ForeignKey("delivery_revisions.id"), nullable=False), Column("kind", String(30), nullable=False),
+    Column("input_digest", String(64), nullable=False), Column("created_at", Float, nullable=False))
+delivery_exports = Table("delivery_exports", metadata,
+    Column("id", String(40), primary_key=True), Column("group_id", ForeignKey("delivery_groups.id"), nullable=False),
+    Column("revision_id", ForeignKey("delivery_revisions.id"), nullable=False), Column("job_id", ForeignKey("jobs.id"), nullable=False, unique=True),
+    Column("input_digest", String(64), nullable=False), Column("sha256", String(64), nullable=False), Column("size", Integer, nullable=False),
+    Column("manifest_json", Text, nullable=False), Column("created_at", Float, nullable=False))
+reservations = Table("workspace_reservations", metadata,
+    Column("requirement_id", ForeignKey("requirements.id"), primary_key=True), Column("job_id", ForeignKey("jobs.id"), nullable=False),
+    Column("group_id", ForeignKey("delivery_groups.id"), nullable=False))
+lifecycles = Table("workspace_lifecycles", metadata,
+    Column("requirement_id", ForeignKey("requirements.id"), primary_key=True), Column("group_id", ForeignKey("delivery_groups.id"), nullable=False))
+runtime_guard = Table("runtime_guard", metadata, Column("id", Integer, primary_key=True))
+runner_reports = Table("runner_reports", metadata,
+    Column("owner", String(80), primary_key=True), Column("report_json", Text, nullable=False), Column("updated_at", Float, nullable=False))
 
 
 def identifier(prefix):
@@ -119,12 +154,13 @@ class Missing(Exception):
 
 
 class Store:
-    def __init__(self, url, lease_seconds=45):
+    def __init__(self, url, lease_seconds=45, max_active_jobs=2):
         options = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}
         if url in ("sqlite://", "sqlite:///:memory:"):
             options["poolclass"] = StaticPool
         self.engine = create_engine(url, **options)
         self.lease_seconds = lease_seconds
+        self.max_active_jobs = max_active_jobs
         if url.startswith("sqlite"):
             @event.listens_for(self.engine, "connect")
             def configure(connection, _):
@@ -161,22 +197,22 @@ class Store:
     def expire(self):
         now = time.time()
         with self.engine.begin() as connection:
-            expired = connection.execute(select(jobs.c.id, jobs.c.requirement_id).where(
+            expired = connection.execute(select(jobs.c.id, jobs.c.requirement_id, jobs.c.action).where(
                 and_(jobs.c.status == "RUNNING", jobs.c.lease_until < now))).all()
-            for job_id, requirement_id in expired:
+            for job_id, requirement_id, action in expired:
                 changed = connection.execute(update(jobs).where(and_(jobs.c.id == job_id,
                     jobs.c.status == "RUNNING", jobs.c.lease_until < now)).values(
                         status="UNKNOWN", error="执行器心跳中断；需要停止并核实，任务不会自动重放", updated_at=now))
-                if changed.rowcount:
+                if changed.rowcount and action != "delivery":
                     connection.execute(select(requirements.c.id).where(requirements.c.id == requirement_id).with_for_update()).one()
                     connection.execute(update(workspaces).where(workspaces.c.requirement_id == requirement_id)
                         .values(environment="UNKNOWN", approval="STALE", updated_at=now))
                     from .workflow import invalidate
                     invalidate(connection, requirement_id)
 
-    def enqueue(self, requirement_id, action, payload, key, connection=None):
+    def enqueue(self, requirement_id, action, payload, key, connection=None, allow_reserved=False):
         if connection is not None:
-            return self._enqueue(connection, requirement_id, action, payload, key)
+            return self._enqueue(connection, requirement_id, action, payload, key, allow_reserved)
         self.expire()
         self.get(requirements, requirement_id)
         try:
@@ -192,7 +228,9 @@ class Store:
                     return public(previous)
             raise Conflict("此需求已有活动任务") from None
 
-    def _enqueue(self, connection, requirement_id, action, payload, key):
+    def _enqueue(self, connection, requirement_id, action, payload, key, allow_reserved=False):
+        # Share the member-row lock with group reservations, including legacy actions.
+        connection.execute(select(requirements.c.id).where(requirements.c.id == requirement_id).with_for_update()).one()
         if key:
             previous = connection.execute(select(jobs).where(and_(jobs.c.requirement_id == requirement_id,
                 jobs.c.idempotency_key == key))).mappings().first()
@@ -200,7 +238,10 @@ class Store:
                 if previous["action"] != action or previous["input_json"] != encoded(payload):
                     raise Conflict("同一个请求标识对应了不同操作")
                 return public(previous)
-        statuses = ["QUEUED", "RUNNING"] if action == "reconcile" else ["QUEUED", "RUNNING", "UNKNOWN"]
+        from .delivery import guard_workspace
+        if not allow_reserved:
+            guard_workspace(connection, requirement_id, allow_archived=action in ("stop", "refresh", "reconcile", "delivery"))
+        statuses = ["QUEUED", "RUNNING"] if action == "reconcile" or (action == "delivery" and payload["request"]["kind"] == "reconcile") else ["QUEUED", "RUNNING", "UNKNOWN"]
         if connection.execute(select(jobs.c.id).where(and_(jobs.c.requirement_id == requirement_id,
                 jobs.c.status.in_(statuses)))).first():
             raise Conflict("此需求有活动任务或待核实任务，请先处理后再操作")
@@ -215,6 +256,15 @@ class Store:
     def claim(self, owner):
         self.expire()
         with self.engine.begin() as connection:
+            if self.engine.dialect.name == "postgresql":
+                from sqlalchemy.dialects.postgresql import insert as upsert
+            else:
+                from sqlalchemy.dialects.sqlite import insert as upsert
+            connection.execute(upsert(runtime_guard).values(id=1).on_conflict_do_nothing())
+            connection.execute(select(runtime_guard).where(runtime_guard.c.id == 1).with_for_update()).one()
+            from sqlalchemy import func
+            if connection.execute(select(func.count()).select_from(jobs).where(jobs.c.status == "RUNNING")).scalar_one() >= self.max_active_jobs:
+                return None
             row = connection.execute(select(jobs).where(jobs.c.status == "QUEUED")
                 .order_by(jobs.c.created_at).with_for_update(skip_locked=True).limit(1)).mappings().first()
             if not row:
@@ -258,6 +308,15 @@ class Store:
     def finish(self, job_id, owner, epoch, status, result, error):
         with self.engine.begin() as connection:
             job = self.owned(connection, job_id, owner, epoch)
+            if job["action"] == "delivery":
+                from pathlib import Path
+                from .delivery import complete as complete_delivery, lock_requirements
+                payload = json.loads(job["input_json"])
+                lock_requirements(connection, [item["requirement_id"] for item in payload["members"]])
+                path = connection.execute(select(workspaces.c.path).where(workspaces.c.requirement_id == job["requirement_id"])).scalar_one()
+                status, error = complete_delivery(connection, job, status, result, error, Path(path).parents[2])
+                connection.execute(update(jobs).where(jobs.c.id == job_id).values(status=status, result_json=encoded(result), error=error, updated_at=time.time(), lease_until=None))
+                return
             # A consistent requirement -> flow/material order avoids cross-resource deadlocks.
             connection.execute(select(requirements.c.id).where(requirements.c.id == job["requirement_id"]).with_for_update()).one()
             from .workflow import complete, invalidate
@@ -306,6 +365,9 @@ class Store:
                 raise Missing("任务不存在")
             if job["status"] == "QUEUED":
                 connection.execute(update(jobs).where(jobs.c.id == job_id).values(status="CANCELED", cancel_requested=True, updated_at=time.time()))
+                if job["action"] == "delivery":
+                    from sqlalchemy import delete
+                    connection.execute(delete(reservations).where(reservations.c.job_id == job_id))
             elif job["status"] == "RUNNING":
                 connection.execute(update(jobs).where(jobs.c.id == job_id).values(cancel_requested=True, updated_at=time.time()))
             else:
@@ -328,6 +390,8 @@ class Store:
     def idle_observation(self, requirement_id, snapshot_value, diff, unreadable=False, diff_truncated=False):
         with self.engine.begin() as connection:
             connection.execute(select(requirements.c.id).where(requirements.c.id == requirement_id).with_for_update()).one()
+            from .delivery import guard_workspace
+            guard_workspace(connection, requirement_id, allow_archived=True)
             if connection.execute(select(jobs.c.id).where(and_(jobs.c.requirement_id == requirement_id,
                     jobs.c.status.in_(["QUEUED", "RUNNING", "UNKNOWN"])))).first():
                 raise Conflict("工作区正在执行或待核实，暂不接受观察结果")

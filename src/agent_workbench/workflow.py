@@ -30,6 +30,8 @@ def invalidate(connection, requirement_id, code_digest=None):
 
 
 def idle(connection, requirement_id):
+    from .delivery import guard_workspace
+    guard_workspace(connection, requirement_id)
     if connection.execute(select(jobs.c.id).where(and_(jobs.c.requirement_id == requirement_id,
             jobs.c.status.in_(["QUEUED", "RUNNING", "UNKNOWN"])))).first():
         raise Conflict("请先完成、取消或核实当前执行")
@@ -189,6 +191,9 @@ class Workflow:
             flow = describe(connection, row)
             if step_key != flow["next_step"]:
                 raise Conflict("请按顺序完成前置步骤")
+            if step_key == "development":
+                from .delivery import scope_gate
+                scope_gate(connection, requirement_id)
             idle(connection, requirement_id)
             latest = {item["step_key"]: item for item in flow["attempts"]}
             if step_key in ("scope", "resolution", "self_review"):

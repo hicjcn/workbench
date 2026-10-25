@@ -1,0 +1,77 @@
+{
+  "status": "PASSED_SQLITE_METADATA_UPGRADE",
+  "from": "0004",
+  "to": "0005",
+  "preserved_tables": {
+    "projects": {
+      "rows": 1,
+      "sha256": "b97c852c13ed4050413f035ae0a79f5f2de5ff81f8945485a4a251485f08923c"
+    },
+    "requirements": {
+      "rows": 2,
+      "sha256": "53d7c81b1dea4399e50967153b8d0bce6547e122a1398948eafc2d7a2bcd5a13"
+    },
+    "jobs": {
+      "rows": 29,
+      "sha256": "ff0d594c260c57d96070f4ba211d77f57ee32fd687514fe19fc0c498bfff816a"
+    },
+    "reviews": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "workspaces": {
+      "rows": 2,
+      "sha256": "ad32621b304b569b3d6ea94d0490fb090eb34360b4e25e46ffa80d4813bc233f"
+    },
+    "execution_events": {
+      "rows": 48,
+      "sha256": "fd04d4e300e5c32d3875d742e8cf36071d209f29308975d4a1552edb035a8a54"
+    },
+    "requirement_revisions": {
+      "rows": 2,
+      "sha256": "9eb4be8324fbf625b09c2af60fcef02482512c450ec4612bc033fc6ea88cedf6"
+    },
+    "workflow_runs": {
+      "rows": 2,
+      "sha256": "3fe6d706825a58017d0687c010ad2563aca51542e125435421f40dddfebd3344"
+    },
+    "workflow_steps": {
+      "rows": 8,
+      "sha256": "5552a90c02f94653d64947a388edf2fcabc40f4808773506760cc3b17a0e216a"
+    },
+    "material_rounds": {
+      "rows": 2,
+      "sha256": "b4c3385527b94f0f9e38584bc4bce4b05dfae11c57382f7f005553eef174069e"
+    },
+    "material_versions": {
+      "rows": 6,
+      "sha256": "bc3eba444e42c4e10d5f3f53f0551945ed1a168cb8d59074efe4969048d7bfd8"
+    },
+    "material_records": {
+      "rows": 11,
+      "sha256": "f7037982c5f533a19ef97aae28243c8216b05f2b06eb1de935f8be0c869d6f6c"
+    },
+    "material_attempts": {
+      "rows": 19,
+      "sha256": "1e6f3d03be649ffdc01b949f8a1cd666fcc60d4a94397167f110d33a573b69f1"
+    },
+    "material_exports": {
+      "rows": 2,
+      "sha256": "89c58ebb67aa7660d0e31f4f578a268a15b297c2fbf6457c440dfc0ba90138d9"
+    }
+  },
+  "added_tables": [
+    "delivery_attempts",
+    "delivery_decisions",
+    "delivery_exports",
+    "delivery_groups",
+    "delivery_members",
+    "delivery_revisions",
+    "runner_reports",
+    "runtime_guard",
+    "workspace_lifecycles",
+    "workspace_reservations"
+  ],
+  "original_database_modified": false,
+  "full_workspace_restore_tested": false
+}

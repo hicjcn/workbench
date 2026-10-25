@@ -42,7 +42,7 @@ def main():
     with sqlite3.connect(destination) as connection:
         after = table_digests(connection)
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-    assert revision == "0004"
+    assert revision == "0005"
     assert all(after.get(name) == value for name, value in before.items())
     report = {"status": "PASSED_SQLITE_METADATA_UPGRADE", "from": previous_revision, "to": revision,
         "preserved_tables": before, "added_tables": sorted(set(after) - set(before)),

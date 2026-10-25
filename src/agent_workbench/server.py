@@ -19,12 +19,14 @@ def main():
     parser.add_argument("--init-only", action="store_true")
     args = parser.parse_args()
     settings = Settings.load(args.data_dir)
-    migrate(settings)
-    print(f"本机访问令牌文件：{settings.data_dir / 'access-token'}", flush=True)
-    if not args.init_only:
-        import uvicorn
-        from .api import create_app
-        uvicorn.run(create_app(settings), host="127.0.0.1", port=args.port)
+    from .resources import controller_lock
+    with controller_lock(settings.data_dir):
+        migrate(settings)
+        print(f"本机访问令牌文件：{settings.data_dir / 'access-token'}", flush=True)
+        if not args.init_only:
+            import uvicorn
+            from .api import create_app
+            uvicorn.run(create_app(settings), host="127.0.0.1", port=args.port)
 
 
 if __name__ == "__main__":
