@@ -4,6 +4,8 @@ import { api, labels, timeLabel } from "./api";
 import type { Job, Project, Requirement } from "./api";
 import { Modal } from "./Forms";
 import { ExecutionLog } from "./ExecutionLog";
+import { PanoramaPanel } from "./PanoramaPanel";
+import type { PanoramaState } from "./PanoramaPanel";
 
 type Member = {
   requirement_id: string;
@@ -21,6 +23,7 @@ type Decision = {
   payload: { actor: string; reason: string; result?: string; evidence: string };
 };
 type Delivery = Group & {
+  panorama: PanoramaState;
   scope_ready: boolean;
   scope_approved: boolean;
   scope_digest: string;
@@ -364,6 +367,19 @@ export function DeliveryPanel({
                   </p>
                 )}
               </section>
+              <PanoramaPanel
+                key={detail.id}
+                groupId={detail.id}
+                state={detail.panorama}
+                disabled={disabled}
+                archived={detail.state === "ARCHIVED"}
+                members={detail.members}
+                onJob={setLogId}
+                onChanged={() => {
+                  setPending(true);
+                  setRefresh((previous) => previous + 1);
+                }}
+              />
               <section className="panel">
                 <h3>成员项目 · 按顺序推进</h3>
                 {detail.members.map((member, index) => (
@@ -436,8 +452,10 @@ export function DeliveryPanel({
                       className="requirement-card"
                       onClick={() => setLogId(item.job_id)}
                     >
-                      {titles[item.kind as Mode] ?? item.kind} ·{" "}
-                      {labels[item.status] ?? item.status} ·{" "}
+                      {titles[item.kind as Mode] ??
+                        labels[item.kind] ??
+                        item.kind}{" "}
+                      · {labels[item.status] ?? item.status} ·{" "}
                       {timeLabel(item.created_at)}
                     </button>
                     {["QUEUED", "RUNNING"].includes(item.status) && (

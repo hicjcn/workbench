@@ -107,6 +107,8 @@ export const labels: Record<string, string> = {
   workflow: "流程步骤",
   materials: "材料步骤",
   delivery: "跨项目交付",
+  panorama: "跨项目联合分析",
+  panorama_check: "全景分析环境检查",
   preflight: "环境预检",
   build: "项目构建",
   verify: "项目验证",

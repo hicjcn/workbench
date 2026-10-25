@@ -155,6 +155,24 @@ def main():
             result = Executor(settings).execute(claimed, lambda *_: None, __import__("threading").Event())
             database.finish(claimed["id"], "pg-reconcile-worker", claimed["epoch"], "SUCCEEDED", result, None)
             assert database.get(jobs, unknown["id"])["status"] == "CANCELED" and not database.list(reservations)
+            # Controlled environment record only; real multi-repo Docker checks are separate.
+            database.enqueue(optional["id"], "prepare", {"prompt": ""}, None)
+            prepared_optional = database.claim("pg-panorama-prepare")
+            optional_copy = create_workspace(source, settings.data_dir / "workspaces", optional["id"], other_project["id"])
+            optional_observed = Executor(settings).observe(Path(optional_copy["workspace"]), "STOPPED")
+            database.finish(prepared_optional["id"], "pg-panorama-prepare", prepared_optional["epoch"], "SUCCEEDED", optional_observed, None)
+            panorama_state = delivery.read(group)
+            panorama_intent = evidence(kind="panorama_check", context_digest=panorama_state["panorama"]["context_digest"], model="opencode/glm-5.3-flash-free", prompt="")
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                panorama_jobs = list(pool.map(lambda _: delivery.enqueue(group, panorama_intent, "pg-panorama-same-intent"), range(4)))
+            assert len({item["id"] for item in panorama_jobs}) == 1 and len(database.list(reservations)) == 2
+            claimed = database.claim("pg-panorama-worker")
+            output = {"mode": "panorama_check", "basis": claimed["input"]["panorama_basis"], "model": None, "model_execution": "NOT_ATTEMPTED", "image_id": "controlled-only",
+                "coverage": [{"project_id": member["project_id"], "readonly": True, "readable": True, "samples_match": True} for member in claimed["input"]["members"]]}
+            observations = [{"requirement_id": member["requirement_id"], "tree_digest": member["baseline"]["code_digest"], "environment": "STOPPED"} for member in claimed["input"]["members"]]
+            database.finish(claimed["id"], "pg-panorama-worker", claimed["epoch"], "SUCCEEDED", {"delivery_stopped": True, "delivery_observations": observations, "panorama_output": output}, None)
+            panorama_state = delivery.read(group)
+            assert panorama_state["panorama"]["environment"] and panorama_state["panorama"]["analysis"] is None and not database.list(reservations)
             queued = []
             for _ in range(3):
                 extra = client.post("/api/v1/requirements", json={"project_id": project["id"], "title": "PG concurrent admission"}).json()
@@ -197,10 +215,12 @@ def main():
                 assert len(Profiles(restored, root / "restored-sqlite").read(project["id"])["history"]) == 2
                 assert Profiles(restored, root / "restored-sqlite").read(project["id"])["current"]["content"]["dependencies"][0]["kind"] == "postgres"
                 assert Profiles(restored, root / "restored-sqlite").read(project["id"])["current"]["content"]["application"]["start_command"] == "node server.cjs"
+                assert Delivery(restored).read(group)["panorama"]["environment"]["id"] == panorama_state["panorama"]["environment"]["id"]
+                assert Delivery(restored).read(group)["panorama"]["analysis"] is None
             finally: restored.engine.dispose()
             database.engine.dispose()
         report.update(status="PASSED_POSTGRES_CONTROL_PLANE", controlled_model_report=True,
-            checks=["migrations", "idempotency", "exclusive_job", "claim", "durable_event", "completion", "workflow_gate", "revision_invalidation", "material_versions", "supervisor_gate", "test_definition_execution_separation", "material_acceptance", "material_export_download", "material_revision_invalidation", "concurrent_idempotent_material_intent", "delivery_scope_integration_gate", "concurrent_idempotent_delivery_intent", "all_member_reservations", "delivery_package", "group_unknown_reconcile", "concurrent_global_job_limit", "postgres_backup_to_new_sqlite_restore", "group_vs_legacy_enqueue_mutual_exclusion", "concurrent_profile_version_creation", "workspace_profile_pin_and_legacy_compatibility", "profile_versions_restore", "dependency_profile_json_preserved", "application_profile_json_preserved"])
+            checks=["migrations", "idempotency", "exclusive_job", "claim", "durable_event", "completion", "workflow_gate", "revision_invalidation", "material_versions", "supervisor_gate", "test_definition_execution_separation", "material_acceptance", "material_export_download", "material_revision_invalidation", "concurrent_idempotent_material_intent", "delivery_scope_integration_gate", "concurrent_idempotent_delivery_intent", "all_member_reservations", "delivery_package", "group_unknown_reconcile", "concurrent_global_job_limit", "postgres_backup_to_new_sqlite_restore", "group_vs_legacy_enqueue_mutual_exclusion", "concurrent_profile_version_creation", "workspace_profile_pin_and_legacy_compatibility", "profile_versions_restore", "dependency_profile_json_preserved", "application_profile_json_preserved", "concurrent_panorama_intent", "panorama_environment_not_analysis", "panorama_history_restore"])
     finally:
         runtime.docker("rm", "--force", container, check=False)
         if report["status"] == "RUNNING":

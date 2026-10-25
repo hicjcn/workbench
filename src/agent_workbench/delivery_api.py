@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, insert, select, update
 
 from .delivery import Delivery
-from .delivery_schemas import GroupInput, ScopeDecision, Operation, Integration
+from .delivery_schemas import GroupInput, ScopeDecision, Operation, Integration, PanoramaOperation
 from .delivery_export import verify
 from .material_schemas import Evidence
 from .resources import controller_id
@@ -48,6 +48,10 @@ def install(app, settings, store, user, runner):
 
     @app.post(prefix + "/{group_id}/operations", status_code=202, dependencies=[Depends(user)])
     def operate(group_id: str, value: Operation, idempotency_key: str | None = Header(default=None, max_length=100)):
+        return service.enqueue(group_id, value.model_dump(mode="json"), idempotency_key)
+
+    @app.post(prefix + "/{group_id}/panorama", status_code=202, dependencies=[Depends(user)])
+    def panorama(group_id: str, value: PanoramaOperation, idempotency_key: str | None = Header(default=None, max_length=100)):
         return service.enqueue(group_id, value.model_dump(mode="json"), idempotency_key)
 
     @app.get(prefix + "/{group_id}/exports/{export_id}", dependencies=[Depends(user)])

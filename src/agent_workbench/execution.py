@@ -28,6 +28,16 @@ class Executor:
 
     def start_runtime(self, workspace, image, proxy_ca=None, **options):
         from . import resources
+        if options.get("context_mounts"):
+            if not options.get("read_only_source"): raise WorkbenchError("上下文只能挂载到只读分析环境")
+            targets = set()
+            for mount in options["context_mounts"]:
+                path = Path(mount["source"])
+                if not path.is_relative_to(self.settings.data_dir / "attempts") or path.name != "repo": raise WorkbenchError("上下文必须来自独立分析副本")
+                actual, manifest = load_workspace(path.parent)
+                if actual != path.parent or mount["target"] != "/workspace/candidates/" + manifest["project"] or mount["target"] in targets:
+                    raise WorkbenchError("上下文路径或项目标识不符")
+                self.guard_git(path); targets.add(mount["target"])
         admission = self.settings.data_dir / "locks" / "runtime-admission.lock"
         admission.parent.mkdir(parents=True, exist_ok=True)
         with admission.open("a") as lock:
@@ -209,7 +219,7 @@ class Executor:
         model = model or self.settings.model
         if model.startswith("openrouter/"):
             openrouter_catalog_model(model)
-        expected = runtime.model_config(model, read_only)
+        expected = runtime.model_config(model, read_only, state.get("context_paths"))
         configuration = safe_path(workspace, "agent-home/.config/opencode/opencode.json")
         if json.loads(configuration.read_text()) != expected:
             raise WorkbenchError("运行环境模型配置已变化，请停止并重新启动环境")
