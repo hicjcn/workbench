@@ -293,6 +293,12 @@ def create_app(settings: Settings, store: Store | None = None):
     def workflow_state(requirement_id: str):
         return workflow.read(requirement_id)
 
+    @app.get("/api/v1/requirements/{requirement_id}/acceptance", dependencies=[Depends(user)])
+    def acceptance_state(requirement_id: str):
+        database.expire()
+        from .acceptance_audit import inspect
+        return inspect(database, requirement_id)
+
     @app.get("/api/v1/requirements/{requirement_id}/workflow/runs/{flow_id}", dependencies=[Depends(user)])
     def archived_workflow(requirement_id: str, flow_id: str):
         return workflow.archived(requirement_id, flow_id)

@@ -11,6 +11,20 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from .workspace import WorkbenchError
 
+SKILLS = {"using-superpowers", "brainstorming", "writing-plans", "executing-plans", "test-driven-development", "verification-before-completion", "systematic-debugging"}
+
+
+def skill_usage(value):
+    if not isinstance(value, dict) or value.get("type") != "tool_use": return set()
+    part = value.get("part")
+    if not isinstance(part, dict): return set()
+    state = part.get("state")
+    if not isinstance(state, dict) or state.get("status") != "completed" or not isinstance(state.get("input"), dict): return set()
+    supplied = state["input"]; name = supplied.get("name")
+    if part.get("tool") == "skill" and isinstance(name, str) and name in SKILLS: return {name}
+    if part.get("tool") == "read": return {skill for skill in SKILLS if supplied.get("filePath") == f"/opt/superpowers/skills/{skill}/SKILL.md"}
+    return set()
+
 
 class OpenCodeClient:
     def __init__(self, base_url: str, password: str):

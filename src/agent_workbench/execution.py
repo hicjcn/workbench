@@ -1,5 +1,6 @@
 """Trusted host operations; project commands execute only inside managed containers."""
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -273,6 +274,9 @@ class Executor:
         finished = set()
         agent_errors = False
         completed = False
+        text_seen = False
+        skill_reads = set()
+        stream_digest = hashlib.sha256()
         text_parts = []
         text_length = 0
         try:
@@ -302,6 +306,9 @@ class Executor:
                     except ValueError:
                         item = None
                     if isinstance(item, dict):
+                        from .opencode import skill_usage
+                        stream_digest.update(text.encode()); skill_reads.update(skill_usage(item))
+                        text_seen |= item.get("type") == "text" and isinstance(item.get("part"), dict) and isinstance(item["part"].get("text"), str) and bool(item["part"]["text"].strip())
                         agent_errors |= item.get("type") == "error"
                         completed |= item.get("type") == "step_finish" and item.get("part", {}).get("reason") == "stop"
                         if collect_text and item.get("type") == "text":
@@ -323,6 +330,8 @@ class Executor:
                 raise Unknown("Agent 输入传输未确认完成，结果需核实")
             if not completed:
                 raise Unknown("没有观察到明确结束事件，结果需核实；任务不会重放")
+            emit("model_completion", {"schema": "workbench-model-completion/v1", "model": model, "completed": True,
+                "text_seen": bool(text_seen), "skills": sorted(skill_reads), "stream_digest": stream_digest.hexdigest()})
             result = {**self.observe(workspace, "RUNNING"), "model": model}
             if collect_text:
                 # Earlier assistant text may announce a skill or explain tool use.

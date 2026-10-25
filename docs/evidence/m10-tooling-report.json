@@ -1,0 +1,44 @@
+{
+  "tooling_status": "PASSED_ACCEPTANCE_TOOLING",
+  "online_acceptance_status": "BLOCKED_NETWORK",
+  "model_inference": false,
+  "supervisor_review_performed": false,
+  "checks": {
+    "durable_sample_setup_registers_fixed_models_profile_and_readonly_contract": "PASSED",
+    "unchanged_baseline_really_fails_independent_function_and_http_acceptance_tests": "PASSED",
+    "actual_container_cannot_modify_fixed_acceptance_file": "PASSED",
+    "actual_proxy_denial_prevents_any_model_task_submission": "PASSED",
+    "incomplete_records_never_display_full_online_acceptance": "PASSED",
+    "controlled_correct_fixture_passes_all_six_independent_cases": "PASSED",
+    "browser_and_mobile_distinguish_model_evidence_from_human_registration": "PASSED",
+    "offline_restore_preserves_negative_control_and_pending_acceptance_without_auto_replay": "PASSED"
+  },
+  "model_diagnostics": {
+    "schema": "workbench-model-readiness/v1",
+    "checked_at": 1792920888.8268497,
+    "models": [
+      "opencode/glm-5.3-flash-free",
+      "opencode/glm-5.3-flash-free",
+      "opencode/big-pickle"
+    ],
+    "checks": [
+      {
+        "url": "https://models.dev/api.json",
+        "status": 403,
+        "classification": "PROXY_DENIED"
+      },
+      {
+        "url": "https://opencode.ai/zen/v1/models",
+        "status": 403,
+        "classification": "PROXY_DENIED"
+      }
+    ],
+    "openrouter_credential_present": false,
+    "status": "BLOCKED_NETWORK",
+    "can_attempt": false,
+    "model_inference": false,
+    "note": "公共端点可达不等于模型调用成功；未提交提示词，不保存响应正文、认证或原始错误。"
+  },
+  "positive_implementation_is_controlled_fixture": true,
+  "backup_sha256": "fc944b2ac44f4ba2f66f6817cdfcb03d44b9478245c99630538678597de643de"
+}
