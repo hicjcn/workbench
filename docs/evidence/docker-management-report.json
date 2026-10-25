@@ -1,0 +1,17 @@
+{
+  "status": "PASSED",
+  "model_inference": false,
+  "registry_pull_tested": false,
+  "checks": [
+    "runner_really_builds_saved_dockerfile_version",
+    "versioned_recipe_and_result_are_persistent",
+    "actual_requirement_environment_starts_from_built_image",
+    "runner_reports_actual_images_and_owned_containers_without_credentials",
+    "actual_in_use_image_cannot_be_removed",
+    "browser_can_stop_actual_environment_and_mobile_layout_has_no_overflow",
+    "unreferenced_fixture_tag_can_be_removed_without_force_or_volume_deletion",
+    "schema_0007_offline_backup_restores_templates_and_history_without_replaying_jobs"
+  ],
+  "checks_passed": 8,
+  "backup_sha256": "a2a984bd3e7fc7edf52d9daeac7f68abe14b8bfe901b106ef6a0e65e26105195"
+}

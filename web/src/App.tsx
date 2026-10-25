@@ -1,3 +1,5 @@
+import { DockerImagesPanel } from "./DockerImagesPanel";
+import { ContainersPanel } from "./ContainersPanel";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { api, active, labels, timeLabel, jobLabel } from "./api";
@@ -33,7 +35,7 @@ export default function App() {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [modal, setModal] = useState<"project" | "requirement" | null>(null);
   const [view, setView] = useState<
-    "requirements" | "projects" | "deliveries" | "runtime"
+    "requirements" | "projects" | "deliveries" | "runtime" | "images" | "containers"
   >("requirements");
   const [task, setTask] = useState("");
   const [reason, setReason] = useState("");
@@ -308,8 +310,10 @@ export default function App() {
         >
           资源与恢复
         </button>
+        <button className={view === "images" ? "selected" : ""} aria-pressed={view === "images"} onClick={() => setView("images")}>Docker 镜像</button>
+        <button className={view === "containers" ? "selected" : ""} aria-pressed={view === "containers"} onClick={() => setView("containers")}>容器管理</button>
       </nav>
-      {view === "deliveries" ? (
+      {view === "images" ? <DockerImagesPanel configureProjects={() => setView("projects")} /> : view === "containers" ? <ContainersPanel requirements={requirements} projects={projects} configureProjects={() => setView("projects")} openRequirement={(id) => { setSelected(id); setView("requirements"); }} /> : view === "deliveries" ? (
         <DeliveryPanel
           requirements={requirements}
           projects={projects}
