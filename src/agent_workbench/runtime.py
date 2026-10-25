@@ -85,7 +85,8 @@ def model_config(model: str, read_only: bool = False) -> dict:
 
 @exclusive_workspace
 def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
-          openrouter_model: str | None = None, opencode_model: str | None = None, read_only_source: bool = False, controller: str | None = None) -> dict:
+          openrouter_model: str | None = None, opencode_model: str | None = None, read_only_source: bool = False, controller: str | None = None,
+          limits: dict | None = None, config_mounts: list | None = None) -> dict:
     workspace, manifest = load_workspace(workspace)
     configuration = {"plugin": ["/opt/superpowers"], "permission": "allow"}
     provider_environment = {}
@@ -103,6 +104,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
             raise WorkbenchError("Read-only roles require an explicit model")
         configuration = model_config(openrouter_model or opencode_model, True)
     suffix = hashlib.sha256(str(workspace).encode()).hexdigest()[:10]
+    limits = limits or {"cpus": 1, "memory_mib": 1536, "pids_limit": 256}
     requirement_suffix = hashlib.sha256(str(workspace.parent).encode()).hexdigest()[:10]
     container = f"awb-{manifest['requirement'][:20]}-{manifest['project'][:20]}-{suffix}"
     network = f"awb-req-{requirement_suffix}"
@@ -135,7 +137,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
         "--network", network, "--user", f"{os.getuid()}:{os.getgid()}",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m",
-        "--cpus", "1", "--memory", "1536m", "--pids-limit", "256",
+        "--cpus", str(limits["cpus"]), "--memory", str(limits["memory_mib"]) + "m", "--pids-limit", str(limits["pids_limit"]),
         "--publish", "127.0.0.1::4096", "--workdir", "/workspace/project",
         "--mount", f"type=bind,src={workspace / 'repo'},dst=/workspace/project" + (",readonly" if read_only_source else ""),
         "--mount", f"type=bind,src={home},dst=/home/node",
@@ -146,6 +148,8 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     for name in provider_environment:
         command += ["--env", name]  # Pass the name, never the credential value, in argv.
     if controller: command += ["--label", f"awb.controller={controller}"]
+    for mount in config_mounts or []:
+        command += ["--mount", f"type=bind,src={mount['source']},dst={mount['target']},readonly"]
     # Docker's configured proxy environment remains in effect. Mount session CA only at runtime.
     if proxy_ca:
         command += ["--mount", f"type=bind,src={proxy_ca.resolve(strict=True)},dst=/run/proxy-ca.pem,readonly",

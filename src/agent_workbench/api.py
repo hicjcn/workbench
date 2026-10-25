@@ -52,7 +52,7 @@ class RequirementInput(Input):
 
 
 class ActionInput(Input):
-    action: Literal["prepare", "start", "stop", "refresh", "task", "reconcile"]
+    action: Literal["prepare", "start", "stop", "refresh", "task", "reconcile", "preflight", "build", "verify"]
     prompt: str = Field(default="", max_length=32000)
 
 
@@ -188,6 +188,8 @@ def create_app(settings: Settings, store: Store | None = None):
     install_material_routes(app, settings, database, user)
     from .delivery_api import install as install_delivery_routes
     install_delivery_routes(app, settings, database, user, runner)
+    from .profile_api import install as install_profile_routes
+    install_profile_routes(app, settings, database, user)
 
     @app.get("/api/v1/session")
     def session(request: Request):
@@ -251,7 +253,12 @@ def create_app(settings: Settings, store: Store | None = None):
     def detail(requirement_id: str):
         database.expire()
         requirement = database.get(tables.requirements, requirement_id)
-        return {**requirement, "project": database.get(tables.projects, requirement["project_id"]),
+        from .profiles import binding
+        from .preflight import read_report
+        with database.engine.connect() as connection: profile = binding(connection, requirement_id)
+        workspace = database.get(tables.workspaces, requirement_id)
+        return {**requirement, "project": database.get(tables.projects, requirement["project_id"]), "profile": profile,
+            "preflight": read_report(Path(workspace["path"])),
             "workspace": database.get(tables.workspaces, requirement_id),
             "jobs": database.job_history(requirement_id),
             "reviews": database.list(tables.reviews, tables.reviews.c.requirement_id == requirement_id)}

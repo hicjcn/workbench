@@ -1,0 +1,109 @@
+{
+  "status": "PASSED_SQLITE_METADATA_UPGRADE",
+  "from": "0005",
+  "to": "0006",
+  "preserved_tables": {
+    "projects": {
+      "rows": 2,
+      "sha256": "c75c20213308e59c4b8da1fee30ac4783cddf7dffce2be1af081d0a6dddc20d7"
+    },
+    "requirements": {
+      "rows": 2,
+      "sha256": "8e6825ffbea7c5b7aa7f24187b04644f48bee3601e1f17b117153747c65f93df"
+    },
+    "jobs": {
+      "rows": 36,
+      "sha256": "8febd09266c83b69146e6e31d977f2b6d41e055a96104390ea4b8c1c78573bb0"
+    },
+    "reviews": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "workspaces": {
+      "rows": 2,
+      "sha256": "6b07f92c7b76786ae4fd64de5d7e21eb5816451ac465b41fdde2d5c96caaca72"
+    },
+    "execution_events": {
+      "rows": 18,
+      "sha256": "1aa2332c3739dee5916c13bc91e8513119e789ec0cd1fcd3f27ce19a54feb1b7"
+    },
+    "requirement_revisions": {
+      "rows": 2,
+      "sha256": "7d2d2a37b701e5e85960949efebc04f873bed6443441b69a4ab5b63f801b2ffc"
+    },
+    "workflow_runs": {
+      "rows": 2,
+      "sha256": "e8b8de827c1541e5d03ad97c9c00f1eedf6f16487466e50f951b004f1a076ecc"
+    },
+    "workflow_steps": {
+      "rows": 16,
+      "sha256": "38a9e38aeacd36d5dbbd3368122ab42113c200739450fdc5fd92368894316e1e"
+    },
+    "material_rounds": {
+      "rows": 2,
+      "sha256": "89fac25c7b2bd48cb1c36c27cfbf22b1ac72db1e2777a2d218aa8953aa985427"
+    },
+    "material_versions": {
+      "rows": 4,
+      "sha256": "10d33c0ba75abe3bcf1e063da446b998c44eea507609edc906067d1605f2a255"
+    },
+    "material_records": {
+      "rows": 8,
+      "sha256": "e87fa976420c13fa1372e837ea6b7cc61801ecc17cba740ceff83617b0cdbb29"
+    },
+    "material_attempts": {
+      "rows": 14,
+      "sha256": "b146a3d7260d5d6ff6abdfac9aa61311a167f548ee0fa7db3b9fa6bde17a1166"
+    },
+    "material_exports": {
+      "rows": 2,
+      "sha256": "a9a41f623c714950b635c85928c0ffdf49ef8bf868cea25815924df6f8243c10"
+    },
+    "delivery_groups": {
+      "rows": 1,
+      "sha256": "b273b17072dba988e8b6c8834751148e0742b178b26eee63cb0538ece23e7f7a"
+    },
+    "delivery_revisions": {
+      "rows": 1,
+      "sha256": "3abad2b8de0690e53ba09daea53673238c2f73c457bb6dc42f50eff5d9e01eb6"
+    },
+    "delivery_members": {
+      "rows": 2,
+      "sha256": "8c97a261642ff18524a65262f99d4e3df3270665ffe3913481cde7167502eff7"
+    },
+    "delivery_decisions": {
+      "rows": 3,
+      "sha256": "098430e7d03309b32fa1081229e7a9136c51bb0d083dba6f18c5b175b641521d"
+    },
+    "delivery_attempts": {
+      "rows": 2,
+      "sha256": "af25b7a8b8216c2f9a7e945aec6c3427ac4dbd4482bd1bc67977ea9af90fda42"
+    },
+    "delivery_exports": {
+      "rows": 2,
+      "sha256": "915a6446818aa65577ec7bb1950585855c021f0d76d8d104707914223f11a9c7"
+    },
+    "workspace_reservations": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "workspace_lifecycles": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "runtime_guard": {
+      "rows": 1,
+      "sha256": "043f347c2cdc0d8ce70c38775d24e556c0290acf6d0c87a3a52aa85471cb8d02"
+    },
+    "runner_reports": {
+      "rows": 1,
+      "sha256": "b448184001c993234c5235912348923fd9453b482533a5b8013ffb1da96ea3b1"
+    }
+  },
+  "added_tables": [
+    "project_profiles",
+    "workspace_profiles"
+  ],
+  "original_database_modified": false,
+  "full_workspace_restore_tested": false
+}

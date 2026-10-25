@@ -2,7 +2,7 @@
 
 面向后端开发者的本地 Agent 开发工作台。以 OpenCode 为主要执行工具，结合 Superpowers，在独立 Docker 工作区中组织需求、代码、运行和人工确认。
 
-M1—M4 已合并到 main。M5 首轮实现加入跨项目范围与联调登记、完整交付包、归档重开、资源限制及离线备份恢复。在线模型串联与用户业务项目仍待验收。
+M1—M5 已合并到 main。M6 首轮实现加入项目运行配置版本、固定镜像与只读配置副本、独立环境预检，以及容器内构建/验证入口。在线模型串联与用户业务项目仍待验收。
 
 ## 运行工作台
 
@@ -42,6 +42,8 @@ docker build -t agent-workbench-m1:local poc/container
 11. [M4 验证报告](docs/11-m4-validation.md)：材料闭环、历史下载、数据库并发及升级的验证边界。
 12. [M5 交付与恢复](docs/12-m5-delivery.md)：跨项目范围、联调登记、完整交付、资源和维护命令。
 13. [M5 验证报告](docs/13-m5-validation.md)：双项目交付、全量恢复、并发验证及真实业务待验收项。
+14. [M6 项目接入](docs/14-m6-project-onboarding.md)：可运行的样例镜像、配置版本、只读挂载与环境预检。
+15. [M6 验证报告](docs/15-m6-validation.md)：真实样例构建测试、新旧配置隔离及旧备份恢复。
 
 ## 运行 M1
 
@@ -55,9 +57,11 @@ PYTHONPATH=src python3 poc/verify_isolation.py --root .local-data/m1-run-01
 
 ## 设计示例
 
-- [项目环境配置示例](design-examples/project-profile.example.yaml)
+- [M6 可解析运行配置示例](poc/onboarding/profile.sample.json)
+- [M6 样例 Dockerfile](poc/onboarding/Dockerfile)
+- [整体设计的项目环境示意](design-examples/project-profile.example.yaml)
 - [开发流程配置示例](design-examples/workflow.example.yaml)
 
-示例使用工作台拟设计的配置结构，仅用于评审。不是 Docker Compose、OpenCode 或 Superpowers 原生配置，当前没有解析器，不能直接运行。占位版本、脚本、挂载和模型引用需要在实施时替换。
+`design-examples/*.yaml` 使用拟设计结构，仅用于评审；当前不是可运行的 Docker Compose、OpenCode 或 Superpowers 配置。M6 的 JSON 和 Dockerfile 可按操作说明使用。
 
 推荐先阅读需求与设计，再按操作说明运行本地工作台。创建工作区后，在“开发流程”开启默认流程；自审通过后，在“设计、测试与反馈”开始材料阶段。多项目需求先在“跨项目交付”关联各项目并确认整体范围，最后汇总验收并交付。“资源与恢复”提供当前资源及离线维护说明。用户业务项目的具体环境仍需在试点接入时配置。

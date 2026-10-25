@@ -1297,6 +1297,37 @@ code {
   gap: 12px;
   margin: 20px 0;
 }
+.project-profile {
+  border-top: 1px solid #e1e7f0;
+  margin-top: 20px;
+  padding-top: 16px;
+}
+.project-profile > button {
+  margin-top: 16px;
+}
+.profile-resources {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.environment-panel {
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.preflight-result {
+  margin-top: 18px;
+  border-top: 1px solid #e1e7f0;
+  padding-top: 16px;
+}
+.preflight-result ul {
+  padding-left: 20px;
+  line-height: 1.9;
+}
+@media (max-width: 600px) {
+  .profile-resources {
+    grid-template-columns: 1fr;
+  }
+}
 .delivery-gates span {
   background: #edf3fc;
   border-radius: 8px;

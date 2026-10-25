@@ -1,0 +1,14 @@
+{
+  "expected_profile": null,
+  "actor": "本机开发者",
+  "reason": "Node 样例接入",
+  "content": {
+    "image": "agent-workbench-node:local",
+    "cpus": 1,
+    "memory_mib": 1536,
+    "pids_limit": 256,
+    "build_command": "node --check server.mjs",
+    "verification_command": "node --test server.test.mjs",
+    "mounts": []
+  }
+}

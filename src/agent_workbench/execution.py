@@ -1,4 +1,4 @@
-"""Trusted host operations. API requests cannot provide shell commands or mounts."""
+"""Trusted host operations; project commands execute only inside managed containers."""
 import fcntl
 import json
 import math
@@ -34,7 +34,10 @@ class Executor:
             fcntl.flock(lock, fcntl.LOCK_EX)
             if len(resources.inventory(self.settings.data_dir)) >= self.settings.max_containers:
                 raise WorkbenchError("托管容器达到上限，请停止不需要的环境后明确重试")
-            return runtime.start(workspace, image, proxy_ca, controller=resources.controller_id(self.settings.data_dir), **options)
+            from .profiles import runtime_options
+            configured = runtime_options(workspace, self.settings.data_dir)
+            image = configured.pop("image", image)
+            return runtime.start(workspace, image, proxy_ca, controller=resources.controller_id(self.settings.data_dir), **configured, **options)
 
     def secret_values(self, workspace):
         values = [self.settings.access_token, self.settings.runner_token, os.environ.get("OPENROUTER_API_KEY", "")]
@@ -117,6 +120,8 @@ class Executor:
                 create_workspace(Path(job["project"]["source_path"]), workspace.parents[1],
                                  job["requirement_id"], job["project"]["id"])
             check()
+            from .profiles import configure
+            configure(workspace, job.get("profile"), self.settings.data_dir)
             return self.observe(workspace, "STOPPED")
         if action == "reconcile" and not (workspace / "workspace.json").exists():
             self.cleanup_attempts(job["requirement_id"])
@@ -124,6 +129,12 @@ class Executor:
         if not (workspace / "workspace.json").exists():
             raise WorkbenchError("请先创建需求工作区")
         load_workspace(workspace)
+        if action == "preflight":
+            from .preflight import execute
+            return execute(self, job, workspace, emit, canceled)
+        if action in ("start", "task", "workflow", "materials", "build", "verify") and job.get("profile"):
+            from .preflight import require_passed
+            require_passed(workspace, job["profile"])
         if action in ("stop", "reconcile"):
             emit("stage", {"text": "正在停止并核实运行环境"})
             self.cleanup_attempts(job["requirement_id"])
@@ -154,6 +165,15 @@ class Executor:
             return observed
         if action == "task":
             return self.task(job, workspace, emit, canceled)
+        if action in ("build", "verify"):
+            from .profiles import command
+            from .workflow_execution import verify_command
+            profile = job.get("profile")
+            if not profile: raise WorkbenchError("请先为项目保存运行配置，并创建新的需求工作区")
+            argv = command(profile["content"]["build_command" if action == "build" else "verification_command"])
+            if not argv: raise WorkbenchError("当前配置未登记此命令")
+            output = verify_command(self, job, workspace, emit, canceled, argv=argv)
+            return {**self.observe(workspace), "command_output": output}
         if action == "workflow":
             from .workflow_execution import execute_step
             return execute_step(self, job, workspace, emit, canceled)

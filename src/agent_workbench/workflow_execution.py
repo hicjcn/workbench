@@ -57,6 +57,8 @@ def readonly_agent(executor, job, workspace, emit, canceled, model, prompt, pars
     created = create_workspace(workspace / "repo", root, job["requirement_id"], job["project"]["id"],
                                include_dirty=True, include_untracked=True)
     isolated = Path(created["workspace"])
+    from .profiles import inherit
+    inherit(workspace, isolated, executor.settings.data_dir)
     if created["snapshot"]["tree_digest"] != payload["bundle"]["code_digest"]:
         raise WorkbenchError("只读副本与固定快照不一致")
     try:
@@ -89,12 +91,12 @@ def readonly_agent(executor, job, workspace, emit, canceled, model, prompt, pars
                 raise Unknown("只读任务容器停止尚未核实，禁止继续流程") from None
 
 
-def verify_command(executor, job, workspace, emit, canceled):
+def verify_command(executor, job, workspace, emit, canceled, argv=None):
     state_path = workspace / "runtime.json"
     if not state_path.exists():
         raise WorkbenchError("请先启动开发环境，再执行验证命令")
     state = json.loads(state_path.read_text())
-    argv = job["input"]["bundle"]["config"]["verification_argv"]
+    argv = argv if argv is not None else job["input"]["bundle"]["config"]["verification_argv"]
     env = os.environ.copy()
     for name in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
         env.pop(name, None)

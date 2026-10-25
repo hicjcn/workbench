@@ -8,6 +8,8 @@ import { WorkflowPanel } from "./WorkflowPanel";
 import { MaterialPanel } from "./MaterialPanel";
 import { DeliveryPanel } from "./DeliveryPanel";
 import { RuntimePanel } from "./RuntimePanel";
+import { ProjectProfilePanel } from "./ProjectProfilePanel";
+import { EnvironmentPanel } from "./EnvironmentPanel";
 
 function Badge({ value }: { value: string }) {
   return (
@@ -202,7 +204,7 @@ export default function App() {
           </div>
         </div>
         <div className="topbar-right">
-          <span className="version-pill">M5 · 本地运行</span>
+          <span className="version-pill">M6 · 本地运行</span>
           <button
             className="text-button"
             onClick={() =>
@@ -327,6 +329,7 @@ export default function App() {
                 <code className="path">{project.source_path}</code>
                 <p className="muted">运行镜像</p>
                 <code>{project.image}</code>
+                <ProjectProfilePanel project={project} />
               </article>
             ))
           ) : (
@@ -402,6 +405,11 @@ export default function App() {
                   </div>
                 ) : null}
               </section>
+              <EnvironmentPanel
+                detail={detail}
+                disabled={disabled}
+                action={action}
+              />
               <WorkflowPanel
                 key={detail.id}
                 detail={detail}
@@ -691,7 +699,7 @@ export default function App() {
         </main>
       )}
       <footer className="page-footer">
-        <span>WORKBENCH / M5</span>
+        <span>WORKBENCH / M6</span>
         <span>源码独立 · 过程可追溯 · 结果由你确认</span>
       </footer>
       {modal ? (

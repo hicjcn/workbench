@@ -67,7 +67,7 @@ def workspace_entries(root):
         for path in (workspace / "repo/.git").rglob("*"):
             if path.is_symlink(): raise WorkbenchError("Git 元数据包含符号链接")
             if path.is_file(): entries.append(("files/" + path.relative_to(root).as_posix(), path))
-        for filename in ("workspace.json", "capability-report.json"):
+        for filename in ("workspace.json", "capability-report.json", "preflight-report.json"):
             path = workspace / filename
             if path.exists(): entries.append(("files/" + path.relative_to(root).as_posix(), path))
     for folder in ("exports", "deliveries"):
@@ -93,9 +93,9 @@ def backup(settings):
             for name, values in data.items(): entries.append(("database/" + name + ".json", encoded(values).encode()))
             identity = "backup_" + secrets.token_hex(16)
             target = settings.data_dir / "backups" / (identity + ".zip")
-            header = {"schema": "workbench-backup/v1", "schema_revision": "0005", "created_at": time.time(),
+            header = {"schema": "workbench-backup/v1", "schema_revision": "0006", "created_at": time.time(),
                 "source_root": str(settings.data_dir), "metadata": metadata_digest(data), "code_checkpoints": checkpoints,
-                "excluded": ["access-token", "runner-token", "agent-home", "staging", "runtime.json", "backups", "external original repositories", "database credentials"]}
+                "excluded": ["access-token", "runner-token", "agent-home", "runtime-config", "staging", "runtime.json", "backups", "external original repositories", "database credentials"]}
             result = build(target, header, entries)
             after_entries, after = workspace_entries(settings.data_dir)
             if checkpoints != after or workspace_names != {name for name, _ in after_entries} or metadata_digest(rows_snapshot(store)) != header["metadata"]:
@@ -115,7 +115,7 @@ def restore(archive_path, destination, project_maps=None):
     destination = destination.absolute()
     if destination.exists() or destination.is_symlink(): raise WorkbenchError("恢复目标必须是尚不存在的新目录")
     manifest = verify(archive_path)
-    if manifest.get("schema") != "workbench-backup/v1" or manifest.get("schema_revision") != "0005": raise WorkbenchError("备份格式或数据版本不支持")
+    if manifest.get("schema") != "workbench-backup/v1" or manifest.get("schema_revision") not in ("0005", "0006"): raise WorkbenchError("备份格式或数据版本不支持")
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=destination.parent))
     try:
@@ -135,12 +135,15 @@ def restore(archive_path, destination, project_maps=None):
                 offset = 3 if parts[0] == "workspaces" else 4 if parts[0] == "attempts" else None
                 if offset is not None:
                     suffix = parts[offset:]
-                    if not suffix or (suffix[0] != "repo" and suffix not in [("workspace.json",), ("capability-report.json",)]): raise WorkbenchError("备份包含禁止恢复的认证或运行状态")
+                    if not suffix or (suffix[0] != "repo" and suffix not in [("workspace.json",), ("capability-report.json",), ("preflight-report.json",)]): raise WorkbenchError("备份包含禁止恢复的认证或运行状态")
                 elif len(parts) != 2 or not parts[-1].endswith(".zip"): raise WorkbenchError("正式文件存储路径不正确")
                 target = safe_path(staging, relative); target.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(name) as source, target.open("wb") as output: shutil.copyfileobj(source, output, length=1024 * 1024)
                 target.chmod(item["mode"])
-        if set(data) != set(metadata.tables) or metadata_digest(data) != manifest["metadata"]: raise WorkbenchError("备份元数据摘要不完整")
+        expected_tables = set(metadata.tables)
+        if manifest["schema_revision"] == "0005": expected_tables -= {"project_profiles", "workspace_profiles"}
+        if set(data) != expected_tables or metadata_digest(data) != manifest["metadata"]: raise WorkbenchError("备份元数据摘要不完整")
+        for name in set(metadata.tables) - set(data): data[name] = []
         if data["workspace_reservations"] or any(item["status"] in ("QUEUED", "RUNNING", "UNKNOWN") for item in data["jobs"]): raise WorkbenchError("备份含未经核实的任务，不能自动恢复")
         for relative, expected in manifest["code_checkpoints"].items():
             name_safe(relative)
