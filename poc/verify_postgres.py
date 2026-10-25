@@ -185,7 +185,7 @@ def main():
             profile_requirement = client.post("/api/v1/requirements", json={"project_id": project["id"], "title": "PG pinned profile"}).json()
             queued_profile = client.post(f"/api/v1/requirements/{profile_requirement['id']}/actions", json={"action": "prepare"}).json()
             database.cancel(queued_profile["id"])
-            profile_service.save(project["id"], {"expected_profile": saved_profiles[0]["id"], "content": Content(cpus=2, dependencies=[{"kind": "postgres"}]).model_dump(), "actor": "PG fixture", "reason": "next version"})
+            profile_service.save(project["id"], {"expected_profile": saved_profiles[0]["id"], "content": Content(cpus=2, dependencies=[{"kind": "postgres"}], application={"start_command": "node server.cjs"}).model_dump(), "actor": "PG fixture", "reason": "next version"})
             assert client.get(f"/api/v1/requirements/{profile_requirement['id']}").json()["profile"]["id"] == saved_profiles[0]["id"]
             assert client.get(f"/api/v1/requirements/{requirement['id']}").json()["profile"] is None
             backed_up = backup(settings)
@@ -196,10 +196,11 @@ def main():
                 assert len(restored.list(jobs)) == len(database.list(jobs))
                 assert len(Profiles(restored, root / "restored-sqlite").read(project["id"])["history"]) == 2
                 assert Profiles(restored, root / "restored-sqlite").read(project["id"])["current"]["content"]["dependencies"][0]["kind"] == "postgres"
+                assert Profiles(restored, root / "restored-sqlite").read(project["id"])["current"]["content"]["application"]["start_command"] == "node server.cjs"
             finally: restored.engine.dispose()
             database.engine.dispose()
         report.update(status="PASSED_POSTGRES_CONTROL_PLANE", controlled_model_report=True,
-            checks=["migrations", "idempotency", "exclusive_job", "claim", "durable_event", "completion", "workflow_gate", "revision_invalidation", "material_versions", "supervisor_gate", "test_definition_execution_separation", "material_acceptance", "material_export_download", "material_revision_invalidation", "concurrent_idempotent_material_intent", "delivery_scope_integration_gate", "concurrent_idempotent_delivery_intent", "all_member_reservations", "delivery_package", "group_unknown_reconcile", "concurrent_global_job_limit", "postgres_backup_to_new_sqlite_restore", "group_vs_legacy_enqueue_mutual_exclusion", "concurrent_profile_version_creation", "workspace_profile_pin_and_legacy_compatibility", "profile_versions_restore", "dependency_profile_json_preserved"])
+            checks=["migrations", "idempotency", "exclusive_job", "claim", "durable_event", "completion", "workflow_gate", "revision_invalidation", "material_versions", "supervisor_gate", "test_definition_execution_separation", "material_acceptance", "material_export_download", "material_revision_invalidation", "concurrent_idempotent_material_intent", "delivery_scope_integration_gate", "concurrent_idempotent_delivery_intent", "all_member_reservations", "delivery_package", "group_unknown_reconcile", "concurrent_global_job_limit", "postgres_backup_to_new_sqlite_restore", "group_vs_legacy_enqueue_mutual_exclusion", "concurrent_profile_version_creation", "workspace_profile_pin_and_legacy_compatibility", "profile_versions_restore", "dependency_profile_json_preserved", "application_profile_json_preserved"])
     finally:
         runtime.docker("rm", "--force", container, check=False)
         if report["status"] == "RUNNING":

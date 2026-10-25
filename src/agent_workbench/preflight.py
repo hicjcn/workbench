@@ -68,6 +68,7 @@ def execute(executor, job, workspace, emit, canceled):
         labels = details["Config"].get("Labels") or {}
         config = {"commands": {"build": command(profile["content"]["build_command"]), "verify": command(profile["content"]["verification_command"])},
             "mounts": [item["target"] for item in profile["content"]["mounts"]]}
+        if profile["content"].get("application"): config["commands"]["application"] = command(profile["content"]["application"]["start_command"])
         result = runtime.docker("exec", state["container"], "node", "-e", CHECK_SCRIPT, json.dumps(config))
         tools = json.loads(result.stdout)
         report["tools"] = tools; report["capabilities"] = capabilities

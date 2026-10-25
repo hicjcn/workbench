@@ -75,7 +75,8 @@ class Runner:
                 result = {"delivery_observations": getattr(failure, "observations", []), "delivery_stopped": getattr(failure, "stopped", False)}
             else:
                 try:
-                    result = self.executor.observe(workspace, "STOPPED" if status == "CANCELED" else "ERROR")
+                    environment = None if job["action"].startswith("app_") and status == "FAILED" else "STOPPED" if status == "CANCELED" else "ERROR"
+                    result = self.executor.observe(workspace, environment)
                 except Exception:
                     result = {"environment": "UNKNOWN" if status == "UNKNOWN" else "ERROR"}
         finally:

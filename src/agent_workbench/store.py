@@ -251,7 +251,7 @@ class Store:
                 return public(previous)
         from .delivery import guard_workspace
         if not allow_reserved:
-            guard_workspace(connection, requirement_id, allow_archived=action in ("stop", "refresh", "reconcile", "delivery"))
+            guard_workspace(connection, requirement_id, allow_archived=action in ("stop", "refresh", "reconcile", "delivery", "app_stop", "app_logs"))
         statuses = ["QUEUED", "RUNNING"] if action == "reconcile" or (action == "delivery" and payload["request"]["kind"] == "reconcile") else ["QUEUED", "RUNNING", "UNKNOWN"]
         if connection.execute(select(jobs.c.id).where(and_(jobs.c.requirement_id == requirement_id,
                 jobs.c.status.in_(statuses)))).first():

@@ -63,6 +63,17 @@ export type Detail = Omit<Requirement, "workspace"> & {
     snapshot: { sha256: string; size: number; created_at: number } | null;
     restored_from: string | null;
   } | null;
+  application: {
+    phase: string;
+    checked_at: number | null;
+    code_digest: string | null;
+    last_check: {
+      phase: string;
+      checked_at: number;
+      passed: boolean;
+      http?: { status?: number; latency_ms?: number };
+    } | null;
+  } | null;
 };
 export type ExecutionEvent = {
   id: number;
@@ -99,6 +110,10 @@ export const labels: Record<string, string> = {
   preflight: "环境预检",
   build: "项目构建",
   verify: "项目验证",
+  app_start: "启动应用服务",
+  app_stop: "停止应用服务",
+  app_check: "HTTP 检查",
+  app_logs: "应用日志",
 };
 export const timeLabel = (timestamp: number) =>
   new Date(timestamp * 1000).toLocaleString("zh-CN", {

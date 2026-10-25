@@ -51,6 +51,12 @@ def inventory(root):
             owned = dependencies.checked_container(root, path, data) if data else None
             verified = bool(owned and owned["Id"] == detail["Id"])
             journal = dependencies.JOURNAL
+        elif kind == "application":
+            from . import application
+            path = known.get(labels.get("awb.workspace"))
+            owned = application.checked_container(root, path) if path else None
+            verified = bool(owned and owned["Id"] == detail["Id"] and path.is_relative_to(root / "workspaces"))
+            journal = application.JOURNAL
         result.append({"id": identity, "name": detail["Name"].lstrip("/"), "workspace": str(path) if path else None,
             "kind": kind, "verified": verified, "orphan": bool(path and not (path / journal).exists()), "running": detail["State"]["Running"],
             "image_id": detail["Image"], "memory_limit": detail["HostConfig"].get("Memory"), "cpu_limit": detail["HostConfig"].get("NanoCpus", 0) / 1e9,
@@ -59,6 +65,8 @@ def inventory(root):
 
 
 def stop_workspace(root, workspace):
+    from .application import stop as stop_application
+    stop_application(root, workspace)
     if (workspace / "runtime.json").exists(): runtime.stop(workspace)
     removed = False
     for item in inventory(root):
@@ -86,6 +94,8 @@ def stop_all(root):
     found = inventory(root)
     if any(not item["verified"] for item in found): raise WorkbenchError("存在无法核实归属的容器，停止自动清理")
     for workspace in known_workspaces(root):
+        from .application import stop as stop_application
+        stop_application(root, workspace)
         if (workspace / "runtime.json").exists(): runtime.stop(workspace)
     for item in inventory(root):
         if item["kind"] != "postgres": runtime.docker("rm", "--force", item["id"])

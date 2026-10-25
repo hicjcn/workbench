@@ -67,7 +67,7 @@ def workspace_entries(root):
         for path in (workspace / "repo/.git").rglob("*"):
             if path.is_symlink(): raise WorkbenchError("Git 元数据包含符号链接")
             if path.is_file(): entries.append(("files/" + path.relative_to(root).as_posix(), path))
-        for filename in ("workspace.json", "capability-report.json", "preflight-report.json"):
+        for filename in ("workspace.json", "capability-report.json", "preflight-report.json", "application-report.json"):
             path = workspace / filename
             if path.exists(): entries.append(("files/" + path.relative_to(root).as_posix(), path))
         from .dependencies import backup_files
@@ -85,7 +85,7 @@ def backup(settings):
     with resources.controller_lock(settings.data_dir, exclusive=True):
         migrate(settings)
         if resources.inventory(settings.data_dir): raise WorkbenchError("仍有托管容器，请先运行维护 stop")
-        if any((path / "runtime.json").exists() for path in resources.known_workspaces(settings.data_dir)): raise WorkbenchError("运行记录尚未核实，请先运行维护 stop")
+        if any((path / name).exists() for path in resources.known_workspaces(settings.data_dir) for name in ("runtime.json", "application-runtime.json")): raise WorkbenchError("运行记录尚未核实，请先运行维护 stop")
         store = Store(settings.database_url)
         try:
             data = rows_snapshot(store)
@@ -98,7 +98,7 @@ def backup(settings):
             target = settings.data_dir / "backups" / (identity + ".zip")
             header = {"schema": "workbench-backup/v2", "schema_revision": "0006", "created_at": time.time(),
                 "source_root": str(settings.data_dir), "metadata": metadata_digest(data), "code_checkpoints": checkpoints,
-                "excluded": ["access-token", "runner-token", "agent-home", "runtime-config", "staging", "runtime.json", "dependency-runtime.json", "dependency-private.json", "backups", "external original repositories", "database credentials"]}
+                "excluded": ["access-token", "runner-token", "agent-home", "runtime-config", "staging", "runtime.json", "application-runtime.json", "application container logs", "dependency-runtime.json", "dependency-private.json", "backups", "external original repositories", "database credentials"]}
             result = build(target, header, entries)
             after_entries, after = workspace_entries(settings.data_dir)
             if checkpoints != after or workspace_names != {name for name, _ in after_entries} or metadata_digest(rows_snapshot(store)) != header["metadata"]:
@@ -139,7 +139,7 @@ def restore(archive_path, destination, project_maps=None):
                 if offset is not None:
                     suffix = parts[offset:]
                     allowed = [("workspace.json",), ("capability-report.json",), ("preflight-report.json",)]
-                    if manifest["schema"] == "workbench-backup/v2": allowed += [("dependency-state.json",), ("dependency-snapshot.json",), ("dependency-backups", "postgres.dump")]
+                    if manifest["schema"] == "workbench-backup/v2": allowed += [("dependency-state.json",), ("dependency-snapshot.json",), ("dependency-backups", "postgres.dump"), ("application-report.json",)]
                     if not suffix or (suffix[0] != "repo" and suffix not in allowed): raise WorkbenchError("备份包含禁止恢复的认证或运行状态")
                 elif len(parts) != 2 or not parts[-1].endswith(".zip"): raise WorkbenchError("正式文件存储路径不正确")
                 target = safe_path(staging, relative); target.parent.mkdir(parents=True, exist_ok=True)
