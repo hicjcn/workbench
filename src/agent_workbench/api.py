@@ -190,6 +190,8 @@ def create_app(settings: Settings, store: Store | None = None):
     install_delivery_routes(app, settings, database, user, runner)
     from .profile_api import install as install_profile_routes
     install_profile_routes(app, settings, database, user)
+    from .docker_api import install as install_docker_routes
+    install_docker_routes(app, settings, database, user, runner, Claim, Lease, Finish)
 
     @app.get("/api/v1/session")
     def session(request: Request):

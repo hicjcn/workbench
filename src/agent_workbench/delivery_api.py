@@ -87,7 +87,8 @@ def install(app, settings, store, user, runner):
             if path.is_file() and not path.is_symlink() and path.stat().st_size <= 65536:
                 item = json.loads(path.read_text()); item["available"] = path.with_suffix(".zip").is_file(); backup_indexes.append(item)
         restored = settings.data_dir / "restore-info.json"
-        return {"limits": {"active_jobs": settings.max_active_jobs, "containers": settings.max_containers}, "jobs": counts,
+        from .settings import storage_summary
+        return {"storage": storage_summary(store.engine.url), "limits": {"active_jobs": settings.max_active_jobs, "containers": settings.max_containers}, "jobs": counts,
             "resources": latest, "resources_stale": not latest or time.time() - latest["updated_at"] > 15,
             "disk_free_bytes": disk.free, "data_dir": str(settings.data_dir), "backups": backup_indexes,
             "restored": json.loads(restored.read_text()) if restored.is_file() and not restored.is_symlink() else None}

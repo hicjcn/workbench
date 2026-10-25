@@ -16,7 +16,7 @@ from .checked_archive import build, verify, name_safe, file_hash
 from . import resources
 from .execution import Executor
 from .settings import Settings
-from .store import Store, metadata, jobs, workspaces, projects, reservations, encoded
+from .store import Store, metadata, jobs, workspaces, projects, reservations, encoded, docker_jobs
 from .workspace import WorkbenchError, safe_path, snapshot, write_json
 from .server import migrate
 
@@ -51,6 +51,7 @@ def stop(settings):
                         values.update(snapshot_json=encoded(observed["snapshot"]), diff=observed["diff"], diff_truncated=observed["diff_truncated"])
                     connection.execute(update(workspaces).where(workspaces.c.requirement_id == workspace["requirement_id"]).values(**values))
                 report["reconciled_jobs"] = len(incomplete)
+                connection.execute(update(docker_jobs).where(docker_jobs.c.status == "QUEUED").values(status="CANCELED", updated_at=time.time()))
         finally: store.engine.dispose()
         write_json(settings.data_dir / "maintenance-last.json", {**report, "at": time.time()})
         return report
@@ -90,13 +91,14 @@ def backup(settings):
         try:
             data = rows_snapshot(store)
             if any(row["status"] in ("QUEUED", "RUNNING", "UNKNOWN") for row in data["jobs"]): raise WorkbenchError("仍有排队、执行或未知任务，请先运行维护 stop")
+            if any(row["status"] in ("QUEUED", "RUNNING", "UNKNOWN") for row in data["docker_jobs"]): raise WorkbenchError("镜像维护任务尚未结束，请先核实 Docker 并在镜像管理页处理")
             if data["workspace_reservations"]: raise WorkbenchError("工作区预留尚未解除")
             entries, checkpoints = workspace_entries(settings.data_dir)
             workspace_names = {name for name, _ in entries}
             for name, values in data.items(): entries.append(("database/" + name + ".json", encoded(values).encode()))
             identity = "backup_" + secrets.token_hex(16)
             target = settings.data_dir / "backups" / (identity + ".zip")
-            header = {"schema": "workbench-backup/v2", "schema_revision": "0006", "created_at": time.time(),
+            header = {"schema": "workbench-backup/v2", "schema_revision": "0007", "created_at": time.time(),
                 "source_root": str(settings.data_dir), "metadata": metadata_digest(data), "code_checkpoints": checkpoints,
                 "excluded": ["access-token", "runner-token", "agent-home", "runtime-config", "staging", "runtime.json", "application-runtime.json", "application container logs", "dependency-runtime.json", "dependency-private.json", "backups", "external original repositories", "database credentials"]}
             result = build(target, header, entries)
@@ -118,7 +120,7 @@ def restore(archive_path, destination, project_maps=None):
     destination = destination.absolute()
     if destination.exists() or destination.is_symlink(): raise WorkbenchError("恢复目标必须是尚不存在的新目录")
     manifest = verify(archive_path)
-    if (manifest.get("schema"), manifest.get("schema_revision")) not in (("workbench-backup/v1", "0005"), ("workbench-backup/v1", "0006"), ("workbench-backup/v2", "0006")): raise WorkbenchError("备份格式或数据版本不支持")
+    if (manifest.get("schema"), manifest.get("schema_revision")) not in (("workbench-backup/v1", "0005"), ("workbench-backup/v1", "0006"), ("workbench-backup/v2", "0006"), ("workbench-backup/v2", "0007")): raise WorkbenchError("备份格式或数据版本不支持")
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=destination.parent))
     try:
@@ -147,8 +149,10 @@ def restore(archive_path, destination, project_maps=None):
                 target.chmod(item["mode"])
         expected_tables = set(metadata.tables)
         if manifest["schema_revision"] == "0005": expected_tables -= {"project_profiles", "workspace_profiles"}
+        if manifest["schema_revision"] != "0007": expected_tables -= {"docker_jobs", "docker_recipes"}
         if set(data) != expected_tables or metadata_digest(data) != manifest["metadata"]: raise WorkbenchError("备份元数据摘要不完整")
         for name in set(metadata.tables) - set(data): data[name] = []
+        if any(item["status"] in ("QUEUED", "RUNNING", "UNKNOWN") for item in data["docker_jobs"]): raise WorkbenchError("备份含未经核实的镜像任务，不能自动恢复")
         if data["workspace_reservations"] or any(item["status"] in ("QUEUED", "RUNNING", "UNKNOWN") for item in data["jobs"]): raise WorkbenchError("备份含未经核实的任务，不能自动恢复")
         for relative, expected in manifest["code_checkpoints"].items():
             name_safe(relative)
@@ -209,6 +213,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["inspect", "stop", "backup", "restore"])
     parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--sqlite", action="store_true", help="维护数据目录中的本地 workbench.db，忽略 AWB_DATABASE_URL")
     parser.add_argument("--archive", type=Path)
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--project-map", action="append", default=[])
@@ -218,7 +223,7 @@ def main():
             if not args.archive or not args.destination: raise WorkbenchError("恢复需要 --archive 和 --destination")
             report = restore(args.archive, args.destination, dict(item.split("=", 1) for item in args.project_map))
         else:
-            settings = Settings.load(args.data_dir)
+            settings = Settings.load(args.data_dir, sqlite=args.sqlite)
             report = {"containers": resources.inventory(settings.data_dir)} if args.action == "inspect" else stop(settings) if args.action == "stop" else backup(settings)
         print(json.dumps(report, ensure_ascii=False, indent=2))
     except WorkbenchError as failure: parser.exit(1, str(failure) + "\n")

@@ -1,0 +1,16 @@
+{
+  "status": "PASSED",
+  "checks": [
+    "real_api_cli_ignores_external_url_and_creates_local_sqlite",
+    "dockerfile_template_persists_after_real_api_process_restart",
+    "local_runtime_page_shows_actual_sqlite_file_and_matching_maintenance_flag",
+    "local_storage_page_fits_mobile",
+    "site_distinguishes_browser_trial_from_local_sqlite_backend",
+    "business_postgres_is_optional_and_off_by_default"
+  ],
+  "checks_passed": 6,
+  "external_database_service_required": false,
+  "docker_called": false,
+  "model_inference": false,
+  "python_api_tests_passed": 204
+}

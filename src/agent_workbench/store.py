@@ -135,6 +135,20 @@ Index("uq_current_project_profile", project_profiles.c.project_id, unique=True,
 workspace_profiles = Table("workspace_profiles", metadata,
     Column("requirement_id", ForeignKey("requirements.id"), primary_key=True),
     Column("profile_id", ForeignKey("project_profiles.id"), nullable=False))
+docker_recipes = Table("docker_recipes", metadata,
+    Column("id", String(40), primary_key=True), Column("family", String(40), nullable=False),
+    Column("number", Integer, nullable=False), Column("name", String(160), nullable=False),
+    Column("reference", String(240), nullable=False), Column("dockerfile", Text, nullable=False),
+    Column("actor", String(160), nullable=False), Column("reason", Text, nullable=False),
+    Column("created_at", Float, nullable=False),
+    UniqueConstraint("family", "number", name="uq_docker_recipe_version"))
+docker_jobs = Table("docker_jobs", metadata,
+    Column("id", String(40), primary_key=True), Column("kind", String(30), nullable=False),
+    Column("input_json", Text, nullable=False), Column("status", String(30), nullable=False),
+    Column("idempotency_key", String(100), nullable=False, unique=True),
+    Column("owner", String(80)), Column("epoch", Integer, nullable=False, default=0),
+    Column("lease_until", Float), Column("result_json", Text), Column("error", Text),
+    Column("created_at", Float, nullable=False), Column("updated_at", Float, nullable=False))
 
 
 def identifier(prefix):
@@ -277,7 +291,8 @@ class Store:
             connection.execute(upsert(runtime_guard).values(id=1).on_conflict_do_nothing())
             connection.execute(select(runtime_guard).where(runtime_guard.c.id == 1).with_for_update()).one()
             from sqlalchemy import func
-            if connection.execute(select(func.count()).select_from(jobs).where(jobs.c.status == "RUNNING")).scalar_one() >= self.max_active_jobs:
+            running_images = connection.execute(select(func.count()).select_from(docker_jobs).where(docker_jobs.c.status == "RUNNING")).scalar_one()
+            if connection.execute(select(func.count()).select_from(jobs).where(jobs.c.status == "RUNNING")).scalar_one() + running_images >= self.max_active_jobs:
                 return None
             row = connection.execute(select(jobs).where(jobs.c.status == "QUEUED")
                 .order_by(jobs.c.created_at).with_for_update(skip_locked=True).limit(1)).mappings().first()

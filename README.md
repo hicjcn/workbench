@@ -4,9 +4,13 @@
 
 M1—M9 已合并到 main。M10 增加完整样例的逐步验收工具、固定只读测试和执行证据清单。当前云环境模型访问受代理 403 阻断，完整在线样例与用户业务项目仍待验收。
 
+新增「Docker 镜像」与「容器管理」入口：维护 Dockerfile 版本、构建/拉取/移除镜像，集中启动和停止各需求环境。具体操作、仅 Dockerfile 构建上下文及 Sites 试用边界见 [Docker 管理说明](docs/24-docker-management.md)。
+
 ## 运行工作台
 
 需要 Linux、Python 3.11+、Node.js 22.12+、Git 和 Docker：
+
+工作台使用本地 **SQLite** 保存项目、需求、流程、镜像维护和执行记录，数据库文件默认是 `.local-data/workbench/workbench.db`，首次启动自动创建并升级。无需安装、部署或启动 PostgreSQL/MySQL，也不需要数据库账号密码。
 
 ```bash
 python3 -m venv .venv
@@ -14,7 +18,7 @@ python3 -m venv .venv
 npm ci --prefix web
 npm run --prefix web build
 docker build -t agent-workbench-m1:local poc/container
-.venv/bin/python -m agent_workbench.server
+.venv/bin/python -m agent_workbench.server --sqlite
 ```
 
 另开终端启动 Runner：
@@ -23,7 +27,9 @@ docker build -t agent-workbench-m1:local poc/container
 .venv/bin/python -m agent_workbench.runner
 ```
 
-打开 [本机工作台](http://127.0.0.1:8340)，使用启动时提示的本机访问令牌文件登录。默认使用 SQLite；PostgreSQL、模型配置、代理证书及验证命令见 [M2 操作说明](docs/06-m2-workbench.md)。访问令牌与模型密钥分别管理，均不提交 Git。
+打开 [本机工作台](http://127.0.0.1:8340)，使用启动时提示的本机访问令牌文件登录。在「资源与恢复」查看 SQLite 数据文件位置。`--sqlite` 明确选择本地文件，并忽略已有的 `AWB_DATABASE_URL`；省略该参数且未配置数据库 URL 时也默认使用 SQLite。访问令牌与模型密钥分别管理，均不提交 Git。
+
+「项目运行配置」中的 PostgreSQL 是业务项目的可选依赖，默认不启用；工作台和无数据库的业务项目均不需要它。SQLite 的目录持久化及备份说明见 [本地 SQLite 存储](docs/25-local-sqlite.md)。
 
 默认模型沿用 M1 已验证的 OpenRouter 免费 Nemotron，Runner 从现有 `OPENROUTER_API_KEY` 环境变量读取凭据。可通过 API 与 Runner 一致的 `AWB_MODEL` 切换显式免费模型，不使用付费回退。
 

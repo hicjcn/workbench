@@ -122,7 +122,14 @@ class Runner:
             report = {"available": True, "controller_id": resources.controller_id(self.settings.data_dir), "containers": resources.inventory(self.settings.data_dir)}
         except (WorkbenchError, OSError):
             report = {"available": False, "controller_id": resources.controller_id(self.settings.data_dir), "containers": [], "error": "暂时无法核实 Docker 资源"}
+        from .docker_execution import inventory
+        try: report.update(images=inventory(), images_available=True)
+        except (WorkbenchError, OSError, ValueError): report.update(images=[], images_available=False)
         self.post("/internal/runtime", {"owner": self.owner, "report": report})
+
+    def image_once(self):
+        from .docker_execution import run_once
+        return run_once(self)
 
 
 def main():
@@ -141,6 +148,7 @@ def main():
             while True:
                 try:
                     worked = runner.run_once()
+                    if not worked: worked = runner.image_once()
                     if time.monotonic() - last_watch > 2:
                         runner.watch_once()
                         last_watch = time.monotonic()

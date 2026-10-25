@@ -1,0 +1,16 @@
+{
+  "status": "PASSED",
+  "checks": [
+    "image_inventory_search_and_explicit_trial_state",
+    "dockerfile_template_can_be_saved_locally",
+    "immutable_template_versions_and_history",
+    "build_submission_is_explicitly_rejected_without_fake_jobs",
+    "pull_and_remove_forms_are_available",
+    "centralized_container_controls_mounts_and_honest_action_state",
+    "new_navigation_and_both_management_pages_fit_mobile",
+    "dockerfile_versions_persist_refresh_and_are_exported",
+    "no_browser_errors_or_real_execution_requests"
+  ],
+  "checks_passed": 9,
+  "real_docker_execution": false
+}

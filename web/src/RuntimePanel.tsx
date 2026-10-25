@@ -7,6 +7,7 @@ type Status = {
   data_dir: string;
   disk_free_bytes: number;
   resources_stale: boolean;
+  storage: { backend: string; path: string | null; mode: string; external_service_required: boolean };
   resources: {
     updated_at: number;
     report: {
@@ -65,7 +66,7 @@ export function RuntimePanel() {
   }, []);
   const root = state?.data_dir ?? "/path/to/data";
   const quoted = "'" + root.replaceAll("'", "'\\''") + "'";
-  const command = "agent-workbench-maintenance";
+  const command = "agent-workbench-maintenance" + (state?.storage.backend === "sqlite" ? " --sqlite" : "");
   return (
     <main className="delivery-space">
       <div className="section-title">
@@ -83,6 +84,12 @@ export function RuntimePanel() {
       )}
       {state && (
         <>
+          <section className="panel">
+            <h3>工作台数据存储</h3>
+            <p>{state.storage.backend === "sqlite" ? "SQLite · 本地存储，无需额外部署数据库服务" : "工作台已显式配置外部数据库服务"}</p>
+            {state.storage.path && <code className="path">{state.storage.path}</code>}
+            <p className="hint">保存项目、需求、流程、镜像模板和执行记录。业务项目在容器中使用的可选数据库独立配置；启用业务数据库不会改变工作台的 SQLite 存储。</p>
+          </section>
           <section className="panel">
             <h3>运行概况</h3>
             <div className="delivery-gates">
