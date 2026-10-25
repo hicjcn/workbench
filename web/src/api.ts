@@ -49,7 +49,20 @@ export type Detail = Omit<Requirement, "workspace"> & {
   jobs: Job[];
   reviews: Review[];
   profile: import("./ProjectProfilePanel").RuntimeProfile | null;
-  preflight: { status: string; image_id: string; checks: { name: string; passed: boolean }[] } | null;
+  preflight: {
+    status: string;
+    image_id: string;
+    checks: { name: string; passed: boolean }[];
+  } | null;
+  dependency: {
+    kind: string;
+    phase: string;
+    initialized: boolean;
+    checked_at: number | null;
+    volume: string;
+    snapshot: { sha256: string; size: number; created_at: number } | null;
+    restored_from: string | null;
+  } | null;
 };
 export type ExecutionEvent = {
   id: number;

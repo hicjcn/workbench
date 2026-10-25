@@ -80,6 +80,7 @@ def execute(executor, job, workspace, emit, canceled):
             "command_entries": all(item["available"] for item in tools["commands"]),
             "config_mounts": all(item["readable"] for item in tools["mounts"]),
             "readonly_source": capabilities["runtime"]["source_read_only"],
+            "no_database_access": not any(value.startswith("PGPASSWORD=") for value in details["Config"].get("Env", [])) and not any(name.startswith("awb-data-") for name in details.get("NetworkSettings", {}).get("Networks", {})),
             "source_unchanged": snapshot(workspace / "repo") == original and snapshot(isolated / "repo")["tree_digest"] == original["tree_digest"],
         }
         report["checks"] = [{"name": key, "passed": bool(value)} for key, value in checks.items()]

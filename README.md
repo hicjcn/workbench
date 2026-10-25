@@ -2,7 +2,7 @@
 
 面向后端开发者的本地 Agent 开发工作台。以 OpenCode 为主要执行工具，结合 Superpowers，在独立 Docker 工作区中组织需求、代码、运行和人工确认。
 
-M1—M5 已合并到 main。M6 首轮实现加入项目运行配置版本、固定镜像与只读配置副本、独立环境预检，以及容器内构建/验证入口。在线模型串联与用户业务项目仍待验收。
+M1—M6 已合并到 main。M7 首轮实现加入每个需求独立的 PostgreSQL、数据保留、快照和新目录恢复。在线模型串联与用户业务项目仍待验收。
 
 ## 运行工作台
 
@@ -44,6 +44,8 @@ docker build -t agent-workbench-m1:local poc/container
 13. [M5 验证报告](docs/13-m5-validation.md)：双项目交付、全量恢复、并发验证及真实业务待验收项。
 14. [M6 项目接入](docs/14-m6-project-onboarding.md)：可运行的样例镜像、配置版本、只读挂载与环境预检。
 15. [M6 验证报告](docs/15-m6-validation.md)：真实样例构建测试、新旧配置隔离及旧备份恢复。
+16. [M7 业务依赖](docs/16-m7-dependencies.md)：独立 PostgreSQL、连接约定、停止保留和备份恢复。
+17. [M7 验证报告](docs/17-m7-validation.md)：双需求数据/网络隔离、真实 SQL 测试和新数据卷恢复。
 
 ## 运行 M1
 
@@ -59,6 +61,7 @@ PYTHONPATH=src python3 poc/verify_isolation.py --root .local-data/m1-run-01
 
 - [M6 可解析运行配置示例](poc/onboarding/profile.sample.json)
 - [M6 样例 Dockerfile](poc/onboarding/Dockerfile)
+- [M7 PostgreSQL 样例配置](poc/postgres-sample/profile.sample.json)
 - [整体设计的项目环境示意](design-examples/project-profile.example.yaml)
 - [开发流程配置示例](design-examples/workflow.example.yaml)
 

@@ -1323,6 +1323,13 @@ code {
   padding-left: 20px;
   line-height: 1.9;
 }
+.dependency-status {
+  flex-basis: 100%;
+  background: #f6f8fb;
+  border-radius: 10px;
+  padding: 16px;
+  margin: 8px 0;
+}
 @media (max-width: 600px) {
   .profile-resources {
     grid-template-columns: 1fr;

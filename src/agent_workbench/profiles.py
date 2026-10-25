@@ -7,6 +7,7 @@ import re
 import shlex
 import tempfile
 import time
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import and_, insert, select, update
@@ -53,6 +54,7 @@ class Content(Input):
     build_command: str = Field(default="", max_length=2000)
     verification_command: str = Field(default="node --test", min_length=1, max_length=2000)
     mounts: list[Mount] = Field(default_factory=list, max_length=8)
+    dependencies: list["Postgres"] = Field(default_factory=list, max_length=1)
 
     @model_validator(mode="after")
     def validate_content(self):
@@ -62,6 +64,17 @@ class Content(Input):
         if len(set(targets)) != len(targets) or any(a != b and b.startswith(a + "/") for a in targets for b in targets):
             raise ValueError("配置挂载目标不能重复或互相覆盖")
         return self
+
+
+class Postgres(Input):
+    kind: Literal["postgres"] = "postgres"
+    image: Literal["postgres:17-bookworm"] = "postgres:17-bookworm"
+    cpus: float = Field(default=0.5, ge=0.25, le=4, allow_inf_nan=False)
+    memory_mib: int = Field(default=512, ge=256, le=4096)
+    pids_limit: int = Field(default=128, ge=64, le=512)
+
+
+Content.model_rebuild()
 
 
 class Save(Input):
@@ -157,6 +170,8 @@ def configure(workspace, profile, data_dir):
         inspected = json.loads(runtime.docker("image", "inspect", profile["content"]["image"]).stdout)[0]
         fixed = {key: profile[key] for key in ("id", "number", "content", "content_digest")}
         fixed["image_id"] = inspected["Id"]
+        fixed["dependency_images"] = {item["kind"]: json.loads(runtime.docker("image", "inspect", item["image"]).stdout)[0]["Id"]
+            for item in profile["content"].get("dependencies", [])}
         manifest["runtime_profile"] = fixed
         write_json(workspace / "workspace.json", manifest)
     staged_mounts(workspace, fixed, data_dir)

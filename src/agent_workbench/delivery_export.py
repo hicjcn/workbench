@@ -60,6 +60,7 @@ def build(executor, job, observations):
         entries.append((prefix + "/changes.patch", full_diff(executor, workspace, current["files"])))
         if (workspace / "capability-report.json").exists(): entries.append((prefix + "/environment.json", workspace / "capability-report.json"))
         if (workspace / "preflight-report.json").exists(): entries.append((prefix + "/preflight.json", workspace / "preflight-report.json"))
+        if (workspace / "dependency-snapshot.json").exists(): entries.append((prefix + "/dependency-snapshot.json", workspace / "dependency-snapshot.json"))
         entries.append((prefix + "/history.json", json.dumps(member["history"], ensure_ascii=False, indent=2).encode()))
     entries.append(("README.txt", "交付包固定各项目代码和结论，不会推送分支、合并代码或部署。外部证据保留引用；后续代码/需求变化使当前交付需要重新核实。\n".encode()))
     result = build_archive(package_path(executor.settings.data_dir, job["id"]), header, entries)

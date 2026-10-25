@@ -46,6 +46,16 @@ def docker(*args: str, environment: dict | None = None, check: bool = True,
     return result
 
 
+def docker_stream(*args: str, source=None, destination=None, timeout=120):
+    """Stream private binary data without loading it into logs or command arguments."""
+    env = os.environ.copy()
+    for key in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
+        env.pop(key, None)
+    result = subprocess.run(["docker", "--host=unix:///var/run/docker.sock", *args], stdin=source,
+        stdout=destination if destination is not None else subprocess.DEVNULL, stderr=subprocess.PIPE, env=env, timeout=timeout)
+    if result.returncode: raise WorkbenchError(f"数据库流式导出或导入失败（退出码 {result.returncode}）；保留现场，不记录数据内容")
+
+
 def doctor() -> dict:
     result = docker("info", "--format", "{{json .ServerVersion}}", check=False)
     return {"docker_available": result.returncode == 0,
@@ -86,7 +96,8 @@ def model_config(model: str, read_only: bool = False) -> dict:
 @exclusive_workspace
 def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
           openrouter_model: str | None = None, opencode_model: str | None = None, read_only_source: bool = False, controller: str | None = None,
-          limits: dict | None = None, config_mounts: list | None = None) -> dict:
+          limits: dict | None = None, config_mounts: list | None = None,
+          dependency_network: str | None = None, dependency_environment: dict | None = None) -> dict:
     workspace, manifest = load_workspace(workspace)
     configuration = {"plugin": ["/opt/superpowers"], "permission": "allow"}
     provider_environment = {}
@@ -134,6 +145,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     command = [
         "run", "--detach", "--name", container,
         "--label", "awb.managed=true", "--label", f"awb.workspace={suffix}",
+        "--label", "awb.kind=agent",
         "--network", network, "--user", f"{os.getuid()}:{os.getgid()}",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m",
@@ -147,6 +159,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     ]
     for name in provider_environment:
         command += ["--env", name]  # Pass the name, never the credential value, in argv.
+    for name in dependency_environment or {}: command += ["--env", name]
     if controller: command += ["--label", f"awb.controller={controller}"]
     for mount in config_mounts or []:
         command += ["--mount", f"type=bind,src={mount['source']},dst={mount['target']},readonly"]
@@ -158,7 +171,8 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
                     "--env", "GIT_SSL_CAINFO=/run/proxy-ca.pem"]
     command += [image, "opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"]
     try:
-        docker(*command, environment={"OPENCODE_SERVER_PASSWORD": password, **provider_environment})
+        docker(*command, environment={"OPENCODE_SERVER_PASSWORD": password, **provider_environment, **(dependency_environment or {})})
+        if dependency_network: docker("network", "connect", dependency_network, container)
         address = docker("port", container, "4096/tcp").stdout.strip()
         if not address.startswith("127.0.0.1:"):
             raise WorkbenchError("OpenCode port was not bound to loopback")

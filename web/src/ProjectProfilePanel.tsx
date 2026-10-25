@@ -19,6 +19,13 @@ export type RuntimeProfile = {
     build_command: string;
     verification_command: string;
     mounts: { source: string; target: string; sha256?: string | null }[];
+    dependencies?: {
+      kind: "postgres";
+      image: string;
+      cpus: number;
+      memory_mib: number;
+      pids_limit: number;
+    }[];
   };
 };
 type ProfileState = {
@@ -122,6 +129,9 @@ function ProfileForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const defaults = current?.content;
+  const [postgres, setPostgres] = useState(
+    Boolean(current?.content.dependencies?.length),
+  );
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -140,6 +150,19 @@ function ProfileForm({
           build_command: data.get("build"),
           verification_command: data.get("verify"),
           mounts,
+          dependencies: postgres
+            ? current?.content.dependencies?.length
+              ? current.content.dependencies
+              : [
+                  {
+                    kind: "postgres",
+                    image: "postgres:17-bookworm",
+                    cpus: 0.5,
+                    memory_mib: 512,
+                    pids_limit: 128,
+                  },
+                ]
+            : [],
         },
       });
     } catch (failure) {
@@ -286,6 +309,21 @@ function ProfileForm({
         >
           添加配置文件
         </button>
+      </fieldset>
+      <fieldset>
+        <legend>业务依赖</legend>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={postgres}
+            onChange={(event) => setPostgres(event.target.checked)}
+          />
+          为每个需求启用独立 PostgreSQL 17
+        </label>
+        <p className="hint">
+          每个需求独立数据库、内部网络、数据卷和认证，不开放宿主端口。依赖占用一个容器名额；启动前需备好
+          postgres:17-bookworm 镜像。停止会先保存快照并保留数据卷。
+        </p>
       </fieldset>
       <label>
         登记人

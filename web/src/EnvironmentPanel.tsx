@@ -30,6 +30,36 @@ export function EnvironmentPanel({
             {profile.content.verification_command}
           </p>
           <div className="button-row">
+            {Boolean(profile.content.dependencies?.length) && (
+              <div className="dependency-status">
+                <strong>
+                  独立 PostgreSQL 17 ·{" "}
+                  {dependencyLabels[
+                    detail.dependency?.phase ?? "NOT_CREATED"
+                  ] ?? detail.dependency?.phase}
+                </strong>
+                <p className="hint">
+                  开发环境启动时连接，停止时保存数据。只读分析和评审不接入此数据库。
+                </p>
+                {detail.dependency?.snapshot && (
+                  <p className="hint">
+                    最近数据快照：
+                    {(detail.dependency.snapshot.size / 1024).toFixed(1)} KiB ·{" "}
+                    <code>
+                      {detail.dependency.snapshot.sha256.slice(0, 16)}
+                    </code>
+                  </p>
+                )}
+                {detail.dependency?.phase === "STOPPED" && (
+                  <p className="hint">
+                    数据库已停止，数据卷保留；下次启动继续使用。
+                  </p>
+                )}
+                {detail.dependency?.restored_from && (
+                  <p className="hint">已从备份快照恢复到本目录的独立数据卷。</p>
+                )}
+              </div>
+            )}
             <button
               className="secondary"
               disabled={disabled || !detail.workspace.snapshot || running}
@@ -96,5 +126,17 @@ const checkLabels: Record<string, string> = {
   command_entries: "构建与验证命令入口存在",
   config_mounts: "配置文件可读",
   readonly_source: "预检源码只读",
+  no_database_access: "预检副本不接入开发数据库",
   source_unchanged: "原工作区代码未变化",
+};
+const dependencyLabels: Record<string, string> = {
+  NOT_CREATED: "未创建",
+  INITIALIZING: "初始化中",
+  RESTORING: "正在恢复数据",
+  RESTORE_PENDING: "恢复未完成，待继续",
+  RESTORED: "待启动并恢复数据",
+  RUNNING: "上次检查运行中",
+  CHECKPOINTING: "正在保存数据",
+  STOPPED: "已停止，数据保留",
+  UNKNOWN: "数据或资源待核实",
 };

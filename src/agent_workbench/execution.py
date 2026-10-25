@@ -32,11 +32,17 @@ class Executor:
         admission.parent.mkdir(parents=True, exist_ok=True)
         with admission.open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            if len(resources.inventory(self.settings.data_dir)) >= self.settings.max_containers:
+            from . import dependencies
+            use_dependencies = workspace.is_relative_to(self.settings.data_dir / "workspaces") and not options.get("read_only_source")
+            extra = dependencies.needed(self.settings.data_dir, workspace) if use_dependencies else 0
+            if len(resources.inventory(self.settings.data_dir)) + 1 + extra > self.settings.max_containers:
                 raise WorkbenchError("托管容器达到上限，请停止不需要的环境后明确重试")
             from .profiles import runtime_options
             configured = runtime_options(workspace, self.settings.data_dir)
             image = configured.pop("image", image)
+            if options.get("openrouter_model") and not os.environ.get("OPENROUTER_API_KEY", "").strip():
+                raise WorkbenchError("Configure the existing OPENROUTER_API_KEY secret before starting OpenRouter")
+            if use_dependencies: configured.update(dependencies.ensure(self.settings.data_dir, workspace))
             return runtime.start(workspace, image, proxy_ca, controller=resources.controller_id(self.settings.data_dir), **configured, **options)
 
     def secret_values(self, workspace):
@@ -44,6 +50,9 @@ class Executor:
         path = workspace / "runtime.json"
         if path.exists():
             values.append(json.loads(path.read_text()).get("password", ""))
+        from .dependencies import read, PRIVATE
+        dependency = read(workspace, PRIVATE) if workspace.exists() else None
+        if dependency: values.append(dependency["password"])
         return [value for value in values if value]
 
     def redact(self, text, workspace):
@@ -104,6 +113,8 @@ class Executor:
                 try:
                     if (workspace / "runtime.json").exists():
                         runtime.stop(workspace)
+                    from .dependencies import stop
+                    stop(self.settings.data_dir, workspace)
                 except (WorkbenchError, subprocess.TimeoutExpired):
                     raise Unknown("中止尚未核实，工作区保持阻塞") from None
                 raise
@@ -138,8 +149,8 @@ class Executor:
         if action in ("stop", "reconcile"):
             emit("stage", {"text": "正在停止并核实运行环境"})
             self.cleanup_attempts(job["requirement_id"])
-            if (workspace / "runtime.json").exists():
-                runtime.stop(workspace)
+            from .resources import stop_workspace
+            stop_workspace(self.settings.data_dir, workspace)
             return self.observe(workspace, "STOPPED")
         if action == "start":
             if not (workspace / "runtime.json").exists():
@@ -204,6 +215,12 @@ class Executor:
         prompt = prompt or (f"需求：{job['requirement']['title']}\n背景：{job['requirement']['description']}\n"
                   f"验收标准：{job['requirement']['acceptance']}\n本次任务：{job['input']['prompt']}\n"
                   "在当前独立工作区完成任务并执行合适验证。保留代码改动，不推送 Git，不启动子代理。")
+        if job.get("profile"):
+            content = job["profile"]["content"]
+            context = {"profile_id": job["profile"]["id"], "build_command": content["build_command"], "verification_command": content["verification_command"],
+                "configuration_files": [item["target"] for item in content["mounts"]], "dependencies": [item["kind"] for item in content.get("dependencies", [])],
+                "database_access": "not_connected_in_readonly_session" if read_only else "use_PGHOST_PGPORT_PGUSER_PGDATABASE_PGPASSWORD_environment_variables"}
+            prompt += "\n固定运行配置（不包含认证内容，不在答复或产物中写入凭据）：" + json.dumps(context, ensure_ascii=False)
         command = ["docker", "--host=unix:///var/run/docker.sock", "exec", "-i", state["container"], "opencode", "run",
                    "--attach", "http://127.0.0.1:4096", "--model", model, "--format", "json"]
         environment = os.environ.copy()

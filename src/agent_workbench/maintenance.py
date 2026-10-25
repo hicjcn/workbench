@@ -70,6 +70,9 @@ def workspace_entries(root):
         for filename in ("workspace.json", "capability-report.json", "preflight-report.json"):
             path = workspace / filename
             if path.exists(): entries.append(("files/" + path.relative_to(root).as_posix(), path))
+        from .dependencies import backup_files
+        for name in backup_files(workspace):
+            entries.append(("files/" + relative + "/" + name, safe_path(workspace, name)))
     for folder in ("exports", "deliveries"):
         directory = root / folder
         if directory.is_symlink(): raise WorkbenchError("正式存储目录不可信")
@@ -93,9 +96,9 @@ def backup(settings):
             for name, values in data.items(): entries.append(("database/" + name + ".json", encoded(values).encode()))
             identity = "backup_" + secrets.token_hex(16)
             target = settings.data_dir / "backups" / (identity + ".zip")
-            header = {"schema": "workbench-backup/v1", "schema_revision": "0006", "created_at": time.time(),
+            header = {"schema": "workbench-backup/v2", "schema_revision": "0006", "created_at": time.time(),
                 "source_root": str(settings.data_dir), "metadata": metadata_digest(data), "code_checkpoints": checkpoints,
-                "excluded": ["access-token", "runner-token", "agent-home", "runtime-config", "staging", "runtime.json", "backups", "external original repositories", "database credentials"]}
+                "excluded": ["access-token", "runner-token", "agent-home", "runtime-config", "staging", "runtime.json", "dependency-runtime.json", "dependency-private.json", "backups", "external original repositories", "database credentials"]}
             result = build(target, header, entries)
             after_entries, after = workspace_entries(settings.data_dir)
             if checkpoints != after or workspace_names != {name for name, _ in after_entries} or metadata_digest(rows_snapshot(store)) != header["metadata"]:
@@ -115,7 +118,7 @@ def restore(archive_path, destination, project_maps=None):
     destination = destination.absolute()
     if destination.exists() or destination.is_symlink(): raise WorkbenchError("恢复目标必须是尚不存在的新目录")
     manifest = verify(archive_path)
-    if manifest.get("schema") != "workbench-backup/v1" or manifest.get("schema_revision") not in ("0005", "0006"): raise WorkbenchError("备份格式或数据版本不支持")
+    if (manifest.get("schema"), manifest.get("schema_revision")) not in (("workbench-backup/v1", "0005"), ("workbench-backup/v1", "0006"), ("workbench-backup/v2", "0006")): raise WorkbenchError("备份格式或数据版本不支持")
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=destination.parent))
     try:
@@ -135,7 +138,9 @@ def restore(archive_path, destination, project_maps=None):
                 offset = 3 if parts[0] == "workspaces" else 4 if parts[0] == "attempts" else None
                 if offset is not None:
                     suffix = parts[offset:]
-                    if not suffix or (suffix[0] != "repo" and suffix not in [("workspace.json",), ("capability-report.json",), ("preflight-report.json",)]): raise WorkbenchError("备份包含禁止恢复的认证或运行状态")
+                    allowed = [("workspace.json",), ("capability-report.json",), ("preflight-report.json",)]
+                    if manifest["schema"] == "workbench-backup/v2": allowed += [("dependency-state.json",), ("dependency-snapshot.json",), ("dependency-backups", "postgres.dump")]
+                    if not suffix or (suffix[0] != "repo" and suffix not in allowed): raise WorkbenchError("备份包含禁止恢复的认证或运行状态")
                 elif len(parts) != 2 or not parts[-1].endswith(".zip"): raise WorkbenchError("正式文件存储路径不正确")
                 target = safe_path(staging, relative); target.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(name) as source, target.open("wb") as output: shutil.copyfileobj(source, output, length=1024 * 1024)
@@ -151,7 +156,15 @@ def restore(archive_path, destination, project_maps=None):
             Executor.guard_git(workspace / "repo")
             observed = snapshot(workspace / "repo")
             if {"tree_digest": observed["tree_digest"], "commit_sha": observed["commit_sha"]} != expected: raise WorkbenchError("恢复源码摘要与备份不一致")
-            path = workspace / "workspace.json"; content = json.loads(path.read_text()); content["repo"] = str(destination / relative / "repo"); write_json(path, content)
+            path = workspace / "workspace.json"; content = json.loads(path.read_text())
+            content["repo"] = str(workspace / "repo"); write_json(path, content)
+            from .dependencies import backup_files, STATE, read
+            backup_files(workspace)
+            dependency = read(workspace, STATE)
+            if dependency:
+                dependency.update(phase="RESTORED", checked_at=time.time())
+                write_json(workspace / STATE, dependency)
+            content["repo"] = str(destination / relative / "repo"); write_json(path, content)
         source_root = Path(manifest["source_root"])
         req_projects = {item["id"]: item["project_id"] for item in data["requirements"]}
         for row in data["workspaces"]:

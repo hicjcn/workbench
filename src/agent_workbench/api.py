@@ -255,10 +255,12 @@ def create_app(settings: Settings, store: Store | None = None):
         requirement = database.get(tables.requirements, requirement_id)
         from .profiles import binding
         from .preflight import read_report
+        from .dependencies import status as dependency_status
         with database.engine.connect() as connection: profile = binding(connection, requirement_id)
         workspace = database.get(tables.workspaces, requirement_id)
         return {**requirement, "project": database.get(tables.projects, requirement["project_id"]), "profile": profile,
             "preflight": read_report(Path(workspace["path"])),
+            "dependency": dependency_status(Path(workspace["path"])),
             "workspace": database.get(tables.workspaces, requirement_id),
             "jobs": database.job_history(requirement_id),
             "reviews": database.list(tables.reviews, tables.reviews.c.requirement_id == requirement_id)}
