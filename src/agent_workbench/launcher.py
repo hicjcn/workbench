@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import uuid
 import webbrowser
 
@@ -21,7 +22,7 @@ import psutil
 
 from . import locking
 from .configuration import Configuration, ConfigurationError, config_path, launcher_directory
-from .platform_support import IS_WINDOWS, docker_environment, is_link
+from .platform_support import IS_WINDOWS, docker_environment, is_link, retry_file_access
 from .settings import Settings, storage_summary
 from .workspace import WorkbenchError, write_json
 
@@ -34,10 +35,14 @@ def control_dir(path):
 
 def read_state(directory):
     path = directory / "instance.json"
-    if not path.exists(): return None
-    if is_link(path) or path.stat().st_size > 65536: raise WorkbenchError("启动状态文件不可信")
+    def read():
+        if not path.exists(): return None
+        if is_link(path) or path.stat().st_size > 65536: raise WorkbenchError("启动状态文件不可信")
+        return path.read_text(encoding="utf-8")
+    content = retry_file_access(read)
+    if content is None: return None
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(content)
         if not re.fullmatch(r"[a-f0-9]{32}", value["instance"]) or not isinstance(value["pid"], int) or value["pid"] <= 0:
             raise ValueError
         if not 1 <= int(value["control_port"]) <= 65535 or len(value["control_token"]) < 32: raise ValueError
@@ -363,7 +368,8 @@ def main():
         print(str(error), file=sys.stderr); return 1
     except OSError as error:
         code = getattr(error, "winerror", None) or error.errno
-        print(f"启动管理操作失败（系统错误 {code}）；请检查本机日志和进程状态，未输出凭据", file=sys.stderr); return 1
+        frame = traceback.extract_tb(error.__traceback__)[-1]
+        print(f"启动管理操作失败（系统错误 {code}，{Path(frame.filename).name}:{frame.lineno}）；请检查本机日志和进程状态，未输出凭据", file=sys.stderr); return 1
     except Exception:
         print("启动管理操作失败；请检查配置、本机日志及进程状态，未输出凭据", file=sys.stderr); return 1
 
