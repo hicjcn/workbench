@@ -70,7 +70,7 @@ def descendant(pid, parent):
 
 def summary(state):
     if not state: return {"phase": "STOPPED", "managed": False}
-    return {key: state[key] for key in ("phase", "instance", "pid", "api_url", "data_dir", "logs_dir", "roles", "error", "warning", "containers_stopped", "stop_timeout_seconds") if key in state}
+    return {key: state[key] for key in ("phase", "instance", "pid", "api_url", "data_dir", "logs_dir", "roles", "error", "warning", "containers_stopped", "stop_timeout_seconds", "stopping_role") if key in state}
 
 
 def rpc(state, method="GET", path="/status"):
@@ -277,6 +277,7 @@ def supervise(configuration, directory, instance):
             # current operation and recorded its result. Image commands drain.
             for role in ("runner", "api"):
                 if role in children:
+                    state["stopping_role"] = role; save()
                     write_json(marker(directory, instance, role), {"stop": True})
                     while children[role].poll() is None:
                         time.sleep(0.2)
@@ -288,6 +289,7 @@ def supervise(configuration, directory, instance):
                 state["phase"] = "FAILED" if state["error"] else "STOPPED"
             except Exception:
                 state.update(phase="NEEDS_ATTENTION", error="服务已退出，但资源或镜像任务尚未核实；请查看 stop/维护记录")
+            state.pop("stopping_role", None)
             save()
             control.shutdown(); control.server_close(); serving.join(timeout=2)
             for handle in logs: handle.close()

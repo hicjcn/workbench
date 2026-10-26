@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import subprocess
 import threading
 import time
 from urllib.parse import urlparse
@@ -124,13 +125,15 @@ class Runner:
 
     def report_once(self):
         from . import resources
-        try:
-            report = {"available": True, "controller_id": resources.controller_id(self.settings.data_dir), "containers": resources.inventory(self.settings.data_dir)}
-        except (WorkbenchError, OSError):
-            report = {"available": False, "controller_id": resources.controller_id(self.settings.data_dir), "containers": [], "error": "暂时无法核实 Docker 资源"}
+        from .runtime import interruptible_inspection
         from .docker_execution import inventory
-        try: report.update(images=inventory(), images_available=True)
-        except (WorkbenchError, OSError, ValueError): report.update(images=[], images_available=False)
+        with interruptible_inspection(self.shutdown_event):
+            try:
+                report = {"available": True, "controller_id": resources.controller_id(self.settings.data_dir), "containers": resources.inventory(self.settings.data_dir)}
+            except (WorkbenchError, OSError, subprocess.TimeoutExpired):
+                report = {"available": False, "controller_id": resources.controller_id(self.settings.data_dir), "containers": [], "error": "暂时无法核实 Docker 资源"}
+            try: report.update(images=inventory(), images_available=True)
+            except (WorkbenchError, OSError, ValueError, subprocess.TimeoutExpired): report.update(images=[], images_available=False)
         report.update(pid=os.getpid(), launcher_instance=os.environ.get("AWB_LAUNCHER_INSTANCE"))
         self.post("/internal/runtime", {"owner": self.owner, "report": report})
 

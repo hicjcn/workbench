@@ -130,7 +130,7 @@ credential_env = ["TEAM_API_KEY"]
 
 启动器通过私有控制端口和随机实例标识记录自己创建的进程，校验 PID、创建时间和命令身份；就绪检查还核对实际 API/Runner 身份。重复 start 返回原实例。端口被其他程序占用会失败，不会接管该程序。
 
-停止先通知 Runner。普通任务进入现有取消/核实流程，镜像构建等不可直接取消的操作等待结束；随后 API 退出，再按配置执行离线受管资源停止。超出等待时间返回 `STOPPING`，保留状态，稍后查询或再次 stop。不会强杀其他 Python 进程、全局清理 Docker 或删除数据。
+停止先通知 Runner。普通任务进入现有取消/核实流程，只读 Docker 状态查询可以中止；镜像构建等不可直接取消的操作等待结束。随后 API 退出，再按配置执行离线受管资源停止。超出等待时间返回 `STOPPING`，并显示正在等待的服务，保留状态，稍后查询或再次 stop。不会强杀其他 Python 进程、全局清理 Docker 或删除数据。
 
 日志位于 `<logs_dir>/launcher.log` 和 `<logs_dir>/<instance>/api.log`、`runner.log`。配置旁的 `.workbench-run/<配置路径摘要>/instance.json` 保存自动生成的控制令牌、PID 和状态，不需要手改，也不要提交或共享。
 
