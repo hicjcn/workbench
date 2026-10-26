@@ -159,7 +159,8 @@ def main(stop_event=None):
             while not stop_event.is_set():
                 try:
                     worked = runner.run_once()
-                    if not worked: worked = runner.image_once()
+                    if not worked and not stop_event.is_set(): worked = runner.image_once()
+                    if stop_event.is_set(): break
                     if time.monotonic() - last_watch > 2:
                         runner.watch_once()
                         last_watch = time.monotonic()

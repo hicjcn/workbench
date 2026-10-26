@@ -44,6 +44,7 @@ def main():
             assert secret not in result.stdout + result.stderr
         if result.returncode:
             (root / "command-error.txt").write_text(result.stdout + result.stderr, encoding="utf-8")
+            print((result.stdout + result.stderr)[-4000:], file=sys.stderr)
             raise AssertionError("Windows command failed; inspect the private command-error.txt")
         return result
     def cmd(action, *extra, timeout=120):

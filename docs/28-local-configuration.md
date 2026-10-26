@@ -142,4 +142,4 @@ credential_env = ["TEAM_API_KEY"]
 
 测试覆盖配置优先级、UTF-8/路径、凭据省略、CLI 版本预置、真实 API/Runner 后台启停、重复操作、配置改坏后的停止、端口冲突和 PID 复用保护。Windows CI 额外运行真正的 CMD 与 Windows PowerShell 脚本，在带中文/空格的目录中创建全新 venv、安装依赖、构建页面并准备 SQLite 工作区；不调用模型或真实 Docker。
 
-真实 Docker 环境的停止仍需与 Docker Desktop 在目标 Windows 11 主机联验。Linux 实际容器检查和 Windows 控制进程检查分别记录，不作为在线模型或业务验收通过的证明。
+Linux 已使用现有工具镜像实际验证：准备工作区、启动 Agent 服务（不调用模型）、停止并移除本实例容器、保留其他控制目录的容器及 SQLite/代码，再次停止。Windows 控制进程检查由上述 CI 执行；Docker Desktop 的实际容器启停仍需在目标 Windows 11 主机联验。

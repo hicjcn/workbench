@@ -75,6 +75,19 @@ class ControlFixture(unittest.TestCase):
 
 
 class ControlPlaneTests(ControlFixture):
+    def test_shutdown_does_not_claim_a_new_image_operation(self):
+        from agent_workbench.runner import main
+        event = threading.Event()
+        fake = Mock()
+        def poll():
+            event.set()
+            return False
+        fake.run_once.side_effect = poll
+        with patch("sys.argv", ["runner", "--config", "-"]), patch("agent_workbench.configuration.configured", return_value=Mock(api_url="http://127.0.0.1:8340")), patch.object(Settings, "load", return_value=self.settings), patch("agent_workbench.runner.Runner", return_value=fake):
+            main(stop_event=event)
+        fake.image_once.assert_not_called()
+        fake.client.close.assert_called_once()
+
     def test_launcher_shutdown_cancels_active_job_and_records_result(self):
         requirement = self.requirement()
         queued = self.action(requirement, "prepare").json()
