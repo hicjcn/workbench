@@ -1,4 +1,5 @@
 import json
+import errno
 from pathlib import Path
 import shutil
 import subprocess
@@ -106,7 +107,13 @@ class MultiRepositoryTests(ControlFixture):
 
     def test_each_requirement_has_independent_repositories_branches_and_common_files(self):
         original = [snapshot(self.parent / name) for name in self.names]
-        project = self.register(); first, a = self.prepared_multi(project); second, b = self.prepared_multi(project)
+        project = self.register()
+        rename = Path.rename
+        def another_drive(path, target):
+            if path.name == 'repo': raise OSError(errno.EXDEV, 'controlled cross-drive move')
+            return rename(path, target)
+        with patch.object(Path, 'rename', autospec=True, side_effect=another_drive): first, a = self.prepared_multi(project)
+        second, b = self.prepared_multi(project)
         for name in self.names:
             self.assertEqual(git(a / 'repo' / name, 'branch', '--show-current').decode().strip(), 'req/' + first['id'])
             self.assertEqual(git(b / 'repo' / name, 'remote').strip(), b'')
@@ -130,7 +137,7 @@ class MultiRepositoryTests(ControlFixture):
         self.assertIn('a/' + self.names[0] + '/main.txt', observed['diff'])
         self.assertIn('b/plan.md', observed['diff'])
         self.assertIn('b/AGENTS.md', observed['diff'])
-        role = Path(create_workspace(workspace / 'repo', self.data / 'attempts/job_clone', req['id'], req['project_id'], include_dirty=True, include_untracked=True)['workspace'])
+        role = Path(create_workspace(workspace / 'repo', self.data / 'attempts' / ('job_' + 'a' * 32), req['id'], req['project_id'], include_dirty=True, include_untracked=True)['workspace'])
         self.assertEqual(snapshot(role / 'repo')['tree_digest'], observed['snapshot']['tree_digest'])
         self.assertEqual([item['path'] for item in layout(role / 'repo')['repositories']], self.names)
 
@@ -199,7 +206,7 @@ class MultiRepositoryTests(ControlFixture):
         self.assertEqual(self.client.post(f"/api/v1/projects/{project['id']}/profiles", json=dict(content=content, actor='Fixture', reason='escape')).status_code, 422)
 
     def test_per_repository_execution_uses_cwd_and_retains_failure_records(self):
-        _, workspace = self.prepared_multi()
+        req, workspace = self.prepared_multi()
         write_json(workspace / 'runtime.json', {'container': 'fixture'})
         self.addCleanup(lambda: (workspace / 'runtime.json').unlink(missing_ok=True))
         plans = [{'path': path, 'argv': ['fixture-test']} for path in self.names]
@@ -213,6 +220,15 @@ class MultiRepositoryTests(ControlFixture):
         records = failed.exception.command_output['repositories']
         self.assertEqual([item['exit_code'] for item in records], [0, 1])
         self.assertEqual([item[2] for item in calls], ['/workspace/project/' + path for path in self.names])
+        self.action(req, 'refresh')
+        job = self.store.claim('verification-results')
+        self.store.finish(job['id'], 'verification-results', job['epoch'], 'FAILED', {'command_output': failed.exception.command_output}, 'controlled failure')
+        response = self.client.get('/api/v1/jobs/' + job['id'] + '/verification')
+        self.assertEqual(response.json(), {'repositories': records})
+        self.assertNotIn('snapshot', response.json())
+        self.assertNotIn('command_output', self.detail(req)['jobs'][0].get('result') or {})
+        self.client.headers.pop('Authorization')
+        self.assertEqual(self.client.get('/api/v1/jobs/' + job['id'] + '/verification').status_code, 401)
 
     def test_backup_restores_all_git_histories_shared_baseline_and_repository_selection(self):
         req, workspace = self.prepared_multi()

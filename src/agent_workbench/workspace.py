@@ -23,7 +23,8 @@ class WorkbenchError(Exception):
 
 def git(directory: Path, *args: str) -> bytes:
     result = subprocess.run(
-        ["git", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false", "-C", str(directory), *args],
+        ["git", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false",
+         *(["-c", "core.longpaths=true"] if IS_WINDOWS else []), "-C", str(directory), *args],
         capture_output=True,
         timeout=120,
     )
@@ -271,7 +272,8 @@ def binary_diff(repo, baseline, files, *, prefix=""):
     tracked = set(git(repo, 'ls-files', '-z').decode().rstrip('\0').split('\0'))
     for name in names:
         if name in tracked or not safe_path(repo, name).is_file(): continue
-        result = subprocess.run(['git', '-c', f'core.hooksPath={os.devnull}', '-c', 'core.fsmonitor=false', '-C', str(repo),
+        result = subprocess.run(['git', '-c', f'core.hooksPath={os.devnull}', '-c', 'core.fsmonitor=false',
+            *(['-c', 'core.longpaths=true'] if IS_WINDOWS else []), '-C', str(repo),
             'diff', '--no-index', '--no-ext-diff', '--no-textconv', '--binary', *options, '--', os.devnull, name], capture_output=True, timeout=120)
         if result.returncode not in (0, 1): raise WorkbenchError('新增文件差异采集失败')
         chunks.append(result.stdout)

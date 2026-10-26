@@ -367,6 +367,12 @@ def create_app(settings: Settings, store: Store | None = None):
         database.expire()
         return database.get(tables.jobs, job_id)
 
+    @app.get("/api/v1/jobs/{job_id}/verification", dependencies=[Depends(user)])
+    def verification_result(job_id: str):
+        result = database.get(tables.jobs, job_id).get('result') or {}
+        output = result.get('command_output') or result.get('workflow_output') or {}
+        return {'repositories': output.get('repositories', [])}
+
     @app.post("/api/v1/jobs/{job_id}/cancel", dependencies=[Depends(user)])
     def cancel(job_id: str):
         return database.cancel(job_id)

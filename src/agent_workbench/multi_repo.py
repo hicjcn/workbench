@@ -1,5 +1,6 @@
 """Explicit repository sets in a shared parent; metadata stays outside Agent mounts."""
 import hashlib
+import errno
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -174,19 +175,26 @@ def create(source, root, requirement, project, *, repositories, shared_files, in
     if destination.exists(): raise WorkbenchError("Workspace already exists; it will not be overwritten")
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=f'.{project}-', dir=destination.parent))
+    staging = None
     try:
+        # Keep the inner Git export out of the deeply nested requirement path.
+        # A configured data drive can differ from the system temporary drive.
+        staging = tempfile.TemporaryDirectory(prefix='awb-repositories-')
         repo = temporary / 'repo'; repo.mkdir()
         value = {'schema_version': 2, 'layout': 'multi-repo/v1', 'requirement': requirement, 'project': project,
             'repo': str(destination / 'repo'), 'source_history': 'independent_snapshot_exports', 'repositories': [],
             'include_dirty': include_dirty, 'include_untracked': include_untracked}
         for index, name in enumerate(repositories):
-            copied = create_workspace(safe_path(source, name), temporary / 'staging', requirement, f'repository_{index}',
+            copied = create_workspace(safe_path(source, name), Path(staging.name), requirement, f'repository_{index}',
                 include_dirty=include_dirty, include_untracked=include_untracked, _single_repository=True)
             child = Path(copied['workspace'])
             manifest = json.loads((child / 'workspace.json').read_text(encoding='utf-8'))
             if manifest['source_commit'] != source_heads[name]: raise WorkbenchError('来源仓库在准备期间切换了提交，请重试')
             target = safe_path(repo, name); target.parent.mkdir(parents=True, exist_ok=True)
-            (child / 'repo').rename(target)
+            try: (child / 'repo').rename(target)
+            except OSError as error:
+                if error.errno != errno.EXDEV and getattr(error, 'winerror', None) != 17: raise
+                shutil.copytree(child / 'repo', target)
             value['repositories'].append({'path': name, 'source_commit': manifest['source_commit'], 'baseline': manifest['source_baseline']})
         shared_base = temporary / 'shared-base'; shared_base.mkdir()
         for name in shared_files:
@@ -216,12 +224,13 @@ def create(source, root, requirement, project, *, repositories, shared_files, in
         if before and snapshot(source, existing) != before: raise WorkbenchError("来源多仓库工作区在复制期间变化")
         if any(git(safe_path(source, name), 'rev-parse', 'HEAD').decode().strip() != sha for name, sha in source_heads.items()):
             raise WorkbenchError('来源仓库在准备期间切换了提交，请重试')
-        shutil.rmtree(temporary / 'staging')
         temporary.rename(destination)
         return {'workspace': str(destination), 'source_commit': value['source_commit'], 'snapshot': snapshot(destination / 'repo', value)}
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
         raise
+    finally:
+        if staging: staging.cleanup()
 
 
 def diff(workspace, *, repository=None):
@@ -246,7 +255,8 @@ def diff(workspace, *, repository=None):
         for item in common_inventory(workspace / 'repo', [entry['path'] for entry in value['repositories']]):
             target = safe_path(folder / 'b', item['path']); target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(safe_path(workspace / 'repo', item['path']), target)
-        result = subprocess.run(['git', '-c', f'core.hooksPath={os.devnull}', '-c', 'core.fsmonitor=false', '-c', 'core.autocrlf=false', 'diff', '--no-index',
+        result = subprocess.run(['git', '-c', f'core.hooksPath={os.devnull}', '-c', 'core.fsmonitor=false', '-c', 'core.autocrlf=false',
+            *(['-c', 'core.longpaths=true'] if IS_WINDOWS else []), 'diff', '--no-index',
             '--no-ext-diff', '--no-textconv', '--binary', '--src-prefix=', '--dst-prefix=', '--', 'a', 'b'], cwd=folder, capture_output=True, timeout=120)
         if result.returncode not in (0, 1): raise WorkbenchError("共享文件差异采集失败")
         chunks.append(result.stdout)
