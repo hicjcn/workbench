@@ -1,84 +1,311 @@
 # Agent 开发工作台
 
-面向后端开发者的本地 Agent 开发工作台。以 OpenCode 为主要执行工具，结合 Superpowers，在独立 Docker 工作区中组织需求、代码、运行和人工确认。
+面向后端开发者的本地 Agent 工作台，把需求分析、开发、代码评审、设计文档、测试及反馈组织为可追溯的流程。使用 OpenCode 或基于 OpenCode 封装的兼容 CLI，结合 Superpowers，在各需求独立的 Docker 工作区中执行任务，关键结论由人确认。
 
-M1—M9 已合并到 main。M10 增加完整样例的逐步验收工具、固定只读测试和执行证据清单。当前云环境模型访问受代理 403 阻断，完整在线样例与用户业务项目仍待验收。
+**本机运行方式：React 页面 + Python 控制 API + 独立 Runner + Docker，元数据默认存入本地 SQLite，无需额外部署数据库。**
 
-新增「Docker 镜像」与「容器管理」入口：维护 Dockerfile 版本、构建/拉取/移除镜像，集中启动和停止各需求环境。具体操作、仅 Dockerfile 构建上下文及 Sites 试用边界见 [Docker 管理说明](docs/24-docker-management.md)。
+[工作流程](#工作流程) · [启动说明](#启动说明) · [首次接入项目](#首次接入项目) · [Agent CLI 与模型配置](#agent-cli-与模型配置) · [常见问题](#常见问题) · [详细文档](#详细文档)
 
-「Agent CLI 配置」支持切换到基于 OpenCode 封装的兼容 CLI：维护启动/任务/版本命令、超时和凭据变量名，设置新工作区默认值或为项目固定版本。已有需求保留原配置，详见 [封装 CLI 接入](docs/26-agent-cli.md)。
+## 功能与页面
 
-## 运行工作台
+| 页面 | 用途 |
+| --- | --- |
+| 需求工作区 | 创建需求、查看独立源码副本与差异、推进开发流程、处理设计测试材料和反馈 |
+| 项目登记 | 登记本机 Git 仓库，维护版本化运行配置：镜像、CLI、资源、构建/验证命令、只读配置及可选业务依赖 |
+| Docker 镜像 | 查看、拉取和非强制移除镜像标签，维护 Dockerfile 版本并提交构建 |
+| 容器管理 | 集中创建工作区、环境预检、启动/停止环境、管理应用服务及查看执行记录 |
+| Agent CLI 配置 | 配置兼容封装 CLI 的服务、任务、版本命令，维护历史版本和新工作区默认值 |
+| 跨项目交付 | 组织候选项目联合分析、确认整体范围、登记联调结果、导出交付包与归档 |
+| 资源与恢复 | 查看 Runner、资源配额、SQLite 路径及离线维护说明 |
 
-需要 Linux、Python 3.11+、Node.js 22.12+、Git 和 Docker：
+每个需求有独立代码副本和 Agent HOME，可以同时推进多个需求。同一需求的写操作串行，默认最多同时执行 2 个任务、运行 4 个受管容器；只读分析和评审副本也占用容器名额。
 
-工作台使用本地 **SQLite** 保存项目、需求、流程、镜像维护和执行记录，数据库文件默认是 `.local-data/workbench/workbench.db`，首次启动自动创建并升级。无需安装、部署或启动 PostgreSQL/MySQL，也不需要数据库账号密码。
+## 工作流程
+
+首次使用先[准备项目环境](#首次接入项目)，之后按以下顺序推进需求：
+
+```mermaid
+flowchart TD
+    A[接收需求与验收标准] --> B[结合代码分析影响范围]
+    B --> C[人工确认方案与涉及项目]
+    C --> D[Superpowers 开发与命令验证]
+    D --> E[不同模型独立代码评审]
+    E --> F[问题处置与开发者自审]
+    F --> G[生成概要设计并登记主管评审]
+    G --> H[功能测试单与按需性能测试单]
+    H --> I[实际测试与结果登记]
+    I --> J[验收、联调与交付]
+    E -->|需要修复| D
+    I -->|Bug 反馈| D
+    I -->|需求或架构变更| B
+```
+
+1. **接收需求**：在「需求工作区」新建需求，填写背景、关联项目和可验证的验收标准。创建独立工作区，完成环境预检后启动环境。
+2. **分析并确认范围**：开启「开发流程」，配置验证命令及至少两个不同的评审模型，运行只读分析，再人工确认方案。涉及多个项目时，先为候选项目分别准备需求与工作区，在「跨项目交付」关联成员、执行联合分析，并确认整体范围。候选仓库需主动登记，系统不会自动发现全部业务仓库。
+3. **开发与验证**：明确启动 Superpowers 开发步骤，再运行本轮验证命令，检查实际退出码、日志和代码差异。
+4. **独立评审与自审**：分别运行不同模型的代码评审。各模型使用独立只读副本；对阻断和主要问题逐项登记处置依据。需要修复时开启新修复轮次，修复后重新验证、评审，最后由开发者自审。
+5. **概要设计与主管评审**：自审通过后，在「设计、测试与反馈」开始材料阶段，生成并检查服务端概要设计。主管在外部完成评审后，登记评审人、时间、意见和证据；工作台不代替主管批准。
+6. **测试准备与执行**：明确是否需要性能测试，保存判断依据；生成功能测试单，需要时再生成性能测试单。实际执行测试后，登记逐项结果、环境与证据。生成测试单不代表测试已经执行。
+7. **反馈与变更**：Bug 可开启修复轮次；需求变更和架构变更保存新需求修订，返回分析；文档意见生成或编辑新材料版本后重新评审。代码、需求或材料变化后，相关旧结论保留为历史，当前轮次需要重新确认。
+8. **验收与交付**：满足当前代码、材料、测试和反馈门禁后登记材料验收。交付组还需登记实际联调结果，或说明无需联调的原因，再采集 ZIP 交付包、下载并归档。交付包包含代码、差异、设计、评审和测试记录；Git 提交、合并及部署由开发者另行完成。
+
+流程按步骤由用户明确启动，人工确认点不会自动通过。Agent 完成、命令退出成功、代码自审通过和最终业务验收是不同的状态。
+
+## 启动说明
+
+### 1. 环境要求
+
+当前本机执行链路面向 **Linux**，需要：
+
+| 依赖 | 要求 |
+| --- | --- |
+| Python | 3.11+，可创建 venv |
+| Node.js / npm | Node.js 22.12+，用于构建 Web 页面 |
+| Git | 已安装；待接入项目必须是有提交记录的本机 Git 仓库 |
+| Docker | 已启动守护进程，运行 Runner 的用户有访问权限，可执行 `docker info` |
+| 网络 | 构建镜像时能访问软件源；运行 AI 任务时能访问所选模型服务和模型目录 |
+
+工作台使用 SQLite 保存配置、需求、队列、日志与材料，首次启动自动建库并升级表结构。**无需安装 PostgreSQL、MySQL 或 Redis。** 项目运行配置中的 PostgreSQL 是待开发业务的可选依赖，默认关闭，与工作台数据库分开。
+
+### 2. 获取源码、安装并构建
 
 ```bash
+git clone https://github.com/hicjcn/workbench.git
+cd workbench
+
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[server]'
 npm ci --prefix web
 npm run --prefix web build
+
 docker build -t agent-workbench-m1:local poc/container
-.venv/bin/python -m agent_workbench.server --sqlite
 ```
 
-另开终端启动 Runner：
+该镜像包含锁定的 OpenCode `1.19.4`、Superpowers、Node 和 Git。项目需要 Java、Maven、Go 等工具时，应基于它构建项目镜像，见[项目接入说明](docs/14-m6-project-onboarding.md)。只打开管理界面可以先启动 API；实际执行需要 Runner、Docker 和可用的运行镜像。
+
+代理或自定义 CA 环境需按 [M1 运行说明](docs/04-m1-runbook.md)配置 Docker 代理与 BuildKit `proxy_ca` secret，保持 TLS 校验开启。
+
+### 3. 终端一：启动控制 API 与页面
+
+以下命令使用 OpenCode 免费模型标识作为示例。**模型当前是否开放、额度是否可用，需要在实际运行环境核实**，见[模型配置](#模型配置)。
 
 ```bash
-.venv/bin/python -m agent_workbench.runner
+# 在 workbench 仓库根目录运行
+AWB_MODEL=opencode/glm-5.3-flash-free \
+  .venv/bin/python -m agent_workbench.server \
+  --sqlite --data-dir "$PWD/.local-data/workbench"
 ```
 
-打开 [本机工作台](http://127.0.0.1:8340)，使用启动时提示的本机访问令牌文件登录。在「资源与恢复」查看 SQLite 数据文件位置。`--sqlite` 明确选择本地文件，并忽略已有的 `AWB_DATABASE_URL`；省略该参数且未配置数据库 URL 时也默认使用 SQLite。访问令牌与模型密钥分别管理，均不提交 Git。
+API 默认监听 `127.0.0.1:8340`，同时提供 `web/dist` 构建后的页面。`--sqlite` 明确使用指定数据目录中的 `workbench.db`，忽略已有 `AWB_DATABASE_URL`。首次启动会输出数据库位置和本机访问令牌的**文件路径**。
 
-「项目运行配置」中的 PostgreSQL 是业务项目的可选依赖，默认不启用；工作台和无数据库的业务项目均不需要它。SQLite 的目录持久化及备份说明见 [本地 SQLite 存储](docs/25-local-sqlite.md)。
+### 4. 终端二：启动 Runner
 
-默认模型沿用 M1 已验证的 OpenRouter 免费 Nemotron，Runner 从现有 `OPENROUTER_API_KEY` 环境变量读取凭据。可通过 API 与 Runner 一致的 `AWB_MODEL` 切换显式免费模型，不使用付费回退。
+另开终端，进入**同一个 workbench 仓库根目录**后执行：
 
-## 文档导航
+```bash
+AWB_MODEL=opencode/glm-5.3-flash-free \
+  .venv/bin/python -m agent_workbench.runner \
+  --data-dir "$PWD/.local-data/workbench" \
+  --api http://127.0.0.1:8340
+```
 
-1. [需求文档](docs/01-requirements.md)：业务流程、功能、范围、状态及验收标准。
-2. [整体设计](docs/02-overall-design.md)：架构、模块、数据模型、工作区、隔离、执行协议、状态和 API。
-3. [实施计划](docs/03-implementation-plan.md)：技术验证、迭代、工作包及需求追踪。
-4. [M1 操作说明](docs/04-m1-runbook.md)：运行命令、真实模型验证及原型边界。
-5. [M1 验证报告](docs/05-m1-validation.md)：已通过检查、实际版本及尚待完成的项目。
-6. [M2 操作说明](docs/06-m2-workbench.md)：架构落地、启动、配置和接口。
-7. [M2 验证报告](docs/07-m2-validation.md)：浏览器、数据库、迁移、恢复及验证范围。
-8. [M3 流程说明](docs/08-m3-workflow.md)：默认步骤、需求修订、独立评审、问题处置及历史记录。
-9. [M3 验证报告](docs/09-m3-validation.md)：受控流程、真实容器边界及在线模型待验收项。
-10. [M4 材料说明](docs/10-m4-materials.md)：材料版本、主管登记、条件性能单、测试记录与反馈。
-11. [M4 验证报告](docs/11-m4-validation.md)：材料闭环、历史下载、数据库并发及升级的验证边界。
-12. [M5 交付与恢复](docs/12-m5-delivery.md)：跨项目范围、联调登记、完整交付、资源和维护命令。
-13. [M5 验证报告](docs/13-m5-validation.md)：双项目交付、全量恢复、并发验证及真实业务待验收项。
-14. [M6 项目接入](docs/14-m6-project-onboarding.md)：可运行的样例镜像、配置版本、只读挂载与环境预检。
-15. [M6 验证报告](docs/15-m6-validation.md)：真实样例构建测试、新旧配置隔离及旧备份恢复。
-16. [M7 业务依赖](docs/16-m7-dependencies.md)：独立 PostgreSQL、连接约定、停止保留和备份恢复。
-17. [M7 验证报告](docs/17-m7-validation.md)：双需求数据/网络隔离、真实 SQL 测试和新数据卷恢复。
-18. [M8 应用服务](docs/18-m8-application.md)：运行命令、应用生命周期、HTTP 检查与恢复边界。
-19. [M8 验证报告](docs/19-m8-validation.md)：真实应用、数据库与浏览器演练。
-20. [M9 全景分析](docs/20-m9-panorama.md)：多项目只读副本、报告证据、范围确认及取消恢复。
-21. [M9 验证报告](docs/21-m9-validation.md)：真实多仓库环境检查与在线模型待验收项。
-22. [M10 样例验收](docs/22-m10-acceptance.md)：本机完整样例初始化、逐步执行、人工暂停点及证据核对。
-23. [M10 验证与阻断](docs/23-m10-validation.md)：工具验证通过项、实际代理阻断与在线待完成项。
+API 与 Runner 必须使用**相同的绝对数据目录和 `AWB_MODEL`**。Runner 通过认证接口领取任务，负责 Docker 操作；API 不访问 Docker。只启动 API 时页面可以打开，但排队任务不会执行。
 
-## 运行 M1
+### 5. 登录并检查运行状态
+
+打开 **[http://127.0.0.1:8340](http://127.0.0.1:8340)**，在本机读取启动提示的 `access-token` 文件，将内容填入登录表单。默认文件为 `.local-data/workbench/access-token`，它是工作台访问令牌，和模型密钥不同。
+
+进入「资源与恢复」，确认 Runner 已上报、Docker 资源可用、存储类型为 SQLite；再到「Docker 镜像」确认基础镜像存在。至此可以登记项目和创建需求。
+
+### 日常启动、更新与前端开发
+
+日常使用只需启动上述 API 和 Runner 两个进程，已有数据会保留。更新代码或依赖后，停止两个进程，在仓库根目录执行：
+
+```bash
+git pull --ff-only
+.venv/bin/python -m pip install -e '.[server]'
+npm ci --prefix web
+npm run --prefix web build
+```
+
+再用相同参数启动 API 和 Runner，API 会自动应用数据库迁移；工具镜像变更时另行重建镜像。重要数据应先[离线备份](#停止备份与恢复)。
+
+修改前端时可另开终端执行 `npm run --prefix web dev`，访问终端提示的 Vite 地址。开发服务器将 `/api` 转发到 `127.0.0.1:8340`，仍需运行 API，执行任务还需 Runner。普通使用无需启动 Vite。
+
+## 首次接入项目
+
+建议先用仓库自带的 Node 样例验证镜像、目录和命令配置，再接入业务项目。
+
+### 创建样例仓库
+
+在 workbench 根目录执行，目标样例目录必须尚不存在：
+
+```bash
+docker build -t agent-workbench-node:local poc/onboarding
+
+(
+  set -e
+  sample_project_dir="$HOME/workbench-samples/node-service"
+  test ! -e "$sample_project_dir"
+  mkdir -p "$HOME/workbench-samples"
+  cp -R poc/sample-project "$sample_project_dir"
+  git -C "$sample_project_dir" init -b main
+  git -C "$sample_project_dir" add --all
+  git -C "$sample_project_dir" -c user.name='Workbench Sample' \
+    -c user.email='sample@example.invalid' commit -m 'Initial sample'
+)
+```
+
+### 在界面接入
+
+1. 「项目登记」→「登记项目」：填写样例仓库的实际绝对路径和镜像 `agent-workbench-node:local`。源码仓库应位于工作台数据目录之外，工作区数据目录也不能位于该源码仓库内部。
+2. 在该项目的「项目运行配置」保存以下内容，填写登记人和原因。可解析配置示例见 [profile.sample.json](poc/onboarding/profile.sample.json)。
+
+   | 配置项 | 样例值 |
+   | --- | --- |
+   | 镜像 | `agent-workbench-node:local` |
+   | Agent CLI | 内置 OpenCode，或已安装在此镜像中的兼容封装 |
+   | 构建命令 | `node --check server.mjs` |
+   | 验证命令 | `node --test server.test.mjs` |
+   | CPU / 内存 / PID | `1` / `1536 MiB` / `256` |
+   | 业务数据库 / 应用服务 | 首次验证可以均不启用 |
+
+3. 「需求工作区」→「新建需求」→「创建工作区」。在「容器管理」或需求的环境面板运行「环境预检」，通过后「启动环境」。
+4. 执行项目构建和项目验证，检查任务记录。以上检查不调用模型；通过表示基础接入可用，随后按[工作流程](#工作流程)开启 AI 开发。
+
+接入真实项目时，替换源码路径、运行镜像和命令；配置文件仅支持显式只读文件挂载到 `/run/workbench-config/`。构建/验证命令按参数列表执行，复杂操作放入仓库脚本，不在表单拼接 Shell 管道或重定向。
+
+项目配置和 CLI 配置在**创建工作区任务入队时**固定，Runner 准备时固定实际镜像 ID。之后更新默认 CLI、项目配置或镜像标签，都不会改变已绑定需求；使用新配置应创建新的需求工作区。
+
+## Agent CLI 与模型配置
+
+### 更换 OpenCode 兼容 CLI
+
+对于“仅程序名不同，其余与 OpenCode 一致”的封装：
+
+1. 先把实际 CLI 安装到项目镜像中，并保留 OpenCode 服务协议及 Superpowers 工具环境。
+2. 打开「Agent CLI 配置」→「添加封装 CLI」，填写程序名或容器内路径。页面自动生成服务、任务和版本命令；例如程序名为 `team-code`：
+
+   ```text
+   team-code serve --hostname {host} --port {port}
+   team-code run --attach {endpoint} --model {model} --format json
+   team-code --version
+   ```
+
+3. 保存任务超时、可选的精确版本输出及所需凭据**变量名**，设为新工作区默认，或在「项目运行配置」选定具体版本。
+4. 创建新工作区并预检，再验证实际任务。管理页面只保存配置，不会自动安装 CLI。
+
+当前支持 OpenCode 兼容 HTTP API、认证、标准输入和 JSONL 事件格式。其他协议的 CLI 需要单独适配，详见 [Agent CLI 接入](docs/26-agent-cli.md)。
+
+### 模型配置
+
+`AWB_MODEL` 选择分析、开发和材料生成模型；代码评审模型在开启开发流程时另行选择，至少两个不同模型。**切换 CLI 不会切换模型服务或解除现有模型限制。**
+
+| 选项 | 配置与要求 |
+| --- | --- |
+| OpenCode 免费模型 | 支持显式 `opencode/*-free` 或 `opencode/big-pickle` 标识；免凭据路径仍受服务开放情况、额度和网络影响 |
+| OpenRouter 免费模型 | 支持 `openrouter/vendor/model:free`；Runner 需要继承已有的 `OPENROUTER_API_KEY`，执行前核实公开目录免费价格 |
+| 未设置 `AWB_MODEL` | 代码默认 `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`，需要 OpenRouter 凭据；上面的启动示例已显式覆盖它 |
+
+API 和 Runner 启动时均需设置同一个 `AWB_MODEL`。更换模型后重启两个进程，并停止、重新启动需求环境以应用配置。当前没有任意付费模型接入或付费回退，不能只填入其他厂商模型名就认为已经支持。
+
+凭据由 Runner 继承的进程环境提供；封装 CLI 的额外变量在配置页只登记名称，不填写值。工作台不自动加载 `.env`，不要把实际密钥放进 CLI 参数、Dockerfile 或提交到 Git。
+
+需要检查网络时，可使用不发送提示词的诊断命令：
+
+```bash
+.venv/bin/python -m agent_workbench.acceptance doctor \
+  --review-model opencode/glm-5.3-flash-free \
+  --review-model opencode/big-pickle
+```
+
+诊断需在与 Runner 相同的网络及认证环境中运行；网络可达也不代表模型推理已通过。
+
+## 停止、备份与恢复
+
+先在页面等待或取消并核实活动任务，停止需求环境，再分别用 `Ctrl+C` 停止 API 和 Runner。**仅结束两个 Python 进程不会自动停止已有 Docker 容器。** 离线维护时，在 workbench 根目录执行：
+
+```bash
+# API 和 Runner 均已退出；核实并停止本数据目录的受管资源
+.venv/bin/python -m agent_workbench.maintenance stop \
+  --sqlite --data-dir "$PWD/.local-data/workbench"
+
+# 生成备份，命令输出 ZIP 路径
+.venv/bin/python -m agent_workbench.maintenance backup \
+  --sqlite --data-dir "$PWD/.local-data/workbench"
+```
+
+备份保存配置、工作区代码与 Git 历史、流程材料及执行记录。镜像层、访问令牌、模型凭据和只读配置文件内容不包含在内；恢复后需另行准备。镜像维护任务处于运行或 UNKNOWN 时，先在主机核实并通过镜像管理页处理，再进行备份。
+
+恢复到**尚不存在的新目录**，不覆盖原数据：
+
+```bash
+.venv/bin/python -m agent_workbench.maintenance restore \
+  --archive /absolute/path/to/backup.zip \
+  --destination "$PWD/.local-data/workbench-restored"
+```
+
+恢复后用新目录作为两个进程的 `--data-dir`，API 继续加 `--sqlite`，使用新目录的 `access-token` 登录。恢复不会自动重放任务或启动容器。详细边界见[交付与恢复](docs/12-m5-delivery.md)和[本地 SQLite](docs/25-local-sqlite.md)。
+
+默认数据目录包括：
+
+```text
+.local-data/workbench/
+├── workbench.db          # SQLite 元数据；运行中可能有 -wal / -shm 文件
+├── access-token          # 本机页面登录令牌
+├── runner-token          # Runner 独立认证令牌
+├── workspaces/           # 各需求代码副本、Agent HOME 和运行状态
+├── locks/                # 单机操作锁
+├── exports/              # 材料导出
+├── deliveries/           # 交付包
+└── backups/              # 离线备份
+```
+
+请持久保存整个数据目录。不要在服务写入时只复制 `workbench.db`，SQLite WAL 中可能仍有未合并事务。
+
+## 常见问题
+
+| 现象 | 检查与处理 |
+| --- | --- |
+| 页面打不开或没有前端页面 | 确认 API 已启动、端口为 `8340`，并已执行 `npm run --prefix web build`；API 仅监听本机回环地址 |
+| 任务一直排队 | 确认 Runner 已启动、数据目录及 API 地址一致、模型配置一致，检查「资源与恢复」的上报与配额 |
+| Docker 不可用、镜像不存在 | 在 Runner 所在主机确认 `docker info` 可执行，并构建基础/项目镜像；宿主机安装 CLI 不代表镜像内已安装 |
+| 创建工作区失败 | 确认填写的是有提交记录的 Git 根目录，源码与工作台数据目录互不包含；子模块、未物化的 Git LFS 文件等限制见 M1 说明 |
+| 预检通过但模型调用失败 | 预检不发起推理；另查模型当前开放情况、Runner 凭据、代理、CA 和模型服务网络，运行 `acceptance doctor` 辅助诊断 |
+| 更新配置后旧需求仍用旧版本 | 已有工作区固定原版本；在新工作区验证新 CLI、镜像或项目配置 |
+| 任务为 UNKNOWN / 待核实 | 先检查现场，再使用「停止并核实」；跨项目操作核实全部成员。镜像维护使用单独的人工核实入口，不自动重试 |
+| 站点里点击启动没有真实容器 | Sites 站点是浏览器试用版，使用 localStorage，不运行 Python API、SQLite、Docker 或 Runner；真实开发按本文部署本机版 |
+
+## 开发验证与当前边界
+
+在已安装依赖的源码目录中运行：
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
-docker build -t agent-workbench-m1:local poc/container
-PYTHONPATH=src python3 poc/verify_isolation.py --root .local-data/m1-run-01
+node --test poc/sample-project/server.test.mjs
+npm run --prefix web build
 ```
 
-运行需要 Linux、Python 3.11+、Git 和可访问的 Docker 守护进程。代理环境的证书配置及免费模型真实任务命令见操作说明。以上双容器检查不会调用模型。
+需要实际容器、浏览器或在线样例验收时，按对应专项文档准备 Docker、可选浏览器依赖和全新验收目录。当前已完成本地控制、流程、材料、项目环境、Docker 管理及兼容 CLI 的检查；完整在线多模型样例和真实业务项目仍需验收。受控报告、预检及模拟任务不作为真实模型推理或业务测试通过的证明。
 
-## 设计示例
+## 详细文档
 
-- [M6 可解析运行配置示例](poc/onboarding/profile.sample.json)
-- [M6 样例 Dockerfile](poc/onboarding/Dockerfile)
-- [M7 PostgreSQL 样例配置](poc/postgres-sample/profile.sample.json)
-- [整体设计的项目环境示意](design-examples/project-profile.example.yaml)
-- [开发流程配置示例](design-examples/workflow.example.yaml)
+先读[需求文档](docs/01-requirements.md)、[整体设计](docs/02-overall-design.md)与[实施计划](docs/03-implementation-plan.md)。专项说明按主题查阅；早期里程碑文档描述当时范围，当前启动入口以本 README 为准。
 
-`design-examples/*.yaml` 使用拟设计结构，仅用于评审；当前不是可运行的 Docker Compose、OpenCode 或 Superpowers 配置。M6 的 JSON 和 Dockerfile 可按操作说明使用。
+| 主题 | 操作说明 | 验证记录 |
+| --- | --- | --- |
+| 容器与 Agent 原型 | [M1 运行](docs/04-m1-runbook.md) | [M1 验证](docs/05-m1-validation.md) |
+| 控制 API 与 Runner | [M2 工作台](docs/06-m2-workbench.md) | [M2 验证](docs/07-m2-validation.md) |
+| 开发流程与独立评审 | [M3 流程](docs/08-m3-workflow.md) | [M3 验证](docs/09-m3-validation.md) |
+| 概要设计、测试与反馈 | [M4 材料](docs/10-m4-materials.md) | [M4 验证](docs/11-m4-validation.md) |
+| 跨项目交付与恢复 | [M5 交付](docs/12-m5-delivery.md) | [M5 验证](docs/13-m5-validation.md) |
+| 项目镜像、命令与挂载 | [M6 项目接入](docs/14-m6-project-onboarding.md) | [M6 验证](docs/15-m6-validation.md) |
+| 可选业务 PostgreSQL | [M7 业务依赖](docs/16-m7-dependencies.md) | [M7 验证](docs/17-m7-validation.md) |
+| 应用启动与 HTTP 检查 | [M8 应用服务](docs/18-m8-application.md) | [M8 验证](docs/19-m8-validation.md) |
+| 多项目只读联合分析 | [M9 全景分析](docs/20-m9-panorama.md) | [M9 验证](docs/21-m9-validation.md) |
+| 完整在线样例验收 | [M10 验收工具](docs/22-m10-acceptance.md) | [M10 验证与阻断](docs/23-m10-validation.md) |
+| Docker 管理 | [镜像维护与容器管理](docs/24-docker-management.md) | 说明内附证据 |
+| SQLite | [本地存储与维护](docs/25-local-sqlite.md) | 说明内附验证范围 |
+| Agent CLI | [兼容封装配置](docs/26-agent-cli.md) | 说明内附证据 |
 
-推荐先阅读需求与设计，再按操作说明运行本地工作台。创建工作区后，在“开发流程”开启默认流程；自审通过后，在“设计、测试与反馈”开始材料阶段。多项目需求先在“跨项目交付”关联各项目并确认整体范围，最后汇总验收并交付。“资源与恢复”提供当前资源及离线维护说明。用户业务项目的具体环境仍需在试点接入时配置。
+可运行的接入示例：[Node 配置](poc/onboarding/profile.sample.json)、[项目 Dockerfile](poc/onboarding/Dockerfile)、[PostgreSQL 配置](poc/postgres-sample/profile.sample.json)。`design-examples/*.yaml` 是设计评审示意，当前不是可直接执行的 Compose、OpenCode 或流程配置。
