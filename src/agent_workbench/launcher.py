@@ -1,6 +1,7 @@
 """Local lifecycle supervisor. Control metadata never contains model credentials."""
 import argparse
 from contextlib import ExitStack
+import faulthandler
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -241,7 +242,7 @@ def supervise(configuration, directory, instance):
             def launch(role):
                 handle = (logs_dir / (role + ".log")).open("ab"); logs.append(handle)
                 process = subprocess.Popen([sys.executable, "-m", "agent_workbench.launcher", "_child", "--role", role, "--instance", instance,
-                    "--stop-file", str(marker(directory, instance, role))], env=environment, cwd=Path(__file__).resolve().parents[2], stdout=handle, stderr=handle)
+                    "--stop-file", str(marker(directory, instance, role))], env=environment, cwd=Path(__file__).resolve().parents[2], stdin=subprocess.PIPE, stdout=handle, stderr=handle)
                 children[role] = process
                 state["roles"][role] = process_info(process.pid); save()
             launch("api")
@@ -279,6 +280,9 @@ def supervise(configuration, directory, instance):
                 if role in children:
                     state["stopping_role"] = role; save()
                     write_json(marker(directory, instance, role), {"stop": True})
+                    try: children[role].stdin.write(b"S"); children[role].stdin.flush()
+                    except (BrokenPipeError, OSError): pass
+                    finally: children[role].stdin.close()
                     while children[role].poll() is None:
                         time.sleep(0.2)
             try:
@@ -297,14 +301,26 @@ def supervise(configuration, directory, instance):
 
 def child(role, stop_file):
     event = threading.Event()
+    stop_lock = threading.Lock()
+    def stop():
+        with stop_lock:
+            if not event.is_set():
+                faulthandler.dump_traceback_later(10)
+                event.set()
     def watch():
         while not event.wait(0.2):
-            if stop_file.exists(): event.set()
+            if stop_file.exists(): stop()
+    def pipe():
+        try: os.read(sys.stdin.fileno(), 1)
+        except OSError: pass
+        stop()
     threading.Thread(target=watch, daemon=True).start()
+    threading.Thread(target=pipe, daemon=True).start()
     sys.argv = [role, "--config", "-"]
     from .server import main as serve
     from .runner import main as run
-    (serve if role == "api" else run)(stop_event=event)
+    try: (serve if role == "api" else run)(stop_event=event)
+    finally: faulthandler.cancel_dump_traceback_later()
 
 
 def build_image(configuration, rebuild=False):

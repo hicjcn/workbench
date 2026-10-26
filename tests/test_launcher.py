@@ -42,7 +42,18 @@ class LauncherTests(unittest.TestCase):
         argv = [sys.executable, str(ROOT / "scripts/control.py")] if bootstrap else [sys.executable, "-m", "agent_workbench.launcher"]
         result = subprocess.run([*argv, action, "--config", str(self.file), "--no-browser"], cwd=ROOT, env=self.environment, capture_output=True, text=True, encoding="utf-8", timeout=75)
         self.assertNotIn("fixture-launcher-private-value", result.stdout + result.stderr)
-        if expect is not None: self.assertEqual(result.returncode, expect, result.stdout + result.stderr)
+        if expect is not None and result.returncode != expect:
+            diagnostics = []
+            secrets = ["fixture-launcher-private-value"]
+            for name in ("access-token", "runner-token"):
+                path = self.root / "data" / name
+                if path.exists(): secrets.append(path.read_text(encoding="utf-8").strip())
+            for path in (self.root / "logs").rglob("*.log"):
+                value = path.read_text(encoding="utf-8", errors="replace")[-10000:]
+                for secret in secrets:
+                    if secret: value = value.replace(secret, "[REDACTED]")
+                diagnostics.append(path.name + ":\n" + value)
+            self.assertEqual(result.returncode, expect, result.stdout + result.stderr + "\n" + "\n".join(diagnostics))
         return result
 
     def cleanup(self):
