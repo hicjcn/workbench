@@ -1,5 +1,6 @@
 """Image metadata and maintenance intent; Docker is only called by the Runner."""
 import json
+from pathlib import Path
 import re
 import time
 
@@ -23,10 +24,19 @@ class RecipeInput(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     reference: str = Field(min_length=1, max_length=240)
     dockerfile: str = Field(min_length=1, max_length=65536)
+    context_dir: str = Field(default="", max_length=2000)
     actor: str = Field(min_length=1, max_length=160)
     reason: str = Field(min_length=1, max_length=4000)
 
     _reference = field_validator("reference")(validate_reference)
+
+    @field_validator("context_dir")
+    @classmethod
+    def context_directory(cls, value):
+        value = value.strip()
+        if value and ("\x00" in value or not Path(value).expanduser().is_absolute()):
+            raise ValueError("构建上下文请填写 Runner 主机上的绝对目录；留空表示仅使用保存的 Dockerfile")
+        return value
 
     @field_validator("name", "dockerfile", "actor", "reason")
     @classmethod

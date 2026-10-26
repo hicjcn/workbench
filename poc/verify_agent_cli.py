@@ -122,7 +122,7 @@ def main():
             with database.engine.connect() as c: assert selection(c,req["id"])["id"]==saved["id"]
             assert Configurations(database).read()["default_id"]=="builtin-opencode"
         finally: database.engine.dispose()
-        check("sqlite_0008_backup_restore_preserves_cli_history_and_pins_without_replaying_tasks")
+        check("sqlite_0009_backup_restore_preserves_cli_history_and_pins_without_replaying_tasks")
         report.update(status="PASSED_COMPATIBLE_WRAPPER_TRANSPORT",checks_passed=len(checks),backup_sha256=archived["sha256"])
     finally:
         terminate();client.close()

@@ -1444,3 +1444,5 @@ code {
 .agent-cli-commands code { font-size: 12px; line-height: 1.7; }
 .agent-cli-guide { padding-left: 22px; font-size: 13px; color: #62728a; line-height: 1.9; }
 .agent-cli-guide li { margin-bottom: 12px; }
+
+.docker-context { white-space: normal; overflow-wrap: anywhere; }

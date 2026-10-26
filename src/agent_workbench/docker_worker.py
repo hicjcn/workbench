@@ -43,7 +43,8 @@ def run(args, lock_path, source=None, timeout=900):
         if value != b"READY\n":
             raise OSError("Docker guardian could not acquire its operation lock")
         acknowledged = True
-        # Image build context is bounded by the 64 KiB saved Dockerfile.
+        # Only the bounded saved Dockerfile (or its legacy tar) crosses this
+        # pipe. Docker reads an explicitly selected directory on this host.
         process.communicate(b"GO\n" + (source.read() if source else b""), timeout=timeout)
         return subprocess.CompletedProcess(args, process.returncode)
     finally:

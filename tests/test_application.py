@@ -157,7 +157,7 @@ class ApplicationTests(ControlFixture):
         self.prepare_app(); self.journal()
         with self.store.engine.begin() as connection:
             connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)"))
-            connection.execute(text("INSERT INTO alembic_version VALUES ('0008')"))
+            connection.execute(text("INSERT INTO alembic_version VALUES ('0009')"))
         with patch("agent_workbench.resources.inventory", return_value=[]):
             with self.assertRaisesRegex(WorkbenchError, "运行记录"): backup(self.settings)
         (self.workspace / application.JOURNAL).unlink()

@@ -139,6 +139,7 @@ docker_recipes = Table("docker_recipes", metadata,
     Column("id", String(40), primary_key=True), Column("family", String(40), nullable=False),
     Column("number", Integer, nullable=False), Column("name", String(160), nullable=False),
     Column("reference", String(240), nullable=False), Column("dockerfile", Text, nullable=False),
+    Column("context_dir", String(2000), nullable=False, server_default=""),
     Column("actor", String(160), nullable=False), Column("reason", Text, nullable=False),
     Column("created_at", Float, nullable=False),
     UniqueConstraint("family", "number", name="uq_docker_recipe_version"))

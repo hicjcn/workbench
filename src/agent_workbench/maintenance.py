@@ -99,9 +99,9 @@ def backup(settings):
             for name, values in data.items(): entries.append(("database/" + name + ".json", encoded(values).encode()))
             identity = "backup_" + secrets.token_hex(16)
             target = settings.data_dir / "backups" / (identity + ".zip")
-            header = {"schema": "workbench-backup/v2", "schema_revision": "0008", "created_at": time.time(),
+            header = {"schema": "workbench-backup/v2", "schema_revision": "0009", "created_at": time.time(),
                 "source_root": str(settings.data_dir), "metadata": metadata_digest(data), "code_checkpoints": checkpoints,
-                "excluded": ["access-token", "runner-token", "agent-home", "runtime-config", "staging", "runtime.json", "application-runtime.json", "application container logs", "dependency-runtime.json", "dependency-private.json", "backups", "external original repositories", "database credentials"]}
+                "excluded": ["access-token", "runner-token", "agent-home", "runtime-config", "staging", "runtime.json", "application-runtime.json", "application container logs", "dependency-runtime.json", "dependency-private.json", "backups", "external original repositories", "external Docker build context files", "database credentials"]}
             result = build(target, header, entries)
             after_entries, after = workspace_entries(settings.data_dir)
             if checkpoints != after or workspace_names != {name for name, _ in after_entries} or metadata_digest(rows_snapshot(store)) != header["metadata"]:
@@ -121,7 +121,7 @@ def restore(archive_path, destination, project_maps=None):
     destination = destination.absolute()
     if destination.exists() or is_link(destination): raise WorkbenchError("恢复目标必须是尚不存在的新目录")
     manifest = verify(archive_path)
-    if (manifest.get("schema"), manifest.get("schema_revision")) not in (("workbench-backup/v1", "0005"), ("workbench-backup/v1", "0006"), ("workbench-backup/v2", "0006"), ("workbench-backup/v2", "0007"), ("workbench-backup/v2", "0008")): raise WorkbenchError("备份格式或数据版本不支持")
+    if (manifest.get("schema"), manifest.get("schema_revision")) not in (("workbench-backup/v1", "0005"), ("workbench-backup/v1", "0006"), ("workbench-backup/v2", "0006"), ("workbench-backup/v2", "0007"), ("workbench-backup/v2", "0008"), ("workbench-backup/v2", "0009")): raise WorkbenchError("备份格式或数据版本不支持")
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=destination.parent))
     try:
@@ -150,10 +150,12 @@ def restore(archive_path, destination, project_maps=None):
                 target.chmod(item["mode"])
         expected_tables = set(metadata.tables)
         if manifest["schema_revision"] == "0005": expected_tables -= {"project_profiles", "workspace_profiles"}
-        if manifest["schema_revision"] not in ("0007", "0008"): expected_tables -= {"docker_jobs", "docker_recipes"}
-        if manifest["schema_revision"] != "0008": expected_tables -= {"agent_cli_configs", "agent_cli_default", "workspace_agents"}
+        if manifest["schema_revision"] not in ("0007", "0008", "0009"): expected_tables -= {"docker_jobs", "docker_recipes"}
+        if manifest["schema_revision"] not in ("0008", "0009"): expected_tables -= {"agent_cli_configs", "agent_cli_default", "workspace_agents"}
         if set(data) != expected_tables or metadata_digest(data) != manifest["metadata"]: raise WorkbenchError("备份元数据摘要不完整")
         for name in set(metadata.tables) - set(data): data[name] = []
+        if manifest["schema_revision"] != "0009":
+            for row in data["docker_recipes"]: row["context_dir"] = ""
         if any(item["status"] in ("QUEUED", "RUNNING", "UNKNOWN") for item in data["docker_jobs"]): raise WorkbenchError("备份含未经核实的镜像任务，不能自动恢复")
         if data["workspace_reservations"] or any(item["status"] in ("QUEUED", "RUNNING", "UNKNOWN") for item in data["jobs"]): raise WorkbenchError("备份含未经核实的任务，不能自动恢复")
         for relative, expected in manifest["code_checkpoints"].items():
