@@ -89,7 +89,7 @@ def main():
             time.sleep(.1)
         else: raise AssertionError('API did not start')
         cli = post('/agent-clis', dict(name='Offline multi-repository fixture', actor='Fixture', reason='Controlled local CLI, no model inference',
-            content=AgentContent(serve_command='awb-opencode serve --hostname {host} --port {port}',
+            content=AgentContent(serve_command='env OPENCODE_DISABLE_MODELS_FETCH=true OPENCODE_MODELS_PATH=/opt/awb-models.fixture.json awb-opencode serve --hostname {host} --port {port}',
                 run_command='awb-opencode fixture-multi-run --attach {endpoint} --model {model} --format json',
                 version_command='awb-opencode --version', expected_version='awb-opencode-fixture/1.0.0').model_dump(), set_default=True))
         launch('agent_workbench.runner')
