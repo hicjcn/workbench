@@ -14,7 +14,7 @@ class WorkspaceTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.source = self.root / "source"
         self.source.mkdir()
         git(self.source, "init", "-b", "main")
@@ -99,10 +99,11 @@ class WorkspaceTests(unittest.TestCase):
             self.create()
 
     def test_lfs_pointer_is_not_claimed_as_materialized_source(self):
-        (self.source / "large.bin").write_text("version https://git-lfs.github.com/spec/v1\noid sha256:fixture\nsize 123\n")
-        self.commit()
-        with self.assertRaises(WorkbenchError):
-            self.create()
+        for newline in ("\n", "\r\n"):
+            (self.source / "large.bin").write_bytes(newline.join(("version https://git-lfs.github.com/spec/v1", "oid sha256:fixture", "size 123", "")).encode())
+            self.commit()
+            with self.subTest(newline=newline), self.assertRaises(WorkbenchError):
+                self.create()
 
     def test_workspace_under_source_is_rejected(self):
         with self.assertRaises(WorkbenchError):

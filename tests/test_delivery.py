@@ -278,6 +278,7 @@ class ArchiveTests(unittest.TestCase):
 
 
 class DeliveryDiffTests(ControlFixture):
+    @unittest.skipIf(os.name == "nt", "NTFS cannot represent this Git-magic filename; native invalid-name rejection is tested separately")
     def test_literal_filename_cannot_expand_patch_to_excluded_credentials(self):
         from agent_workbench.delivery_export import full_diff
         from agent_workbench.workspace import snapshot

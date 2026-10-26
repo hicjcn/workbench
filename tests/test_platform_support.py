@@ -26,7 +26,7 @@ class PlatformTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
 
     def child_lock(self, path, shared=False):
         code = ("import sys; from agent_workbench import locking; "
@@ -141,7 +141,7 @@ class PlatformTests(unittest.TestCase):
 
     def test_windows_source_names_are_rejected_before_joining_paths(self):
         with patch("agent_workbench.workspace.IS_WINDOWS", True):
-            for name in ("C:/outside", "C:outside", r"a\outside", "a/file:stream", "AUX.txt", "a/NUL", "a/trailing.", "a/trailing "):
+            for name in ("C:/outside", "C:outside", r"a\outside", "a/file:stream", ":(glob)*", "AUX.txt", "a/NUL", "a/trailing.", "a/trailing "):
                 with self.subTest(name=name), self.assertRaises(WorkbenchError):
                     safe_path(self.root, name)
 
@@ -234,6 +234,15 @@ class PlatformTests(unittest.TestCase):
         self.assertTrue(host.is_link(link))
         with self.assertRaises(WorkbenchError):
             safe_path(self.root, "junction/private.txt")
+
+    @unittest.skipUnless(os.name == "nt", "8.3 aliases only exist on Windows")
+    def test_windows_short_alias_is_canonicalized_without_allowing_junctions(self):
+        from win32api import GetShortPathName
+        from agent_workbench.profiles import checked_source
+        path = self.root / "long configuration name.conf"
+        path.write_bytes(b"fixture")
+        short = GetShortPathName(str(path))
+        self.assertEqual(checked_source(short, self.root / "data"), path.resolve())
 
 
 if __name__ == "__main__":

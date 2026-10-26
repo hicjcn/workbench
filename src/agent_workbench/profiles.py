@@ -114,7 +114,15 @@ def checked_source(raw, data_dir):
     path = Path(raw).expanduser()
     if not path.is_absolute() or any(char in str(path) for char in ",\n\r\x00"):
         raise WorkbenchError("配置文件必须使用绝对路径，且不能包含特殊分隔符")
-    if path.resolve() != path or not path.is_file() or is_link(path) or path.is_relative_to(data_dir):
+    current = path
+    while True:
+        if is_link(current):
+            raise WorkbenchError("只允许普通配置文件，不支持符号链接、junction 和重解析点")
+        if current.parent == current:
+            break
+        current = current.parent
+    path = path.resolve()
+    if not path.is_file() or path.is_relative_to(data_dir.resolve()):
         raise WorkbenchError("只允许工作台数据目录之外的普通配置文件，不支持符号链接和目录挂载")
     if path.stat().st_size > 1024 * 1024: raise WorkbenchError("单个配置文件不能超过 1 MiB")
     return path

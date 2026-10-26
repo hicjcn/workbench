@@ -24,7 +24,7 @@ class ControlFixture(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.data = self.root / "data"
         self.data.mkdir()
         self.settings = Settings(self.data, f"sqlite:///{self.data / 'test.db'}", "user-fixture-token" * 2, "runner-fixture-token" * 2,

@@ -20,7 +20,7 @@ from agent_workbench.workspace import git
 class SQLiteStorageTests(unittest.TestCase):
     def test_default_and_empty_environment_use_local_file_and_explicit_flag_wins(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             for configured in ("", "   "):
                 with patch.dict(os.environ, {"AWB_DATABASE_URL": configured}):
                     settings = Settings.load(root)
@@ -32,13 +32,13 @@ class SQLiteStorageTests(unittest.TestCase):
 
     def test_sqlite_cli_initializes_without_external_driver_or_database_service(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             env = {**os.environ, "AWB_DATABASE_URL": "postgresql+uninstalled_driver://fixture:never-print@not-running.invalid/workbench"}
             result = subprocess.run([sys.executable, "-m", "agent_workbench.server", "--sqlite", "--init-only", "--data-dir", str(root)], env=env, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertNotIn("never-print", result.stdout + result.stderr)
             self.assertIn("SQLite 本地文件", result.stdout)
-            with sqlite3.connect(root / "workbench.db") as database:
+            with contextlib.closing(sqlite3.connect(root / "workbench.db")) as database:
                 self.assertEqual(database.execute("SELECT version_num FROM alembic_version").fetchone()[0], "0008")
 
     def test_persistence_and_runtime_storage_survive_api_restart_without_docker(self):

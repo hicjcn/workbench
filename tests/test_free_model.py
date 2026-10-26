@@ -187,7 +187,8 @@ class FreeModelTests(unittest.TestCase):
             self.assertTrue(report["runtime_stopped"])
             self.assertEqual((root / "agent-events.jsonl").read_bytes(), partial)
             self.assertEqual((root / "agent-stderr.txt").read_text(), "partial stderr")
-            self.assertEqual((root / "agent-events.jsonl").stat().st_mode & 0o777, 0o600)
+            if os.name != "nt":
+                self.assertEqual((root / "agent-events.jsonl").stat().st_mode & 0o777, 0o600)
             self.assertEqual([call.args[3] for call in docker.call_args_list], ["models", "run"])
             stopped.assert_called_once_with(workspace)
             self.assertEqual(started.call_args.kwargs["opencode_model"], "opencode/glm-5.3-flash-free")

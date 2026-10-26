@@ -16,5 +16,5 @@ class TimedResult(unittest.TextTestResult):
 
 if __name__ == "__main__":
     suite = unittest.defaultTestLoader.discover("tests")
-    result = unittest.TextTestRunner(verbosity=2, resultclass=TimedResult).run(suite)
+    result = unittest.TextTestRunner(verbosity=2, resultclass=TimedResult, failfast=True).run(suite)
     sys.exit(0 if result.wasSuccessful() else 1)

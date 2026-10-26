@@ -111,7 +111,7 @@ def inventory(repo: Path, *, untracked: bool = True) -> dict:
             raise WorkbenchError(f"Unsupported source entry: {name}")
         before = path.stat()
         content = path.read_bytes()
-        if content.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
+        if content.startswith((b"version https://git-lfs.github.com/spec/v1\n", b"version https://git-lfs.github.com/spec/v1\r\n")):
             raise WorkbenchError("Git LFS pointers are not materialized by M1")
         digest = hashlib.sha256(content).hexdigest()
         after = path.stat()
@@ -190,7 +190,7 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
                 if stream is None:
                     raise WorkbenchError("Source archive entry cannot be read")
                 content = stream.read()
-                if content.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
+                if content.startswith((b"version https://git-lfs.github.com/spec/v1\n", b"version https://git-lfs.github.com/spec/v1\r\n")):
                     raise WorkbenchError("Git LFS pointers are not materialized by M1")
                 with path.open("xb") as output:
                     output.write(content)
