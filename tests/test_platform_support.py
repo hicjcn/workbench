@@ -158,6 +158,7 @@ class PlatformTests(unittest.TestCase):
         source = self.root / "source"; source.mkdir()
         for args in (("init", "-b", "main"), ("config", "user.name", "Fixture"), ("config", "user.email", "fixture@example.invalid")):
             git(source, *args)
+        git(source, "config", "core.autocrlf", "true")
         (source / "中文 script.sh").write_bytes(b"#!/bin/sh\nprintf 'fixture\\n'\n")
         git(source, "add", "--all"); git(source, "update-index", "--chmod=+x", "--", "中文 script.sh")
         git(source, "-c", "commit.gpgsign=false", "commit", "-m", "fixture")
@@ -185,7 +186,7 @@ class PlatformTests(unittest.TestCase):
         settings = Settings.load(data, sqlite=True)
         source = self.root / "source"; source.mkdir()
         (source / "main.txt").write_bytes("中文源码\n".encode())
-        for args in (("init", "-b", "main"), ("config", "user.name", "Fixture"), ("config", "user.email", "fixture@example.invalid"), ("add", "--all"), ("-c", "commit.gpgsign=false", "commit", "-m", "fixture")):
+        for args in (("init", "-b", "main"), ("config", "user.name", "Fixture"), ("config", "user.email", "fixture@example.invalid"), ("config", "core.autocrlf", "true"), ("add", "--all"), ("-c", "commit.gpgsign=false", "commit", "-m", "fixture")):
             git(source, *args)
         with socket.socket() as reserved:
             reserved.bind(("127.0.0.1", 0)); port = reserved.getsockname()[1]

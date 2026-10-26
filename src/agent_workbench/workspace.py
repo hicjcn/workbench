@@ -167,7 +167,9 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
     try:
         repo = temporary / "repo"
         repo.mkdir()
-        archive = git(source, "archive", "--format=tar", source_sha)
+        # Git archive applies host checkout conversion too. In particular the
+        # Git for Windows global autocrlf default must not rewrite source bytes.
+        archive = git(source, "-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar", source_sha)
         total = 0
         executable_paths = []
         case_paths = {}
