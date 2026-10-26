@@ -26,10 +26,11 @@ class SQLiteStorageTests(unittest.TestCase):
             config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
             config.set_main_option("sqlalchemy.url", settings.database_url)
             command.upgrade(config, "0008")
-            with sqlite3.connect(settings.data_dir / "workbench.db") as database:
+            with contextlib.closing(sqlite3.connect(settings.data_dir / "workbench.db")) as database:
                 database.execute("INSERT INTO docker_recipes (id,family,number,name,reference,dockerfile,actor,reason,created_at) VALUES (?,?,?,?,?,?,?,?,?)", ("legacy", "family", 1, "existing recipe", "awb-user/legacy:v1", "FROM scratch", "fixture", "keep existing", 1))
+                database.commit()
             migrate(settings)
-            with sqlite3.connect(settings.data_dir / "workbench.db") as database:
+            with contextlib.closing(sqlite3.connect(settings.data_dir / "workbench.db")) as database:
                 self.assertEqual(database.execute("SELECT dockerfile,context_dir FROM docker_recipes WHERE id='legacy'").fetchone(), ("FROM scratch", ""))
                 self.assertEqual(database.execute("SELECT version_num FROM alembic_version").fetchone()[0], "0009")
 
