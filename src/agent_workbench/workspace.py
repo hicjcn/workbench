@@ -13,9 +13,8 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
-import time
 
-from .platform_support import IS_WINDOWS, is_link
+from .platform_support import IS_WINDOWS, is_link, retry_file_access
 
 
 class WorkbenchError(Exception):
@@ -83,13 +82,7 @@ def write_json(path: Path, value: dict, *, private: bool = False) -> None:
             stream.write("\n")
         # Windows readers normally omit FILE_SHARE_DELETE. A short concurrent
         # read must not abort a control-state transition before stop is sent.
-        for attempt in range(50):
-            try:
-                temporary.replace(path)
-                break
-            except PermissionError as error:
-                if not IS_WINDOWS or getattr(error, "winerror", None) not in (5, 32, 33) or attempt == 49: raise
-                time.sleep(0.05)
+        retry_file_access(lambda: temporary.replace(path))
     finally:
         temporary.unlink(missing_ok=True)
 

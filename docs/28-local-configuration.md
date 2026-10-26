@@ -73,7 +73,7 @@ notepad workbench.toml
 | `workbench.proxy_ca` | `AWB_PROXY_CA` | Agent 容器/模型诊断使用的 CA 文件；兼容已有 `CODEX_PROXY_CERT` |
 | `workbench.docker_endpoint` | `AWB_DOCKER_ENDPOINT` | 留空按系统选择本机 socket/管道；Windows 允许本机 Desktop Linux engine / docker_engine，不接受远程 TCP |
 | `launcher.venv_dir` / `logs_dir` | `AWB_VENV_DIR` / `AWB_LOGS_DIR` | 虚拟环境和日志目录 |
-| `launcher.tool_context` / `tool_image` | `AWB_TOOL_CONTEXT` / `AWB_TOOL_IMAGE` | setup 构建上下文与标签；tool_image 同时作为新登记项目的默认镜像 |
+| `launcher.tool_context` / `tool_image` | `AWB_TOOL_CONTEXT` / `AWB_TOOL_IMAGE` | setup 基础工具镜像的构建上下文与标签；tool_image 同时作为新登记项目的默认镜像。页面维护的 Dockerfile 在其版本表单中单独配置上下文目录 |
 | `launcher.startup_timeout_seconds` / `stop_timeout_seconds` | `AWB_STARTUP_TIMEOUT_SECONDS` / `AWB_STOP_TIMEOUT_SECONDS` | 启动就绪等待和停止命令等待时间 |
 | `launcher.graceful_timeout_seconds` | `AWB_GRACEFUL_TIMEOUT_SECONDS` | API 优雅退出期间等待请求完成的时间 |
 | `launcher.image_build_timeout_seconds` | `AWB_IMAGE_BUILD_TIMEOUT_SECONDS` | setup 镜像构建超时 |

@@ -18,6 +18,22 @@ from agent_workbench.workspace import git
 
 
 class SQLiteStorageTests(unittest.TestCase):
+    def test_upgrade_from_0008_keeps_existing_dockerfiles_with_no_context(self):
+        from alembic import command
+        from alembic.config import Config
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = Settings.load(Path(temporary) / "data", sqlite=True)
+            config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+            config.set_main_option("sqlalchemy.url", settings.database_url)
+            command.upgrade(config, "0008")
+            with contextlib.closing(sqlite3.connect(settings.data_dir / "workbench.db")) as database:
+                database.execute("INSERT INTO docker_recipes (id,family,number,name,reference,dockerfile,actor,reason,created_at) VALUES (?,?,?,?,?,?,?,?,?)", ("legacy", "family", 1, "existing recipe", "awb-user/legacy:v1", "FROM scratch", "fixture", "keep existing", 1))
+                database.commit()
+            migrate(settings)
+            with contextlib.closing(sqlite3.connect(settings.data_dir / "workbench.db")) as database:
+                self.assertEqual(database.execute("SELECT dockerfile,context_dir FROM docker_recipes WHERE id='legacy'").fetchone(), ("FROM scratch", ""))
+                self.assertEqual(database.execute("SELECT version_num FROM alembic_version").fetchone()[0], "0009")
+
     def test_default_and_empty_environment_use_local_file_and_explicit_flag_wins(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -39,7 +55,7 @@ class SQLiteStorageTests(unittest.TestCase):
             self.assertNotIn("never-print", result.stdout + result.stderr)
             self.assertIn("SQLite 本地文件", result.stdout)
             with contextlib.closing(sqlite3.connect(root / "workbench.db")) as database:
-                self.assertEqual(database.execute("SELECT version_num FROM alembic_version").fetchone()[0], "0008")
+                self.assertEqual(database.execute("SELECT version_num FROM alembic_version").fetchone()[0], "0009")
 
     def test_persistence_and_runtime_storage_survive_api_restart_without_docker(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -2,10 +2,22 @@
 import csv
 import io
 import os
+import errno
+import time
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import stat
 
 IS_WINDOWS = os.name == "nt"
+
+
+def retry_file_access(operation):
+    """Retry transient Windows sharing conflicts, including CRT EACCES reads."""
+    for attempt in range(50):
+        try: return operation()
+        except PermissionError as error:
+            sharing_error = getattr(error, "winerror", None) in (5, 32, 33) or error.errno in (errno.EACCES, errno.EPERM)
+            if not IS_WINDOWS or not sharing_error or attempt == 49: raise
+            time.sleep(0.05)
 
 
 def checked_docker_endpoint(value=""):

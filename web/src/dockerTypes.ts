@@ -1,4 +1,4 @@
-export type DockerRecipe = { id: string; family: string; number: number; current: boolean; name: string; reference: string; dockerfile: string; actor: string; reason: string; created_at: number };
+export type DockerRecipe = { id: string; family: string; number: number; current: boolean; name: string; reference: string; dockerfile: string; context_dir?: string; actor: string; reason: string; created_at: number };
 export type DockerImage = { id: string; tags: string[]; size: number; created_at: string };
 export type DockerOperation = { id: string; kind: string; status: string; input: { reference: string; actor: string; reason: string }; error: string | null; result: unknown; created_at: number };
 export type ManagedContainer = { id: string; name: string; workspace: string | null; kind: string; running: boolean; verified: boolean; orphan: boolean; image_id: string; cpu_limit: number; memory_limit: number; networks: string[] };

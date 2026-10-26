@@ -29,6 +29,30 @@ class PlatformTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
 
+    @unittest.skipUnless(host.IS_WINDOWS, "Windows file-sharing semantics")
+    def test_control_state_read_waits_for_an_exclusive_windows_handle(self):
+        import importlib.util
+        from agent_workbench.launcher import read_state
+        spec = importlib.util.spec_from_file_location("awb_bootstrap_fixture", Path(__file__).resolve().parents[1] / "scripts/control.py")
+        bootstrap = importlib.util.module_from_spec(spec); spec.loader.exec_module(bootstrap)
+        state = {"instance": "1" * 32, "pid": 1, "control_port": 1234, "control_token": "fixture" * 8, "phase": "RUNNING"}
+        path = self.root / "instance.json"; write_json(path, state)
+        results, failures = [], []
+        entered, finished = threading.Event(), threading.Event()
+        def observe():
+            entered.set()
+            try: results.append(read_state(self.root))
+            except Exception as error: failures.append(error)
+            finally: finished.set()
+        with bootstrap.exclusive(path):
+            reader = threading.Thread(target=observe); reader.start()
+            self.assertTrue(entered.wait(3))
+            self.assertFalse(finished.wait(.15))
+        reader.join(timeout=4)
+        self.assertFalse(reader.is_alive())
+        self.assertEqual(failures, [])
+        self.assertEqual(results, [state])
+
     def test_shutdown_interrupts_a_slow_read_only_docker_query_and_reaps_it(self):
         import psutil
         pid_file = self.root / "query.pid"
@@ -138,19 +162,22 @@ class PlatformTests(unittest.TestCase):
 
     def test_guardian_launcher_transfers_bounded_context_through_real_pipes(self):
         marker = self.root / "context.bin"
+        arguments = self.root / "context-arguments.json"
+        build_args = ["build", "--file", "-", str(self.root / "build context 中文")]
         lock = self.root / "docker-command.lock"
         real_popen = subprocess.Popen
         script = ("import sys; from agent_workbench.docker_worker import serve; "
             "sys.exit(serve(sys.argv[1], [sys.executable, '-c', "
-            "\"from pathlib import Path; import sys; Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())\", sys.argv[2]]))")
+            "\"from pathlib import Path; import sys; Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read()); Path(sys.argv[2]).write_text(sys.argv[3])\", sys.argv[2], sys.argv[3], sys.argv[4]]))")
         def launch(argv, **kwargs):
             self.assertEqual(argv[1:3], ["-m", "agent_workbench.docker_worker"])
-            return real_popen([sys.executable, "-c", script, str(lock), str(marker)], **kwargs)
+            return real_popen([sys.executable, "-c", script, str(lock), str(marker), str(arguments), argv[4]], **kwargs)
         payload = b"FROM scratch\n" * 5000
         with patch.object(subprocess, "CREATE_NEW_PROCESS_GROUP", getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0), create=True), patch.object(subprocess, "CREATE_NO_WINDOW", getattr(subprocess, "CREATE_NO_WINDOW", 0), create=True), patch("agent_workbench.docker_worker.subprocess.Popen", side_effect=launch):
-            result = docker_worker.run(["build", "-"], lock, io.BytesIO(payload), timeout=15)
+            result = docker_worker.run(build_args, lock, io.BytesIO(payload), timeout=15)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(marker.read_bytes(), payload)
+        self.assertEqual(json.loads(arguments.read_text()), build_args)
         self.assertEqual(self.child_lock(lock).returncode, 0)
 
     def test_docker_endpoint_is_local_and_environment_cannot_redirect_it(self):

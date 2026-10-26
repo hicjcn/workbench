@@ -127,7 +127,7 @@ def main():
             assert len(database.list(docker_recipes)) == 2
             assert all(job["status"] not in ("QUEUED", "RUNNING", "UNKNOWN") for job in database.list(docker_jobs))
         finally: database.engine.dispose()
-        check("schema_0007_offline_backup_restores_templates_and_history_without_replaying_jobs")
+        check("schema_0009_offline_backup_restores_templates_and_history_without_replaying_jobs")
         report.update(status="PASSED", checks_passed=len(checks), backup_sha256=saved["sha256"])
     finally:
         terminate()

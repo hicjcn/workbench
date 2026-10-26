@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from agent_workbench.configuration import Configuration, ConfigurationError, config_path, launcher_directory
+from agent_workbench.platform_support import retry_file_access
 
 
 @contextmanager
@@ -51,7 +52,7 @@ def main():
         if not record.exists():
             print(json.dumps({"phase": "STOPPED", "managed": False})); return 0
         # Use the running instance even after its source config was edited.
-        metadata = json.loads(record.read_text(encoding="utf-8"))
+        metadata = json.loads(retry_file_access(lambda: record.read_text(encoding="utf-8")))
         python = Path(metadata["python_executable"])
         environment = {**os.environ, "PYTHONUTF8": "1", "PYTHONPATH": str(ROOT / "src")}
         return subprocess.run([str(python), "-m", "agent_workbench.launcher", args.action, "--config", str(selected) if selected else "-"], cwd=ROOT, env=environment).returncode
@@ -75,7 +76,7 @@ def main():
         record_dir = (configuration.file.parent if configuration.file else Path.cwd()) / ".workbench-run"
         if record_dir.exists():
             for record in record_dir.glob("*/instance.json"):
-                data = json.loads(record.read_text(encoding="utf-8"))
+                data = json.loads(retry_file_access(lambda: record.read_text(encoding="utf-8")))
                 if data.get("phase") not in ("STOPPED", "FAILED", "NEEDS_ATTENTION"):
                     raise ConfigurationError("Stop managed instances before upgrading dependencies.")
         with ExitStack() as setup_locks:

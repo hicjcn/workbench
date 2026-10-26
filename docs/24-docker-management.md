@@ -6,12 +6,36 @@
 
 「Docker 镜像」显示 Runner 上报的本机镜像引用、完整 ID 和大小，支持搜索、明确标签的拉取、Dockerfile 版本保存与构建、未使用标签的非强制移除。镜像维护任务与需求任务分别记录，共享执行并发上限。API 不访问 Docker 套接字。
 
-1. 点击「新建 Dockerfile」，填写名称、构建标签、Dockerfile、登记人和原因。
+1. 点击「新建 Dockerfile」，填写名称、构建标签、Dockerfile、可选的构建上下文目录、登记人和原因。
 2. 保存后只产生不可变版本，不会自动构建；历史 Dockerfile 可查看。
 3. 在「Dockerfile 与版本」中点击「构建此版本」。目标必须是 `awb-user/` 开头的新标签，例如 `awb-user/java-dev:v1`；已有标签不会被构建覆盖。
 4. 构建完成后到「项目登记」修订项目运行配置，将验证后的镜像用于后续新工作区。已有需求保留原来的固定配置与镜像 ID。
 
-当前构建上下文仅包含所保存的 Dockerfile，适合继承已有工具镜像安装系统及语言依赖；不支持 `COPY` 本机源码、宿主目录上传、额外构建参数或注册表登录界面。模型与 Docker 凭据仍由本机 Runner 环境配置。Dockerfile 不应包含密钥。
+构建上下文目录填写 **Runner 所在主机的绝对目录**，例如 Windows 的 `C:\build\backend` 或 Linux 的 `/home/user/backend`；支持中文和空格。Runner 在执行时检查目录存在，再由 Docker 读取其中的文件，支持 `COPY`/`ADD` 并遵守目录中的 `.dockerignore`。API 只保存目录路径，不上传或归档目录内容。留空时仍只发送保存的 Dockerfile，适合仅安装开发依赖的镜像。
+
+Dockerfile 始终采用页面保存的版本，即使上下文目录里另有 Dockerfile。上下文路径随版本固定，修改路径需保存新版本；已提交任务继续使用原版本的路径。**目录内容在执行构建时读取，保存版本不会冻结目录里的文件**。结果摘要记录实际使用的目录和生成的镜像 ID。目标标签已存在时仍拒绝覆盖。
+
+例如把 `app.jar` 放在 `C:\build\backend`，在表单将该目录作为上下文，并保存：
+
+```dockerfile
+FROM eclipse-temurin:21-jre
+COPY app.jar /app/app.jar
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+```
+
+构建前使用 `.dockerignore` 排除不需要发送给 Docker 的文件；`.gitignore` 不会替代它。目录中若含有工作台配置或凭据，可使用以下规则：
+
+```text
+.git
+.env
+.env.*
+workbench.toml
+.workbench-run
+.local-data
+credentials
+```
+
+模型与 Docker 凭据仍由本机 Runner 环境配置。Dockerfile 与上下文不应包含密钥。暂不提供额外构建参数或注册表登录界面。启动脚本基础工具镜像的上下文仍由 `workbench.toml` 的 `launcher.tool_context` / `AWB_TOOL_CONTEXT` 配置，与这里每个 Dockerfile 版本的目录分开维护。
 
 构建使用本机受管 Docker 守护进程及原有代理配置；环境提供 `CODEX_PROXY_CERT` 时以 `proxy_ca` 构建 secret 提供，Dockerfile 中的联网步骤仍需主动使用该只读 CA。不会禁用 TLS 或绕过网络策略。
 
@@ -33,7 +57,7 @@
 
 操作超时或失联时，需要在 Docker 主机检查原操作是否结束、标签指向及受影响容器，再从页面「登记人工核实」。工作台要求旧主机锁已经释放，并保存人工核实人员与依据；该登记不会把原操作认定成功、不会自动重放。主机锁空闲不能证明 Docker 守护进程已停止所有后台构建，因此需要真实检查确认。
 
-数据库新增迁移 `0007` 的 `docker_recipes` 与 `docker_jobs`。离线备份 v2/0007 包含 Dockerfile 版本和维护历史，拒绝有活动/未知镜像任务的备份。兼容恢复既有 v1/0005、v1/0006、v2/0006 备份，新增表初始化为空。镜像层本身不在工作台备份中；恢复后需要重新准备镜像，不自动执行镜像任务或容器任务。
+数据库迁移 `0007` 创建 `docker_recipes` 与 `docker_jobs`，`0009` 为 Dockerfile 版本新增可选 `context_dir`；旧记录默认留空，保持仅含 Dockerfile 的构建方式。离线备份 v2/0009 包含路径、Dockerfile 版本和维护历史，拒绝有活动/未知镜像任务的备份。兼容恢复既有 v1/0005、v1/0006、v2/0006、v2/0007、v2/0008 备份；旧记录自动补为空目录。外部构建上下文文件及镜像层不在工作台备份中；恢复后需重新确认目录、准备文件和镜像，不自动执行镜像任务或容器任务。
 
 ## Sites 试用与验证
 

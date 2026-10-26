@@ -1,4 +1,4 @@
-"""Runner-only, bounded Docker operations, never arbitrary shell or host contexts."""
+"""Runner-only Docker operations with explicitly selected local build contexts."""
 import io
 import json
 import os
@@ -55,20 +55,35 @@ def execute(settings, job):
             try: locking.flock(command_lock, locking.LOCK_EX | locking.LOCK_NB)
             except BlockingIOError: raise Unknown("旧 Docker 子进程仍在执行，禁止第二次操作") from None
         request = job["input"]; ref = request["reference"]
+        build_context = None
         if job["kind"] == "build":
             if not ref.startswith("awb-user/"): raise WorkbenchError("界面构建目标必须使用 awb-user/ 前缀，避免覆盖其他工具镜像")
+            directory = job.get("recipe", {}).get("context_dir", "")
+            if directory:
+                try:
+                    raw = Path(directory).expanduser()
+                    if not raw.is_absolute(): raise ValueError
+                    build_context = raw.resolve(strict=True)
+                    if not build_context.is_dir(): raise ValueError
+                except (OSError, ValueError, RuntimeError):
+                    raise WorkbenchError("构建上下文不是当前 Runner 可读取的本机绝对目录；请检查路径和访问权限") from None
             if image_info(ref): raise WorkbenchError("构建目标标签已经存在，请为新版本使用新标签")
             content = job["recipe"]["dockerfile"].encode()
             if len(content) > 65536: raise WorkbenchError("Dockerfile 超过 64 KiB")
             with tempfile.TemporaryFile() as source:
-                with tarfile.open(fileobj=source, mode="w") as archive:
-                    entry = tarfile.TarInfo("Dockerfile"); entry.size = len(content); entry.mode = 0o600
-                    archive.addfile(entry, io.BytesIO(content))
+                if build_context:
+                    source.write(content)
+                else:
+                    with tarfile.open(fileobj=source, mode="w") as archive:
+                        entry = tarfile.TarInfo("Dockerfile"); entry.size = len(content); entry.mode = 0o600
+                        archive.addfile(entry, io.BytesIO(content))
                 source.seek(0)
                 args = ["build", "--quiet", "--tag", ref]
                 ca = os.environ.get("CODEX_PROXY_CERT")
                 if ca: args += ["--secret", "id=proxy_ca,src=" + str(Path(ca).resolve(strict=True))]
-                command([*args, "-"], lock, source)
+                # Docker handles .dockerignore and context transfer. The saved
+                # version is authoritative even if the directory has a Dockerfile.
+                command([*args, "--file", "-", str(build_context)] if build_context else [*args, "-"], lock, source)
         elif job["kind"] == "pull": command(["pull", ref], lock)
         elif job["kind"] == "remove":
             with (locks / "runtime-admission.lock").open("a+b") as admission:
@@ -85,7 +100,8 @@ def execute(settings, job):
         else: raise WorkbenchError("镜像操作类型不支持")
         result = image_info(ref)
         if not result: raise Unknown("Docker 命令结束但镜像无法确认，请人工核实")
-        return {"reference": ref, "image": result, "model_execution": "NOT_ATTEMPTED"}
+        return {"reference": ref, "image": result, "model_execution": "NOT_ATTEMPTED",
+            **({"build_context": {"directory": str(build_context) if build_context else None, "dockerfile_source": "saved_recipe"}} if job["kind"] == "build" else {})}
 
 
 def run_once(runner):

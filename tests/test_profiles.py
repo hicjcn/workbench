@@ -126,10 +126,10 @@ class ProfileTests(ControlFixture):
         self.save(self.mounted()); req = self.prepare(self.requirement(self.project_record))
         with self.store.engine.begin() as connection:
             connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)"))
-            connection.execute(text("INSERT INTO alembic_version VALUES ('0008')"))
+            connection.execute(text("INSERT INTO alembic_version VALUES ('0009')"))
         with patch("agent_workbench.resources.inventory", return_value=[]): result = backup(self.settings)
         manifest = verify(Path(result["file"]))
-        self.assertEqual(manifest["schema_revision"], "0008")
+        self.assertEqual(manifest["schema_revision"], "0009")
         self.assertFalse(any("runtime-config/" in item["path"] for item in manifest["entries"]))
         target = self.root / "restored"; restore(Path(result["file"]), target)
         restored = Store(f"sqlite:///{target / 'workbench.db'}")
