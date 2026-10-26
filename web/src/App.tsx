@@ -36,8 +36,14 @@ export default function App() {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [modal, setModal] = useState<"project" | "requirement" | null>(null);
   const [view, setView] = useState<
-    "requirements" | "projects" | "deliveries" | "runtime" | "images" | "containers" | "agents"
-  >(() => location.hash === "#agent-clis" ? "agents" : "requirements");
+    | "requirements"
+    | "projects"
+    | "deliveries"
+    | "runtime"
+    | "images"
+    | "containers"
+    | "agents"
+  >(() => (location.hash === "#agent-clis" ? "agents" : "requirements"));
   const [task, setTask] = useState("");
   const [reason, setReason] = useState("");
   const [logId, setLogId] = useState("");
@@ -313,11 +319,46 @@ export default function App() {
         >
           资源与恢复
         </button>
-        <button className={view === "images" ? "selected" : ""} aria-pressed={view === "images"} onClick={() => setView("images")}>Docker 镜像</button>
-        <button className={view === "containers" ? "selected" : ""} aria-pressed={view === "containers"} onClick={() => setView("containers")}>容器管理</button>
-        <button className={view === "agents" ? "selected" : ""} aria-pressed={view === "agents"} onClick={() => setView("agents")}>Agent CLI 配置</button>
+        <button
+          className={view === "images" ? "selected" : ""}
+          aria-pressed={view === "images"}
+          onClick={() => setView("images")}
+        >
+          Docker 镜像
+        </button>
+        <button
+          className={view === "containers" ? "selected" : ""}
+          aria-pressed={view === "containers"}
+          onClick={() => setView("containers")}
+        >
+          容器管理
+        </button>
+        <button
+          className={view === "agents" ? "selected" : ""}
+          aria-pressed={view === "agents"}
+          onClick={() => setView("agents")}
+        >
+          Agent CLI 配置
+        </button>
       </nav>
-      {view === "agents" ? <AgentCliPanel configureProjects={() => setView("projects")} openContainers={() => setView("containers")} /> : view === "images" ? <DockerImagesPanel configureProjects={() => setView("projects")} /> : view === "containers" ? <ContainersPanel requirements={requirements} projects={projects} configureProjects={() => setView("projects")} openRequirement={(id) => { setSelected(id); setView("requirements"); }} /> : view === "deliveries" ? (
+      {view === "agents" ? (
+        <AgentCliPanel
+          configureProjects={() => setView("projects")}
+          openContainers={() => setView("containers")}
+        />
+      ) : view === "images" ? (
+        <DockerImagesPanel configureProjects={() => setView("projects")} />
+      ) : view === "containers" ? (
+        <ContainersPanel
+          requirements={requirements}
+          projects={projects}
+          configureProjects={() => setView("projects")}
+          openRequirement={(id) => {
+            setSelected(id);
+            setView("requirements");
+          }}
+        />
+      ) : view === "deliveries" ? (
         <DeliveryPanel
           requirements={requirements}
           projects={projects}
@@ -337,6 +378,21 @@ export default function App() {
                 <h2>{project.name}</h2>
                 <p className="muted">源码目录</p>
                 <code className="path">{project.source_path}</code>
+                {Boolean(project.repositories?.length) && (
+                  <div className="repository-options">
+                    <p className="hint">
+                      多仓库业务项目 · {project.repositories!.length} 个仓库
+                    </p>
+                    {project.repositories!.map((path) => (
+                      <code className="path" key={path}>
+                        {path}
+                      </code>
+                    ))}
+                    <p className="hint">
+                      共享文件：{project.shared_files?.join("、") || "未选择"}
+                    </p>
+                  </div>
+                )}
                 <p className="muted">运行镜像</p>
                 <code>{project.image}</code>
                 <ProjectProfilePanel project={project} />
@@ -404,7 +460,12 @@ export default function App() {
               <section className="panel detail-heading">
                 <div className="section-kicker">
                   {detail.project.name}
-                  <span>独立开发</span><span>{detail.agent_cli?.name ?? "OpenCode"} · v{detail.agent_cli?.number ?? 1}{detail.agent_cli?.fixed ? "（已固定）" : "（准备时固定）"}</span>
+                  <span>独立开发</span>
+                  <span>
+                    {detail.agent_cli?.name ?? "OpenCode"} · v
+                    {detail.agent_cli?.number ?? 1}
+                    {detail.agent_cli?.fixed ? "（已固定）" : "（准备时固定）"}
+                  </span>
                 </div>
                 <h2>{detail.title}</h2>
                 <p>{detail.description || "尚未补充需求背景"}</p>
@@ -600,6 +661,24 @@ export default function App() {
                       </span>
                       <span>{snapshot.files.length} 个源码文件</span>
                     </div>
+                    {Boolean(snapshot.repositories?.length) && (
+                      <div className="repository-options">
+                        <p className="hint">
+                          Agent
+                          从共同父目录运行。差异中的路径保留仓库前缀，各仓库分别记录提交与源码摘要。
+                        </p>
+                        {snapshot.repositories!.map((item) => (
+                          <p key={item.path}>
+                            <code>{item.path}</code> ·{" "}
+                            {item.changed ? "已有改动" : "未改动"} ·{" "}
+                            {item.file_count} 个文件 ·{" "}
+                            <code title={item.source_commit}>
+                              来源 {item.source_commit.slice(0, 12)}
+                            </code>
+                          </p>
+                        ))}
+                      </div>
+                    )}
                     <pre className="diff" aria-label="代码差异">
                       {detail.workspace.diff
                         ? detail.workspace.diff

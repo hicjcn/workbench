@@ -46,7 +46,7 @@ def main():
         after = table_digests(connection, {name: value["columns"] for name, value in before.items()})
         complete = table_digests(connection)
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-    assert revision == "0009"
+    assert revision == "0010"
     assert all(after.get(name) == value for name, value in before.items())
     report = {"status": "PASSED_SQLITE_METADATA_UPGRADE", "from": previous_revision, "to": revision,
         "preserved_tables": before, "added_tables": sorted(set(after) - set(before)),

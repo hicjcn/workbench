@@ -66,9 +66,16 @@ def workspace_entries(root):
         relative = workspace.relative_to(root).as_posix()
         checkpoints[relative] = {"tree_digest": current["tree_digest"], "commit_sha": current["commit_sha"]}
         entries += [("files/" + relative + "/repo/" + item["path"], safe_path(workspace / "repo", item["path"])) for item in current["files"]]
-        for path in (workspace / "repo/.git").rglob("*"):
-            if is_link(path): raise WorkbenchError("Git 元数据包含符号链接")
-            if path.is_file(): entries.append(("files/" + path.relative_to(root).as_posix(), path))
+        from .multi_repo import layout, checked_shared_base
+        configured = layout(workspace / "repo")
+        git_roots = [safe_path(workspace / "repo", item["path"]) for item in configured["repositories"]] if configured else [workspace / "repo"]
+        for git_root in git_roots:
+            for path in (git_root / ".git").rglob("*"):
+                if is_link(path): raise WorkbenchError("Git 元数据包含符号链接")
+                if path.is_file(): entries.append(("files/" + path.relative_to(root).as_posix(), path))
+        if configured:
+            for path in checked_shared_base(workspace, configured):
+                entries.append(("files/" + path.relative_to(root).as_posix(), path))
         for filename in ("workspace.json", "capability-report.json", "preflight-report.json", "application-report.json"):
             path = workspace / filename
             if path.exists(): entries.append(("files/" + path.relative_to(root).as_posix(), path))
@@ -99,7 +106,7 @@ def backup(settings):
             for name, values in data.items(): entries.append(("database/" + name + ".json", encoded(values).encode()))
             identity = "backup_" + secrets.token_hex(16)
             target = settings.data_dir / "backups" / (identity + ".zip")
-            header = {"schema": "workbench-backup/v2", "schema_revision": "0009", "created_at": time.time(),
+            header = {"schema": "workbench-backup/v2", "schema_revision": "0010", "created_at": time.time(),
                 "source_root": str(settings.data_dir), "metadata": metadata_digest(data), "code_checkpoints": checkpoints,
                 "excluded": ["access-token", "runner-token", "agent-home", "runtime-config", "staging", "runtime.json", "application-runtime.json", "application container logs", "dependency-runtime.json", "dependency-private.json", "backups", "external original repositories", "external Docker build context files", "database credentials"]}
             result = build(target, header, entries)
@@ -121,7 +128,7 @@ def restore(archive_path, destination, project_maps=None):
     destination = destination.absolute()
     if destination.exists() or is_link(destination): raise WorkbenchError("恢复目标必须是尚不存在的新目录")
     manifest = verify(archive_path)
-    if (manifest.get("schema"), manifest.get("schema_revision")) not in (("workbench-backup/v1", "0005"), ("workbench-backup/v1", "0006"), ("workbench-backup/v2", "0006"), ("workbench-backup/v2", "0007"), ("workbench-backup/v2", "0008"), ("workbench-backup/v2", "0009")): raise WorkbenchError("备份格式或数据版本不支持")
+    if (manifest.get("schema"), manifest.get("schema_revision")) not in (("workbench-backup/v1", "0005"), ("workbench-backup/v1", "0006"), ("workbench-backup/v2", "0006"), ("workbench-backup/v2", "0007"), ("workbench-backup/v2", "0008"), ("workbench-backup/v2", "0009"), ("workbench-backup/v2", "0010")): raise WorkbenchError("备份格式或数据版本不支持")
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=destination.parent))
     try:
@@ -143,25 +150,32 @@ def restore(archive_path, destination, project_maps=None):
                     suffix = parts[offset:]
                     allowed = [("workspace.json",), ("capability-report.json",), ("preflight-report.json",)]
                     if manifest["schema"] == "workbench-backup/v2": allowed += [("dependency-state.json",), ("dependency-snapshot.json",), ("dependency-backups", "postgres.dump"), ("application-report.json",)]
-                    if not suffix or (suffix[0] != "repo" and suffix not in allowed): raise WorkbenchError("备份包含禁止恢复的认证或运行状态")
+                    shared = manifest["schema_revision"] == "0010" and suffix and suffix[0] == "shared-base" and len(suffix) > 1
+                    if not suffix or (suffix[0] != "repo" and suffix not in allowed and not shared): raise WorkbenchError("备份包含禁止恢复的认证或运行状态")
                 elif len(parts) != 2 or not parts[-1].endswith(".zip"): raise WorkbenchError("正式文件存储路径不正确")
                 target = safe_path(staging, relative); target.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(name) as source, target.open("wb") as output: shutil.copyfileobj(source, output, length=1024 * 1024)
                 target.chmod(item["mode"])
         expected_tables = set(metadata.tables)
         if manifest["schema_revision"] == "0005": expected_tables -= {"project_profiles", "workspace_profiles"}
-        if manifest["schema_revision"] not in ("0007", "0008", "0009"): expected_tables -= {"docker_jobs", "docker_recipes"}
-        if manifest["schema_revision"] not in ("0008", "0009"): expected_tables -= {"agent_cli_configs", "agent_cli_default", "workspace_agents"}
+        if manifest["schema_revision"] not in ("0007", "0008", "0009", "0010"): expected_tables -= {"docker_jobs", "docker_recipes"}
+        if manifest["schema_revision"] not in ("0008", "0009", "0010"): expected_tables -= {"agent_cli_configs", "agent_cli_default", "workspace_agents"}
         if set(data) != expected_tables or metadata_digest(data) != manifest["metadata"]: raise WorkbenchError("备份元数据摘要不完整")
         for name in set(metadata.tables) - set(data): data[name] = []
-        if manifest["schema_revision"] != "0009":
+        if manifest["schema_revision"] not in ("0009", "0010"):
             for row in data["docker_recipes"]: row["context_dir"] = ""
+        if manifest["schema_revision"] != "0010":
+            for row in data["projects"]: row.update(repositories_json="[]", shared_files_json="[]")
+            for row in data["requirements"]: row["repositories_json"] = "[]"
         if any(item["status"] in ("QUEUED", "RUNNING", "UNKNOWN") for item in data["docker_jobs"]): raise WorkbenchError("备份含未经核实的镜像任务，不能自动恢复")
         if data["workspace_reservations"] or any(item["status"] in ("QUEUED", "RUNNING", "UNKNOWN") for item in data["jobs"]): raise WorkbenchError("备份含未经核实的任务，不能自动恢复")
         for relative, expected in manifest["code_checkpoints"].items():
             name_safe(relative)
             workspace = safe_path(staging, relative)
             Executor.guard_git(workspace / "repo")
+            from .multi_repo import layout, checked_shared_base
+            configured = layout(workspace / "repo")
+            if configured: checked_shared_base(workspace, configured)
             observed = snapshot(workspace / "repo")
             if {"tree_digest": observed["tree_digest"], "commit_sha": observed["commit_sha"]} != expected: raise WorkbenchError("恢复源码摘要与备份不一致")
             path = workspace / "workspace.json"; content = json.loads(path.read_text(encoding="utf-8"))
@@ -186,8 +200,10 @@ def restore(archive_path, destination, project_maps=None):
         for row in data["projects"]:
             if project_maps and row["id"] in project_maps:
                 from .workspace import git
-                mapped = Path(project_maps[row["id"]]).resolve(strict=True)
-                if Path(git(mapped, "rev-parse", "--show-toplevel").decode().strip()) != mapped: raise WorkbenchError("项目映射必须是 Git 根目录")
+                from .multi_repo import validate_sources, source_root
+                mapped = source_root(project_maps[row["id"]])
+                if json.loads(row["repositories_json"]): validate_sources(mapped, json.loads(row["repositories_json"]), json.loads(row["shared_files_json"]))
+                elif Path(git(mapped, "rev-parse", "--show-toplevel").decode().strip()).resolve() != mapped: raise WorkbenchError("项目映射必须是 Git 根目录")
                 row["source_path"] = str(mapped)
         settings = Settings(staging, f"sqlite:///{staging / 'workbench.db'}", "unused-restore-token" * 2, "unused-runner-token" * 2)
         migrate(settings)

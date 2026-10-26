@@ -86,6 +86,12 @@ class Executor:
         self.guard_git(workspace / "repo")
         current = snapshot(workspace / "repo")
         manifest = json.loads((workspace / "workspace.json").read_text(encoding="utf-8"))
+        if manifest.get("layout") == "multi-repo/v1":
+            from .multi_repo import diff as multi_diff
+            content = multi_diff(workspace).decode(errors="replace")
+            result = {"snapshot": current, "diff": self.redact(content[:500000], workspace), "diff_truncated": len(content) > 500000}
+            if environment: result["environment"] = environment
+            return result
         baseline = manifest["source_baseline"]["commit_sha"]
         diff = git(workspace / "repo", "diff", "--no-ext-diff", "--no-textconv", "--binary", baseline).decode(errors="replace")
         tracked = set(git(workspace / "repo", "ls-files", "-z").decode().rstrip("\0").split("\0"))
@@ -105,7 +111,13 @@ class Executor:
         return result
 
     @staticmethod
-    def guard_git(repo):
+    def guard_git(repo, *, single_repository=False):
+        from .multi_repo import layout
+        configured = None if single_repository else layout(repo)
+        if configured:
+            for item in configured["repositories"]:
+                Executor.guard_git(safe_path(repo, item["path"]), single_repository=True)
+            return
         directory = repo / ".git"
         if not directory.is_dir() or is_link(directory):
             raise WorkbenchError("工作区 Git 元数据不可信，请先停止并检查")
@@ -146,7 +158,8 @@ class Executor:
             if not workspace.exists():
                 emit("stage", {"text": "正在创建独立源码副本"})
                 create_workspace(Path(job["project"]["source_path"]), workspace.parents[1],
-                                 job["requirement_id"], job["project"]["id"])
+                                 job["requirement_id"], job["project"]["id"],
+                                 repository_paths=job["requirement"].get("repositories"), shared_files=job["project"].get("shared_files"))
             check()
             from .profiles import configure
             configure(workspace, job.get("profile"), self.settings.data_dir)
@@ -202,10 +215,16 @@ class Executor:
         if action == "task":
             return self.task(job, workspace, emit, canceled)
         if action in ("build", "verify"):
-            from .profiles import command
+            from .profiles import command, repository_plans
             from .workflow_execution import verify_command
             profile = job.get("profile")
             if not profile: raise WorkbenchError("请先为项目保存运行配置，并创建新的需求工作区")
+            selected = job['requirement'].get('repositories', [])
+            if selected and profile['content'].get('repository_commands'):
+                plans = repository_plans(profile['content'], selected, action, require_all=action == 'verify')
+                if not plans: raise WorkbenchError('当前候选仓库未配置构建命令')
+                output = verify_command(self, job, workspace, emit, canceled, plans=plans)
+                return {**self.observe(workspace), 'command_output': output}
             argv = command(profile["content"]["build_command" if action == "build" else "verification_command"])
             if not argv: raise WorkbenchError("当前配置未登记此命令")
             output = verify_command(self, job, workspace, emit, canceled, argv=argv)
@@ -240,6 +259,11 @@ class Executor:
         prompt = prompt or (f"需求：{job['requirement']['title']}\n背景：{job['requirement']['description']}\n"
                   f"验收标准：{job['requirement']['acceptance']}\n本次任务：{job['input']['prompt']}\n"
                   "在当前独立工作区完成任务并执行合适验证。保留代码改动，不推送 Git，不启动子代理。")
+        from .multi_repo import layout
+        selected_repositories = layout(workspace / "repo")
+        if selected_repositories:
+            prompt += "\n当前目录是多个独立 Git 仓库的共同父目录。仅使用下列候选仓库，可在一次会话中分析或修改多个仓库；各仓库分别使用 git -C <路径>，父目录无需初始化 Git。分析和评审保持全部源码只读。\n" + json.dumps(
+                {"repositories": [item["path"] for item in selected_repositories["repositories"]], "shared_files": [item["path"] for item in selected_repositories["common_baseline"]]}, ensure_ascii=False)
         if job.get("profile"):
             content = job["profile"]["content"]
             context = {"profile_id": job["profile"]["id"], "build_command": content["build_command"], "verification_command": content["verification_command"],

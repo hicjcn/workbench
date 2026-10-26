@@ -13,9 +13,12 @@ metadata = MetaData()
 projects = Table("projects", metadata,
     Column("id", String(40), primary_key=True), Column("name", String(160), nullable=False),
     Column("source_path", Text, nullable=False), Column("image", String(240), nullable=False),
+    Column("repositories_json", Text, nullable=False, server_default="[]"),
+    Column("shared_files_json", Text, nullable=False, server_default="[]"),
     Column("created_at", Float, nullable=False))
 requirements = Table("requirements", metadata,
     Column("id", String(40), primary_key=True), Column("project_id", ForeignKey("projects.id"), nullable=False),
+    Column("repositories_json", Text, nullable=False, server_default="[]"),
     Column("title", String(200), nullable=False), Column("description", Text, nullable=False),
     Column("acceptance", Text, nullable=False), Column("created_at", Float, nullable=False))
 workspaces = Table("workspaces", metadata,

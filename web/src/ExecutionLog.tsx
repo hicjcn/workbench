@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { labels, timeLabel, jobLabel } from "./api";
-import type { ExecutionEvent, Job } from "./api";
+import { api, labels, timeLabel, jobLabel } from "./api";
+import type { CommandOutput, ExecutionEvent, Job } from "./api";
 
 function readable(event: ExecutionEvent) {
   const text = event.payload.text ?? event.kind;
@@ -23,6 +23,34 @@ export function ExecutionLog({ job }: { job: Job | null }) {
   const [events, setEvents] = useState<ExecutionEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const jobId = job?.id;
+  const status = job?.status;
+  const [verification, setVerification] = useState<{
+    id: string;
+    output: CommandOutput;
+  } | null>(null);
+  const [verificationError, setVerificationError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const repositoryResults =
+    job?.result?.command_output?.repositories ??
+    job?.result?.workflow_output?.repositories ??
+    (verification && verification.id === jobId
+      ? verification.output.repositories
+      : undefined);
+  useEffect(() => {
+    let live = true;
+    setVerificationError("");
+    if (!jobId || status === "QUEUED" || status === "RUNNING") return;
+    void api<CommandOutput>(`/jobs/${jobId}/verification`)
+      .then((output) => {
+        if (live) setVerification({ id: jobId, output });
+      })
+      .catch((failure) => {
+        if (live) setVerificationError(failure.message);
+      });
+    return () => {
+      live = false;
+    };
+  }, [jobId, status, attempt]);
   useEffect(() => {
     setEvents([]);
     setConnected(false);
@@ -79,6 +107,45 @@ export function ExecutionLog({ job }: { job: Job | null }) {
           {job.error}
         </p>
       ) : null}
+      {verificationError && (
+        <p className="inline-error" role="alert">
+          {verificationError}
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => setAttempt((value) => value + 1)}
+          >
+            重试读取记录
+          </button>
+        </p>
+      )}
+      {Boolean(repositoryResults?.length) && (
+        <div className="repository-options">
+          <h3>逐仓库验证记录</h3>
+          {repositoryResults!.map((item) => (
+            <details key={item.path}>
+              <summary>
+                <code>{item.path}</code> ·{" "}
+                {item.exit_code === 0
+                  ? "通过"
+                  : item.exit_code !== undefined
+                    ? `失败（退出码 ${item.exit_code}）`
+                    : item.status === "NOT_RUN"
+                      ? "未执行"
+                      : "已中断"}
+              </summary>
+              {item.command && (
+                <p className="hint">
+                  <code>{item.command.join(" ")}</code>
+                </p>
+              )}
+              {item.output_tail && (
+                <pre className="diff">{item.output_tail}</pre>
+              )}
+            </details>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

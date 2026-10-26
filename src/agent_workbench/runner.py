@@ -86,6 +86,7 @@ class Runner:
                     result = self.executor.observe(workspace, environment)
                 except Exception:
                     result = {"environment": "UNKNOWN" if status == "UNKNOWN" else "ERROR"}
+                if hasattr(failure, 'command_output'): result['command_output'] = failure.command_output
         finally:
             stop_heartbeat.set()
             thread.join(timeout=5)

@@ -2,6 +2,14 @@ export type Snapshot = {
   tree_digest: string;
   commit_sha: string;
   files: { path: string; sha256: string }[];
+  repositories?: {
+    path: string;
+    source_commit: string;
+    commit_sha: string;
+    tree_digest: string;
+    file_count: number;
+    changed: boolean;
+  }[];
 };
 export type Workspace = {
   path: string;
@@ -16,6 +24,8 @@ export type Project = {
   name: string;
   source_path: string;
   image: string;
+  repositories?: string[];
+  shared_files?: string[];
 };
 export type Requirement = {
   id: string;
@@ -23,6 +33,7 @@ export type Requirement = {
   description: string;
   acceptance: string;
   project_id: string;
+  repositories?: string[];
   created_at: number;
   workspace: Omit<Workspace, "snapshot" | "diff">;
 };
@@ -34,7 +45,20 @@ export type Job = {
   error: string | null;
   cancel_requested: boolean;
   created_at: number;
-  result?: { diff_truncated?: boolean } | null;
+  result?: {
+    diff_truncated?: boolean;
+    command_output?: CommandOutput;
+    workflow_output?: CommandOutput;
+  } | null;
+};
+export type CommandOutput = {
+  repositories?: {
+    path: string;
+    command?: string[];
+    exit_code?: number;
+    status?: string;
+    output_tail?: string;
+  }[];
 };
 export type Review = {
   id: string;

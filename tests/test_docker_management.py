@@ -193,7 +193,7 @@ class DockerManagementTests(ControlFixture):
         (context / "private-file.txt").write_text("fixture-context-not-in-backup")
         self.recipe(context_dir=str(context)); record = self.operation().json(); self.client.post(f"/api/v1/docker/operations/{record['id']}/cancel", json={})
         with self.store.engine.begin() as c:
-            c.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")); c.execute(text("INSERT INTO alembic_version VALUES ('0009')"))
+            c.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")); c.execute(text("INSERT INTO alembic_version VALUES ('0010')"))
         with patch("agent_workbench.resources.inventory", return_value=[]): report = backup(self.settings)
         import zipfile
         with zipfile.ZipFile(report["file"]) as archive:

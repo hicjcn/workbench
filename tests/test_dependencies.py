@@ -98,7 +98,7 @@ class DependencyTests(ControlFixture):
         self.prepared_dependency(); _, info = self.checkpoint()
         write_json(self.workspace / dependencies.PRIVATE, {"password": "do-not-back-up"}, private=True)
         with self.store.engine.begin() as connection:
-            connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")); connection.execute(text("INSERT INTO alembic_version VALUES ('0009')"))
+            connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")); connection.execute(text("INSERT INTO alembic_version VALUES ('0010')"))
         with patch("agent_workbench.resources.inventory", return_value=[]): result = backup(self.settings)
         manifest = verify(Path(result["file"]))
         self.assertEqual(manifest["schema"], "workbench-backup/v2")

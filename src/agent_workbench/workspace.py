@@ -23,7 +23,8 @@ class WorkbenchError(Exception):
 
 def git(directory: Path, *args: str) -> bytes:
     result = subprocess.run(
-        ["git", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false", "-C", str(directory), *args],
+        ["git", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false",
+         *(["-c", "core.longpaths=true"] if IS_WINDOWS else []), "-C", str(directory), *args],
         capture_output=True,
         timeout=120,
     )
@@ -124,8 +125,11 @@ def inventory(repo: Path, *, untracked: bool = True) -> dict:
     return {"tree_digest": hashlib.sha256(encoded).hexdigest(), "files": entries}
 
 
-def snapshot(repo: Path) -> dict:
+def snapshot(repo: Path, *, single_repository=False) -> dict:
     repo = repo.resolve(strict=True)
+    from .multi_repo import layout, snapshot as multi_snapshot
+    configured = None if single_repository else layout(repo)
+    if configured: return multi_snapshot(repo, configured)
     first = inventory(repo)
     second = inventory(repo)
     if first != second:
@@ -135,14 +139,23 @@ def snapshot(repo: Path) -> dict:
 
 def create_workspace(source: Path, root: Path, requirement: str, project: str,
                      ref: str = "HEAD", include_dirty: bool = False,
-                     include_untracked: bool = False) -> dict:
+                     include_untracked: bool = False, repository_paths=None, shared_files=None, _single_repository=False) -> dict:
     for value in (requirement, project):
         if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,47}", value):
             raise WorkbenchError("Requirement and project IDs must be lowercase identifiers of at most 48 characters")
+    if repository_paths:
+        from .multi_repo import source_root
+        source = source_root(source)
     source = source.resolve(strict=True)
     root = root.resolve()
     if root.is_relative_to(source):
         raise WorkbenchError("Workspace root must be outside the source repository")
+    from .multi_repo import layout, create as create_multi
+    if not _single_repository and (repository_paths or layout(source)):
+        if ref != "HEAD": raise WorkbenchError("多仓库工作区目前固定各仓库的 HEAD")
+        if include_untracked and not include_dirty: raise WorkbenchError("Including untracked files requires --include-dirty")
+        return create_multi(source, root, requirement, project, repositories=repository_paths, shared_files=shared_files or [],
+            include_dirty=include_dirty, include_untracked=include_untracked)
     if Path(git(source, "rev-parse", "--show-toplevel").decode().strip()).resolve() != source:
         raise WorkbenchError("Source must be a Git repository root")
     if include_untracked and not include_dirty:
@@ -246,4 +259,23 @@ def load_workspace(path: Path) -> tuple[Path, dict]:
     if is_link(path / "repo"):
         raise WorkbenchError("Workspace repository must not be a symlink")
     return path, manifest
+
+
+def binary_diff(repo, baseline, files, *, prefix=""):
+    """Complete, path-prefixed binary patch including untracked ordinary files."""
+    names = sorted({item['path'] for item in files} | {item['path'] for item in baseline['files']})
+    chunks = []
+    options = [f'--src-prefix=a/{prefix}', f'--dst-prefix=b/{prefix}']
+    for index in range(0, len(names), 100):
+        chunks.append(git(repo, '--literal-pathspecs', 'diff', '--no-ext-diff', '--no-textconv', '--binary', *options,
+            baseline['commit_sha'], '--', *names[index:index + 100]))
+    tracked = set(git(repo, 'ls-files', '-z').decode().rstrip('\0').split('\0'))
+    for name in names:
+        if name in tracked or not safe_path(repo, name).is_file(): continue
+        result = subprocess.run(['git', '-c', f'core.hooksPath={os.devnull}', '-c', 'core.fsmonitor=false',
+            *(['-c', 'core.longpaths=true'] if IS_WINDOWS else []), '-C', str(repo),
+            'diff', '--no-index', '--no-ext-diff', '--no-textconv', '--binary', *options, '--', os.devnull, name], capture_output=True, timeout=120)
+        if result.returncode not in (0, 1): raise WorkbenchError('新增文件差异采集失败')
+        chunks.append(result.stdout)
+    return b''.join(chunks)
 
