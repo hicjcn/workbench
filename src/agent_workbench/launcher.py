@@ -282,7 +282,8 @@ def supervise(configuration, directory, instance):
                     write_json(marker(directory, instance, role), {"stop": True})
                     try: children[role].stdin.write(b"S"); children[role].stdin.flush()
                     except (BrokenPipeError, OSError): pass
-                    finally: children[role].stdin.close()
+                    try: children[role].stdin.close()
+                    except (BrokenPipeError, OSError): pass
                     while children[role].poll() is None:
                         time.sleep(0.2)
             try:
