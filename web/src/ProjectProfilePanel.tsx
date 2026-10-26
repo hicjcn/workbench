@@ -4,6 +4,7 @@ import { api, timeLabel } from "./api";
 import type { Project } from "./api";
 import { Modal } from "./Forms";
 import type { AgentCliState } from "./AgentCliPanel";
+import { RuntimeImageSelect } from "./RuntimeImageSelect";
 
 export type RuntimeProfile = {
   id: string;
@@ -203,17 +204,9 @@ function ProfileForm({
   return (
     <form className="form-stack" onSubmit={save}>
       <p className="hint">
-        先在本机构建包含所选 CLI 的镜像。内置配置沿用 OpenCode 1.19.4 与已锁定的 Superpowers；兼容封装应提供相同服务和技能能力。新版本只影响后续工作区。
+        保存后创建新的运行配置版本，只影响后续新工作区。
       </p>
-      <label>
-        运行镜像
-        <input
-          name="image"
-          defaultValue={defaults?.image ?? image}
-          required
-          maxLength={240}
-        />
-      </label>
+      <RuntimeImageSelect initialImage={defaults?.image ?? image} />
       <label>Agent CLI 配置<select aria-label="Agent CLI 配置" name="agent_cli" defaultValue={defaults?.agent_cli_id ?? ""} disabled={!agents}><option value="">跟随系统默认（准备工作区时固定）</option>{agents?.configs.map(item => <option value={item.id} key={item.id}>{item.name} · v{item.number}</option>)}</select></label>
       <p className="hint">选择兼容封装 CLI 时，镜像必须已经包含相应程序。只影响后续新工作区，已有需求继续使用其固定版本。</p>
       <div className="profile-resources">

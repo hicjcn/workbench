@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import type { Project } from "./api";
+import { RuntimeImageSelect } from "./RuntimeImageSelect";
 
 export function Modal({
   title,
@@ -92,13 +93,7 @@ export function ProjectForm({
           placeholder="/path/to/backend-repository"
         />
       </label>
-      <label>
-        运行镜像
-        <input name="image" required defaultValue={defaultImage} />
-      </label>
-      <p className="hint">
-        镜像需要包含 OpenCode 和项目依赖，可从仓库中的 M1 Dockerfile 构建。
-      </p>
+      <RuntimeImageSelect initialImage={defaultImage} configuredLabel="系统默认" />
       {error ? (
         <p className="inline-error" role="alert">
           {error}
