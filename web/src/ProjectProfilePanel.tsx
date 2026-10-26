@@ -21,6 +21,11 @@ export type RuntimeProfile = {
     pids_limit: number;
     build_command: string;
     verification_command: string;
+    repository_commands?: {
+      path: string;
+      build_command: string;
+      verification_command: string;
+    }[];
     mounts: { source: string; target: string; sha256?: string | null }[];
     dependencies?: {
       kind: "postgres";
@@ -77,7 +82,10 @@ export function ProjectProfilePanel({ project }: { project: Project }) {
           </p>
           <code className="path">{state.current.content.image}</code>
           <p className="hint">
-            验证：{state.current.content.verification_command}
+            验证：
+            {state.current.content.repository_commands?.length
+              ? `${state.current.content.repository_commands.length} 个仓库分别配置`
+              : state.current.content.verification_command}
           </p>
           <p className="hint">
             {state.current.content.mounts.length} 个只读配置文件 ·{" "}
@@ -115,6 +123,7 @@ export function ProjectProfilePanel({ project }: { project: Project }) {
           <ProfileForm
             current={state?.current ?? null}
             image={project.image}
+            repositories={project.repositories ?? []}
             submit={save}
           />
         </Modal>
@@ -126,10 +135,12 @@ export function ProjectProfilePanel({ project }: { project: Project }) {
 function ProfileForm({
   current,
   image,
+  repositories,
   submit,
 }: {
   current: RuntimeProfile | null;
   image: string;
+  repositories: string[];
   submit: (value: Record<string, unknown>) => Promise<void>;
 }) {
   const [mounts, setMounts] = useState(
@@ -139,11 +150,29 @@ function ProfileForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const defaults = current?.content;
+  const [repositoryCommands, setRepositoryCommands] = useState(() =>
+    repositories.map(
+      (path) =>
+        defaults?.repository_commands?.find((item) => item.path === path) ?? {
+          path,
+          build_command: "",
+          verification_command: "",
+        },
+    ),
+  );
   const [agents, setAgents] = useState<AgentCliState | null>(null);
   useEffect(() => {
     let live = true;
-    void api<AgentCliState>("/agent-clis").then(value => { if (live) setAgents(value); }).catch(failure => { if (live) setError(failure.message); });
-    return () => { live = false; };
+    void api<AgentCliState>("/agent-clis")
+      .then((value) => {
+        if (live) setAgents(value);
+      })
+      .catch((failure) => {
+        if (live) setError(failure.message);
+      });
+    return () => {
+      live = false;
+    };
   }, []);
   const [postgres, setPostgres] = useState(
     Boolean(current?.content.dependencies?.length),
@@ -154,7 +183,10 @@ function ProfileForm({
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    if (!agents) { setError("请先等待 Agent CLI 配置列表加载，失败时关闭表单后重试"); return; }
+    if (!agents) {
+      setError("请先等待 Agent CLI 配置列表加载，失败时关闭表单后重试");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -170,6 +202,10 @@ function ProfileForm({
           pids_limit: Number(data.get("pids")),
           build_command: data.get("build"),
           verification_command: data.get("verify"),
+          repository_commands: repositoryCommands.filter(
+            (item) =>
+              item.build_command.trim() || item.verification_command.trim(),
+          ),
           mounts,
           application: application
             ? {
@@ -203,12 +239,28 @@ function ProfileForm({
   }
   return (
     <form className="form-stack" onSubmit={save}>
-      <p className="hint">
-        保存后创建新的运行配置版本，只影响后续新工作区。
-      </p>
+      <p className="hint">保存后创建新的运行配置版本，只影响后续新工作区。</p>
       <RuntimeImageSelect initialImage={defaults?.image ?? image} />
-      <label>Agent CLI 配置<select aria-label="Agent CLI 配置" name="agent_cli" defaultValue={defaults?.agent_cli_id ?? ""} disabled={!agents}><option value="">跟随系统默认（准备工作区时固定）</option>{agents?.configs.map(item => <option value={item.id} key={item.id}>{item.name} · v{item.number}</option>)}</select></label>
-      <p className="hint">选择兼容封装 CLI 时，镜像必须已经包含相应程序。只影响后续新工作区，已有需求继续使用其固定版本。</p>
+      <label>
+        Agent CLI 配置
+        <select
+          aria-label="Agent CLI 配置"
+          name="agent_cli"
+          defaultValue={defaults?.agent_cli_id ?? ""}
+          disabled={!agents}
+        >
+          <option value="">跟随系统默认（准备工作区时固定）</option>
+          {agents?.configs.map((item) => (
+            <option value={item.id} key={item.id}>
+              {item.name} · v{item.number}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="hint">
+        选择兼容封装 CLI
+        时，镜像必须已经包含相应程序。只影响后续新工作区，已有需求继续使用其固定版本。
+      </p>
       <div className="profile-resources">
         <label>
           CPU 核数
@@ -258,14 +310,71 @@ function ProfileForm({
         验证命令
         <input
           name="verify"
-          required
-          defaultValue={defaults?.verification_command ?? "node --test"}
+          required={!repositories.length}
+          defaultValue={
+            defaults?.verification_command ??
+            (repositories.length ? "" : "node --test")
+          }
           maxLength={2000}
         />
       </label>
       <p className="hint">
-        命令在需求容器中执行。复杂步骤写入仓库脚本；不支持管道、重定向或多条命令拼接。
+        命令在需求容器的源码根目录执行；多仓库项目为共同父目录，可提供统一验证脚本。配置逐仓库验证后，统一验证命令可留空。复杂步骤写入仓库脚本；不支持管道、重定向或多条命令拼接。
       </p>
+      {Boolean(repositories.length) && (
+        <fieldset className="repository-options">
+          <legend>逐仓库构建与验证</legend>
+          {repositoryCommands.map((item, index) => (
+            <div key={item.path}>
+              <strong>
+                <code>{item.path}</code>
+              </strong>
+              <label>
+                构建命令（可选）
+                <input
+                  aria-label={`${item.path} 构建命令`}
+                  value={item.build_command}
+                  maxLength={2000}
+                  onChange={(event) =>
+                    setRepositoryCommands((previous) =>
+                      previous.map((value, position) =>
+                        position === index
+                          ? { ...value, build_command: event.target.value }
+                          : value,
+                      ),
+                    )
+                  }
+                  placeholder="例如 mvn -DskipTests package"
+                />
+              </label>
+              <label>
+                验证命令
+                <input
+                  aria-label={`${item.path} 验证命令`}
+                  value={item.verification_command}
+                  maxLength={2000}
+                  onChange={(event) =>
+                    setRepositoryCommands((previous) =>
+                      previous.map((value, position) =>
+                        position === index
+                          ? {
+                              ...value,
+                              verification_command: event.target.value,
+                            }
+                          : value,
+                      ),
+                    )
+                  }
+                  placeholder="例如 mvn test"
+                />
+              </label>
+            </div>
+          ))}
+          <p className="hint">
+            分别在对应仓库目录执行。选择逐仓库验证的需求必须为其全部候选仓库配置验证命令；任一失败都会阻止进入评审。
+          </p>
+        </fieldset>
+      )}
       <fieldset>
         <legend>只读配置文件</legend>
         <p className="hint">
@@ -344,7 +453,8 @@ function ProfileForm({
           业务项目需要时，为每个需求启用 PostgreSQL 17
         </label>
         <p className="hint">
-          默认不启用。工作台默认使用本地 SQLite，无需数据库服务；只有待开发的业务项目需要 PostgreSQL 时才勾选。
+          默认不启用。工作台默认使用本地
+          SQLite，无需数据库服务；只有待开发的业务项目需要 PostgreSQL 时才勾选。
           每个需求独立数据库、内部网络、数据卷和认证，不开放宿主端口。依赖占用一个容器名额；启动前需备好
           postgres:17-bookworm 镜像。停止会先保存快照并保留数据卷。
         </p>

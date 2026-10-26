@@ -43,6 +43,12 @@ class ProjectInput(Input):
     name: str = Field(min_length=1, max_length=160)
     source_path: str = Field(min_length=1, max_length=2000)
     image: str | None = Field(default=None, min_length=1, max_length=240)
+    repositories: list[str] = Field(default_factory=list, max_length=16)
+    shared_files: list[str] = Field(default_factory=list, max_length=32)
+
+
+class DiscoverInput(Input):
+    source_path: str = Field(min_length=1, max_length=2000)
 
 
 class RequirementInput(Input):
@@ -50,6 +56,7 @@ class RequirementInput(Input):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=32000)
     acceptance: str = Field(default="", max_length=16000)
+    repositories: list[str] | None = Field(default=None, max_length=16)
 
 
 class ActionInput(Input):
@@ -106,7 +113,8 @@ class RevisionInput(Input):
 
 class WorkflowStart(Input):
     review_models: list[str] = Field(min_length=2, max_length=4)
-    verification_command: str = Field(min_length=1, max_length=2000)
+    verification_command: str = Field(default="", max_length=2000)
+    use_repository_commands: bool = False
     reason: str = Field(min_length=1, max_length=4000)
     digest: str = Field(pattern=r"^[a-f0-9]{64}$")
 
@@ -231,21 +239,36 @@ def create_app(settings: Settings, store: Store | None = None):
 
     @app.post("/api/v1/projects", status_code=201, dependencies=[Depends(user)])
     def register(value: ProjectInput):
-        source = Path(value.source_path).expanduser().resolve()
+        from .multi_repo import source_root, validate_sources
+        try: source = source_root(value.source_path)
+        except (WorkbenchError, OSError) as error: raise HTTPException(422, str(error)) from None
         image = value.image or settings.default_image
         if not source.is_dir() or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._/:@-]*", image):
             raise HTTPException(422, "代码目录或镜像名称不正确")
         try:
-            if Path(git(source, "rev-parse", "--show-toplevel").decode().strip()).resolve() != source:
+            if value.repositories:
+                validate_sources(source, value.repositories, value.shared_files)
+            elif value.shared_files:
+                raise WorkbenchError("共享文件只适用于多仓库模式")
+            elif Path(git(source, "rev-parse", "--show-toplevel").decode().strip()).resolve() != source:
                 raise WorkbenchError("请选择 Git 仓库根目录")
-        except WorkbenchError as error:
+            else:
+                git(source, "rev-parse", "--verify", "HEAD^{commit}")
+        except (WorkbenchError, OSError) as error:
             raise HTTPException(422, str(error)) from None
         if settings.data_dir.is_relative_to(source):
             raise HTTPException(422, "代码目录不能包含工作台的数据目录")
-        record = dict(id=identifier("prj"), name=value.name.strip(), source_path=str(source), image=image, created_at=time.time())
+        record = dict(id=identifier("prj"), name=value.name.strip(), source_path=str(source), image=image, created_at=time.time(),
+            repositories_json=tables.encoded(value.repositories), shared_files_json=tables.encoded(value.shared_files))
         with database.engine.begin() as connection:
             connection.execute(insert(tables.projects).values(**record))
-        return record
+        return tables.public(record)
+
+    @app.post("/api/v1/projects/discover", dependencies=[Depends(user)])
+    def discover_projects(value: DiscoverInput):
+        from .multi_repo import discover
+        try: return discover(value.source_path, settings.data_dir)
+        except (WorkbenchError, OSError) as error: raise HTTPException(422, str(error)) from None
 
     @app.get("/api/v1/requirements", dependencies=[Depends(user)])
     def list_requirements():
@@ -254,14 +277,18 @@ def create_app(settings: Settings, store: Store | None = None):
 
     @app.post("/api/v1/requirements", status_code=201, dependencies=[Depends(user)])
     def create_requirement(value: RequirementInput):
-        database.get(tables.projects, value.project_id)
-        record = dict(id=identifier("req"), **value.model_dump(), created_at=time.time())
+        project = database.get(tables.projects, value.project_id)
+        selected = value.repositories if value.repositories is not None else project["repositories"]
+        if (project["repositories"] and not selected) or len(set(selected)) != len(selected) or not set(selected).issubset(project["repositories"]):
+            raise HTTPException(422, "请选择该业务项目已登记的候选仓库；至少选择一个")
+        record = dict(id=identifier("req"), **value.model_dump(exclude={"repositories"}),
+            repositories_json=tables.encoded(selected), created_at=time.time())
         with database.engine.begin() as connection:
             connection.execute(insert(tables.requirements).values(**record))
             connection.execute(insert(tables.workspaces).values(requirement_id=record["id"],
                 path=str(settings.data_dir / "workspaces" / record["id"] / value.project_id),
                 environment="NOT_CREATED", approval="PENDING", updated_at=time.time()))
-        return {**record, "workspace": database.get(tables.workspaces, record["id"])}
+        return {**tables.public(record), "workspace": database.get(tables.workspaces, record["id"])}
 
     @app.get("/api/v1/requirements/{requirement_id}", dependencies=[Depends(user)])
     def detail(requirement_id: str):
@@ -327,7 +354,8 @@ def create_app(settings: Settings, store: Store | None = None):
 
     @app.post("/api/v1/requirements/{requirement_id}/workflow", status_code=201, dependencies=[Depends(user)])
     def start_workflow(requirement_id: str, value: WorkflowStart):
-        return workflow.start(requirement_id, value.review_models, value.verification_command, value.reason, value.digest)
+        return workflow.start(requirement_id, value.review_models, value.verification_command, value.reason, value.digest,
+            use_repository_commands=value.use_repository_commands)
 
     @app.post("/api/v1/requirements/{requirement_id}/workflow/steps", status_code=202, dependencies=[Depends(user)])
     def run_step(requirement_id: str, value: WorkflowStep, idempotency_key: str | None = Header(default=None, max_length=100)):

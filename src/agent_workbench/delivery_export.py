@@ -18,6 +18,11 @@ def package_path(root, job_id):
 
 
 def full_diff(executor, workspace, files):
+    from .multi_repo import layout, diff as multi_diff
+    if layout(workspace / "repo"):
+        content = multi_diff(workspace)
+        if any(value.encode() in content for value in executor.secret_values(workspace)): raise WorkbenchError("差异包含已知凭据，不能生成普通交付包")
+        return content
     baseline = json.loads((workspace / "workspace.json").read_text(encoding="utf-8"))["source_baseline"]
     names = sorted({item["path"] for item in files} | {item["path"] for item in baseline["files"]})
     chunks = []
@@ -61,6 +66,13 @@ def build(executor, job, observations):
             data = safe_path(repo, item["path"]).read_bytes()
             if any(value.encode() in data for value in executor.secret_values(workspace)): raise WorkbenchError("源码包含已知凭据，交付已阻止")
         entries.append((prefix + "/changes.patch", full_diff(executor, workspace, current["files"])))
+        if manifest.get("layout") == "multi-repo/v1":
+            from .multi_repo import diff as multi_diff
+            header["projects"][-1]["repositories"] = manifest["repositories"]
+            for repository in manifest["repositories"]:
+                patch = multi_diff(workspace, repository=repository["path"])
+                if any(secret.encode() in patch for secret in executor.secret_values(workspace)): raise WorkbenchError("仓库补丁包含已知凭据")
+                entries.append((prefix + "/repositories/" + repository["path"] + "/changes.patch", patch))
         if (workspace / "capability-report.json").exists(): entries.append((prefix + "/environment.json", workspace / "capability-report.json"))
         if (workspace / "preflight-report.json").exists(): entries.append((prefix + "/preflight.json", workspace / "preflight-report.json"))
         if (workspace / "dependency-snapshot.json").exists(): entries.append((prefix + "/dependency-snapshot.json", workspace / "dependency-snapshot.json"))

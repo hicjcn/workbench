@@ -92,13 +92,36 @@ def readonly_agent(executor, job, workspace, emit, canceled, model, prompt, pars
                 raise Unknown("只读任务容器停止尚未核实，禁止继续流程") from None
 
 
-def verify_command(executor, job, workspace, emit, canceled, argv=None):
+def verify_command(executor, job, workspace, emit, canceled, argv=None, plans=None):
+    if plans is None and argv is None:
+        plans = job['input']['bundle']['config'].get('repository_verification')
+    if not plans: return _verify_one(executor, job, workspace, emit, canceled, argv=argv)
+    from .multi_repo import layout
+    configured = layout(workspace / 'repo')
+    allowed = {item['path'] for item in configured['repositories']} if configured else set()
+    if any(item['path'] not in allowed or not item['argv'] for item in plans): raise WorkbenchError('仓库验证计划与固定工作区不一致')
+    results = []
+    for index, plan in enumerate(plans):
+        emit('verification', {'text': '正在验证仓库：' + plan['path'], 'repository': plan['path']})
+        try:
+            output = _verify_one(executor, job, workspace, emit, canceled, argv=plan['argv'], repository=plan['path'])
+            results.append({'path': plan['path'], **output})
+        except WorkbenchError as error:
+            results.append({'path': plan['path'], **getattr(error, 'verification_result', {'status': 'INTERRUPTED'})})
+            results.extend({'path': item['path'], 'status': 'NOT_RUN'} for item in plans[index + 1:])
+            error.command_output = {'command': [], 'repositories': results, 'exit_code': 1}
+            raise
+    return {'command': [], 'exit_code': 0, 'repositories': results}
+
+
+def _verify_one(executor, job, workspace, emit, canceled, argv=None, repository=None):
     state_path = workspace / "runtime.json"
     if not state_path.exists():
         raise WorkbenchError("请先启动开发环境，再执行验证命令")
     state = json.loads(state_path.read_text(encoding="utf-8"))
     argv = argv if argv is not None else job["input"]["bundle"]["config"]["verification_argv"]
-    process = subprocess.Popen(docker_argv("exec", state["container"], *argv),
+    directory = ['--workdir', '/workspace/project/' + repository] if repository else []
+    process = subprocess.Popen(docker_argv("exec", *directory, state["container"], *argv),
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=docker_environment())
     output = queue.Queue()
     def read():
@@ -131,7 +154,10 @@ def verify_command(executor, job, workspace, emit, canceled, argv=None):
             emit("verification", {"text": safe[:16000]})
         emit("verification", {"text": f"验证命令退出码：{process.returncode}"})
         if process.returncode:
-            raise WorkbenchError("验证命令失败，不能进入模型评审；请查看实际输出")
+            error = WorkbenchError("验证命令失败，不能进入模型评审；请查看实际输出")
+            error.verification_result = {'command': argv, 'exit_code': process.returncode, 'output_tail': tail,
+                'output_truncated': size > 16000, 'output_digest': checksum.hexdigest()}
+            raise error
         return {"command": argv, "exit_code": 0, "output_tail": tail, "output_truncated": size > 16000,
             "output_digest": checksum.hexdigest()}
     finally:

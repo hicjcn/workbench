@@ -7,6 +7,7 @@ import time
 from sqlalchemy import and_, insert, select, update
 
 from . import runtime
+from .workspace import WorkbenchError
 from .store import (Conflict, Missing, encoded, flows, identifier, jobs, public,
                     requirements, revisions, steps, workspaces)
 
@@ -139,7 +140,7 @@ class Workflow:
             invalidate(connection, requirement_id)
             return public(value)
 
-    def start(self, requirement_id, models, command, reason, expected_digest):
+    def start(self, requirement_id, models, command, reason, expected_digest, *, use_repository_commands=False):
         if not reason.strip():
             raise Conflict("请填写开启本轮的原因")
         if len(set(models)) != len(models) or not 2 <= len(models) <= 4:
@@ -150,7 +151,7 @@ class Workflow:
             argv = shlex.split(command)
         except ValueError:
             raise Conflict("验证命令的引号不完整") from None
-        if not argv or any(part in ("|", "&&", ";", ">", "<") for part in argv):
+        if (not argv and not use_repository_commands) or any(part in ("|", "&&", ";", ">", "<") for part in argv):
             raise Conflict("请填写单条验证命令；不支持管道或重定向")
         with self.store.engine.begin() as connection:
             rev = revision(connection, requirement_id)
@@ -159,6 +160,15 @@ class Workflow:
             observed = json.loads(ws["snapshot_json"]) if ws["snapshot_json"] else None
             if not observed or observed["tree_digest"] != expected_digest:
                 raise Conflict("请先创建工作区并刷新代码快照")
+            repository_verification = []
+            if use_repository_commands:
+                from .profiles import binding, repository_plans
+                profile = binding(connection, requirement_id)
+                selected = json.loads(connection.execute(select(requirements.c.repositories_json).where(requirements.c.id == requirement_id)).scalar_one())
+                if not profile or not selected: raise Conflict("当前需求未固定多仓库运行配置")
+                try: repository_verification = repository_plans(profile['content'], selected, 'verify')
+                except WorkbenchError as error: raise Conflict(str(error)) from None
+                argv = []
             connection.execute(update(flows).where(and_(flows.c.requirement_id == requirement_id,
                 flows.c.state == "ACTIVE")).values(state="SUPERSEDED"))
             connection.execute(update(flows).where(flows.c.requirement_id == requirement_id).values(is_current=False))
@@ -168,7 +178,8 @@ class Workflow:
             value = dict(id=identifier("flow"), requirement_id=requirement_id, revision_id=rev["id"],
                 is_current=True, state="ACTIVE", basis_digest=expected_digest,
                 config_json=encoded({"template": "backend-development-m3/v1", "development_model": self.model,
-                    "review_models": models, "verification_argv": argv}), reason=reason, created_at=time.time())
+                    "review_models": models, "verification_argv": argv,
+                    **({"repository_verification": repository_verification} if use_repository_commands else {})}), reason=reason, created_at=time.time())
             connection.execute(insert(flows).values(**value))
             return public(value)
 
@@ -213,6 +224,8 @@ class Workflow:
                 "upstream": {name: item["output"] for name, item in latest.items() if item["status"] == "SUCCEEDED"
                     and not (step_key.startswith("model_review_") and name.startswith("model_review_"))}}
             carried = flow["config"].get("carried_scope")
+            selected = json.loads(connection.execute(select(requirements.c.repositories_json).where(requirements.c.id == requirement_id)).scalar_one())
+            if selected: bundle['repositories'] = selected
             if carried:
                 bundle["upstream"].update(analysis=carried["analysis"], scope=carried["scope"])
             if step_key.startswith("model_review_"):
@@ -266,6 +279,12 @@ def complete(connection, job, status, result, error):
         if status == "SUCCEEDED" and step_key == "verification" and (
                 report.get("exit_code") != 0 or report.get("command") != payload["bundle"]["config"]["verification_argv"]):
             status, error = "FAILED", "验证命令没有实际成功记录"
+        if status == "SUCCEEDED" and step_key == "verification" and payload['bundle']['config'].get('repository_verification'):
+            expected = payload['bundle']['config']['repository_verification']
+            actual = report.get('repositories', [])
+            if ([{'path': item.get('path'), 'argv': item.get('command')} for item in actual] != expected or
+                    any(item.get('exit_code') != 0 for item in actual)):
+                status, error = 'FAILED', '缺少全部候选仓库的实际成功验证记录'
     if status != "SUCCEEDED" and observed and row and observed != row["basis_digest"]:
         invalidate(connection, job["requirement_id"])
     if status == "SUCCEEDED":

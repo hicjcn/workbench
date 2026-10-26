@@ -140,7 +140,7 @@ class AgentCliTests(ControlFixture):
     def test_configurations_and_pinned_default_survive_offline_backup_restore(self):
         selected = self.save(set_default=True); req = self.prepared()
         with self.store.engine.begin() as c:
-            c.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")); c.execute(text("INSERT INTO alembic_version VALUES ('0009')"))
+            c.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")); c.execute(text("INSERT INTO alembic_version VALUES ('0010')"))
         with patch("agent_workbench.resources.inventory", return_value=[]): saved = backup(self.settings)
         destination = self.root/"restored"; restore(Path(saved["file"]), destination)
         restored = Store(f"sqlite:///{destination/'workbench.db'}")

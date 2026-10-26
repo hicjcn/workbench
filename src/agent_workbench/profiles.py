@@ -47,6 +47,20 @@ class Mount(Input):
         return value
 
 
+class RepositoryCommand(Input):
+    path: str = Field(min_length=1, max_length=240)
+    build_command: str = Field(default="", max_length=2000)
+    verification_command: str = Field(default="", max_length=2000)
+
+    @model_validator(mode="after")
+    def checked(self):
+        from .multi_repo import relative_names
+        try: relative_names([self.path])
+        except WorkbenchError as error: raise ValueError(str(error)) from None
+        command(self.build_command); command(self.verification_command)
+        return self
+
+
 class Content(Input):
     agent_cli_id: str | None = Field(default=None, max_length=40)
     image: str = Field(default="agent-workbench-m1:local", max_length=240, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$")
@@ -54,7 +68,8 @@ class Content(Input):
     memory_mib: int = Field(default=1536, ge=256, le=32768)
     pids_limit: int = Field(default=256, ge=64, le=2048)
     build_command: str = Field(default="", max_length=2000)
-    verification_command: str = Field(default="node --test", min_length=1, max_length=2000)
+    verification_command: str = Field(default="node --test", max_length=2000)
+    repository_commands: list[RepositoryCommand] = Field(default_factory=list, max_length=16)
     mounts: list[Mount] = Field(default_factory=list, max_length=8)
     dependencies: list["Postgres"] = Field(default_factory=list, max_length=1)
     application: "Application | None" = None
@@ -62,7 +77,9 @@ class Content(Input):
     @model_validator(mode="after")
     def validate_content(self):
         command(self.build_command)
-        if not command(self.verification_command): raise ValueError("请填写验证命令")
+        if not command(self.verification_command) and not any(item.verification_command.strip() for item in self.repository_commands): raise ValueError("请填写验证命令")
+        paths = [item.path for item in self.repository_commands]
+        if len(set(paths)) != len(paths): raise ValueError("仓库命令不能重复")
         targets = [item.target for item in self.mounts]
         if len(set(targets)) != len(targets) or any(a != b and b.startswith(a + "/") for a in targets for b in targets):
             raise ValueError("配置挂载目标不能重复或互相覆盖")
@@ -162,12 +179,27 @@ class Profiles:
                 from .agent_clis import get
                 get(connection, content["agent_cli_id"])
             if not connection.execute(select(projects.c.id).where(projects.c.id == project_id).with_for_update()).first(): raise Missing("项目不存在")
+            repositories = json.loads(connection.execute(select(projects.c.repositories_json).where(projects.c.id == project_id)).scalar_one())
+            if any(item["path"] not in repositories for item in content.get("repository_commands", [])):
+                raise Conflict("仓库命令必须对应本业务项目已登记的仓库")
             previous = connection.execute(select(profiles).where(and_(profiles.c.project_id == project_id, profiles.c.is_current.is_(True)))).mappings().first()
             if value["expected_profile"] != (previous["id"] if previous else None): raise Conflict("项目配置已经变化，请重新载入")
             connection.execute(update(profiles).where(profiles.c.project_id == project_id).values(is_current=False))
             row = dict(id=identifier("prf"), project_id=project_id, number=previous["number"] + 1 if previous else 1, is_current=True,
                 content_json=encoded(content), content_digest=digest(content), actor=value["actor"], reason=value["reason"], created_at=time.time())
             connection.execute(insert(profiles).values(**row)); return public(row)
+
+
+def repository_plans(content, selected, kind, *, require_all=True):
+    configured = {item['path']: item for item in content.get('repository_commands', [])}
+    result = []
+    for path in selected:
+        argv = command(configured.get(path, {}).get('build_command' if kind == 'build' else 'verification_command', ''))
+        if not argv:
+            if require_all: raise WorkbenchError(f'仓库 {path} 尚未配置验证命令，请修订项目运行配置后创建新需求工作区')
+            continue
+        result.append({'path': path, 'argv': argv})
+    return result
 
 
 def staged_mounts(workspace, profile, data_dir, source_workspace=None):

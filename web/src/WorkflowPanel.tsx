@@ -37,7 +37,11 @@ type Flow = {
   basis_digest: string;
   next_step: string | null;
   nodes: Node[];
-  config: { review_models: string[]; verification_argv: string[] };
+  config: {
+    review_models: string[];
+    verification_argv: string[];
+    repository_verification?: { path: string; argv: string[] }[];
+  };
   attempts: {
     id: string;
     step_key: string;
@@ -90,6 +94,9 @@ export function WorkflowPanel({
     {},
   );
   const endpoint = `/requirements/${detail.id}`;
+  const [useRepositoryCommands, setUseRepositoryCommands] = useState(
+    Boolean(detail.profile?.content.repository_commands?.length),
+  );
   const refresh = useCallback(async () => {
     const next = await api<State>(endpoint + "/workflow");
     setState(next);
@@ -138,7 +145,8 @@ export function WorkflowPanel({
           String(values.get("model-a")).trim(),
           String(values.get("model-b")).trim(),
         ],
-        verification_command: String(values.get("command")).trim(),
+        verification_command: String(values.get("command") ?? "").trim(),
+        use_repository_commands: useRepositoryCommands,
         reason: String(values.get("reason")).trim(),
         digest: detail.workspace.snapshot.tree_digest,
       });
@@ -203,7 +211,12 @@ export function WorkflowPanel({
         <button
           className="secondary"
           disabled={blocked || !detail.workspace.snapshot}
-          onClick={() => setStarting((value) => !value)}
+          onClick={() => {
+            if (!starting) {
+              setUseRepositoryCommands(Boolean(detail.profile?.content.repository_commands?.length));
+            }
+            setStarting((value) => !value);
+          }}
         >
           {flow ? "新建流程轮次" : "开启默认流程"}
         </button>
@@ -233,13 +246,26 @@ export function WorkflowPanel({
             验证命令
             <input
               name="command"
-              required
+              required={!useRepositoryCommands}
+              disabled={useRepositoryCommands}
               defaultValue={
                 detail.profile?.content.verification_command ?? "npm test"
               }
               maxLength={2000}
             />
           </label>
+          {Boolean(detail.repositories?.length) && (
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={useRepositoryCommands}
+                onChange={(event) =>
+                  setUseRepositoryCommands(event.target.checked)
+                }
+              />
+              按固定运行配置逐仓库验证（全部候选仓库必须配置命令）
+            </label>
+          )}
           <p className="hint">
             命令在需求容器中执行，支持带引号参数；不支持管道或重定向。评审模型需不同且显式免费，凭据由本机
             Runner 配置。
@@ -281,10 +307,22 @@ export function WorkflowPanel({
               </li>
             ))}
           </ol>
-          <p className="hint">
+          <div className="hint">
             本轮代码 <code>{flow.basis_digest.slice(0, 12)}</code> · 验证命令{" "}
-            <code>{flow.config.verification_argv.join(" ")}</code>
-          </p>
+            {flow.config.repository_verification?.length ? (
+              <ul>
+                {flow.config.repository_verification.map((item) => (
+                  <li key={item.path}>
+                    <code>
+                      {item.path}: {item.argv.join(" ")}
+                    </code>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <code>{flow.config.verification_argv.join(" ")}</code>
+            )}
+          </div>
           {findings.length ? (
             <div className="finding-list">
               <h3>评审发现 · {findings.length}</h3>

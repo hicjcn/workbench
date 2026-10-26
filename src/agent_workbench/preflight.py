@@ -33,7 +33,7 @@ const fs = require('node:fs');
 const config = JSON.parse(process.argv[1]);
 function version(exe) { const result = spawnSync(exe, ['--version'], {encoding:'utf8', timeout:20000, maxBuffer:65536}); return {ok:result.status===0, value:(result.stdout||'').trim().slice(0,200)}; }
 function cliVersion() { const args = config.version_argv || ['opencode','--version']; const result = spawnSync(args[0],args.slice(1),{encoding:'utf8',timeout:20000,maxBuffer:65536}); return {ok:result.status===0,value:(result.stdout||'').trim().slice(0,200)}; }
-const commands = Object.entries(config.commands).map(([name, argv]) => ({name, argv, available:!argv.length || spawnSync('sh',['-c','command -v "$1"','awb',argv[0]],{encoding:'utf8',timeout:5000}).status===0}));
+const commands = Object.entries(config.commands).map(([name, argv]) => ({name, argv, available:!argv.length || spawnSync('sh',['-c','command -v "$1"','awb',argv[0]],{encoding:'utf8',timeout:5000,cwd:config.repository_paths?.[name]}).status===0}));
 const mounts = config.mounts.map(target => ({target, readable: (()=>{try { fs.accessSync(target,fs.constants.R_OK); return true;}catch{return false;}})()}));
 console.log(JSON.stringify({node:version('node'),git:version('git'),opencode:cliVersion(),commands,mounts}));
 '''
@@ -70,6 +70,17 @@ def execute(executor, job, workspace, emit, canceled):
         labels = details["Config"].get("Labels") or {}
         config = {"commands": {"build": command(profile["content"]["build_command"]), "verify": command(profile["content"]["verification_command"])},
             "mounts": [item["target"] for item in profile["content"]["mounts"]]}
+        from .multi_repo import layout
+        configured = layout(workspace / 'repo')
+        if configured:
+            config['repository_paths'] = {}
+            selected = {item['path'] for item in configured['repositories']}
+            for item in profile['content'].get('repository_commands', []):
+                if item['path'] not in selected: continue
+                for kind in ('build', 'verify'):
+                    key = item['path'] + '/' + kind
+                    config['commands'][key] = command(item['build_command' if kind == 'build' else 'verification_command'])
+                    config['repository_paths'][key] = '/workspace/project/' + item['path']
         from .agent_clis import checked, command as cli_command
         agent_cli = json.loads((isolated / "workspace.json").read_text(encoding="utf-8")).get("agent_cli")
         cli_content = checked(agent_cli)

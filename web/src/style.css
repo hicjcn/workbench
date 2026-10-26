@@ -795,6 +795,30 @@ code {
   margin: 0;
   font-size: 12px;
 }
+.repository-options {
+  min-width: 0;
+  border: 1px solid #dce2eb;
+  border-radius: 8px;
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+}
+.repository-options code,
+.repository-options span {
+  overflow-wrap: anywhere;
+}
+.repository-options p {
+  margin: 0;
+}
+.repository-options .checkbox-label {
+  align-items: flex-start;
+}
+.repository-options input[type="checkbox"] {
+  flex: 0 0 auto;
+}
+.repository-options details {
+  min-width: 0;
+}
 .inline-error {
   color: #b85555;
   font-size: 12px;

@@ -23,6 +23,9 @@ export function ExecutionLog({ job }: { job: Job | null }) {
   const [events, setEvents] = useState<ExecutionEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const jobId = job?.id;
+  const repositoryResults =
+    job?.result?.command_output?.repositories ??
+    job?.result?.workflow_output?.repositories;
   useEffect(() => {
     setEvents([]);
     setConnected(false);
@@ -79,6 +82,33 @@ export function ExecutionLog({ job }: { job: Job | null }) {
           {job.error}
         </p>
       ) : null}
+      {Boolean(repositoryResults?.length) && (
+        <div className="repository-options">
+          <h3>逐仓库验证记录</h3>
+          {repositoryResults!.map((item) => (
+            <details key={item.path}>
+              <summary>
+                <code>{item.path}</code> ·{" "}
+                {item.exit_code === 0
+                  ? "通过"
+                  : item.exit_code !== undefined
+                    ? `失败（退出码 ${item.exit_code}）`
+                    : item.status === "NOT_RUN"
+                      ? "未执行"
+                      : "已中断"}
+              </summary>
+              {item.command && (
+                <p className="hint">
+                  <code>{item.command.join(" ")}</code>
+                </p>
+              )}
+              {item.output_tail && (
+                <pre className="diff">{item.output_tail}</pre>
+              )}
+            </details>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

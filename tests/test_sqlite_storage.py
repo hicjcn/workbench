@@ -18,6 +18,24 @@ from agent_workbench.workspace import git
 
 
 class SQLiteStorageTests(unittest.TestCase):
+    def test_0009_upgrade_preserves_projects_and_requirements_with_empty_repository_sets(self):
+        from alembic.config import Config
+        from alembic import command
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            settings = Settings.load(root / 'data', sqlite=True)
+            config = Config(str(Path(__file__).resolve().parents[1] / 'alembic.ini'))
+            config.set_main_option('sqlalchemy.url', settings.database_url)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()): command.upgrade(config, '0009')
+            with contextlib.closing(sqlite3.connect(settings.data_dir / 'workbench.db')) as database:
+                database.execute('INSERT INTO projects(id,name,source_path,image,created_at) VALUES (?,?,?,?,?)', ('old-project', '原项目', str(root / 'source'), 'fixture:local', 1))
+                database.execute('INSERT INTO requirements(id,project_id,title,description,acceptance,created_at) VALUES (?,?,?,?,?,?)', ('old-requirement', 'old-project', '原需求', 'original', 'preserved', 1))
+                database.commit()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()): migrate(settings)
+            with contextlib.closing(sqlite3.connect(settings.data_dir / 'workbench.db')) as database:
+                self.assertEqual(database.execute('SELECT name,repositories_json,shared_files_json FROM projects').fetchone(), ('原项目', '[]', '[]'))
+                self.assertEqual(database.execute('SELECT title,description,acceptance,repositories_json FROM requirements').fetchone(), ('原需求', 'original', 'preserved', '[]'))
+
     def test_upgrade_from_0008_keeps_existing_dockerfiles_with_no_context(self):
         from alembic import command
         from alembic.config import Config
@@ -32,7 +50,7 @@ class SQLiteStorageTests(unittest.TestCase):
             migrate(settings)
             with contextlib.closing(sqlite3.connect(settings.data_dir / "workbench.db")) as database:
                 self.assertEqual(database.execute("SELECT dockerfile,context_dir FROM docker_recipes WHERE id='legacy'").fetchone(), ("FROM scratch", ""))
-                self.assertEqual(database.execute("SELECT version_num FROM alembic_version").fetchone()[0], "0009")
+                self.assertEqual(database.execute("SELECT version_num FROM alembic_version").fetchone()[0], "0010")
 
     def test_default_and_empty_environment_use_local_file_and_explicit_flag_wins(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -55,7 +73,7 @@ class SQLiteStorageTests(unittest.TestCase):
             self.assertNotIn("never-print", result.stdout + result.stderr)
             self.assertIn("SQLite 本地文件", result.stdout)
             with contextlib.closing(sqlite3.connect(root / "workbench.db")) as database:
-                self.assertEqual(database.execute("SELECT version_num FROM alembic_version").fetchone()[0], "0009")
+                self.assertEqual(database.execute("SELECT version_num FROM alembic_version").fetchone()[0], "0010")
 
     def test_persistence_and_runtime_storage_survive_api_restart_without_docker(self):
         with tempfile.TemporaryDirectory() as temporary:
