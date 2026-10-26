@@ -361,6 +361,9 @@ def main():
         return 0 if result.get("phase") not in ("FAILED", "NEEDS_ATTENTION", "STALE", "UNREACHABLE", "STOPPING") else 2
     except (ConfigurationError, WorkbenchError) as error:
         print(str(error), file=sys.stderr); return 1
+    except OSError as error:
+        code = getattr(error, "winerror", None) or error.errno
+        print(f"启动管理操作失败（系统错误 {code}）；请检查本机日志和进程状态，未输出凭据", file=sys.stderr); return 1
     except Exception:
         print("启动管理操作失败；请检查配置、本机日志及进程状态，未输出凭据", file=sys.stderr); return 1
 

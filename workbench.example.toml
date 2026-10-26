@@ -33,7 +33,7 @@ stop_managed_environments = true
 [environment]
 # OPENROUTER_API_KEY = ""
 # TEAM_API_KEY = ""
-# AGENT_CONFIG = 'C:\private\team-agent.json'
+# AGENT_CONFIG = "/run/team-agent/config.json" # Add its read-only mount in the project profile first.
 # HTTPS_PROXY = "http://127.0.0.1:7890"
 # HTTP_PROXY = "http://127.0.0.1:7890"
 # NO_PROXY = "localhost,127.0.0.1"

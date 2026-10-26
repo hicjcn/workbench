@@ -101,10 +101,10 @@ $env:AWB_MODEL = "opencode/big-pickle"
 [environment]
 # 使用自己的既有凭据，示例不提供真实值。
 # TEAM_API_KEY = "..."
-# AGENT_CONFIG = 'C:\private\team-agent.json'
+# AGENT_CONFIG = "/run/team-agent/config.json"
 ```
 
-也可在启动前设置对应环境变量；已有环境变量优先。允许模型/CLI 的 `_API_KEY`、`_TOKEN`、`_BASE_URL` 或 `AGENT_` 变量，以及 HTTP 代理/CA 变量；不接受 `PATH`、Python/Docker 控制变量或通过 environment 覆盖 AWB 运行参数。
+也可在启动前设置对应环境变量；已有环境变量优先。允许模型/CLI 的 `_API_KEY`、`_TOKEN`、`_BASE_URL` 或 `AGENT_` 变量，以及 HTTP 代理/CA 变量；不接受 `PATH`、Python/Docker 控制变量或通过 environment 覆盖 AWB 运行参数。CLI 在 Linux 容器中运行，`AGENT_CONFIG` 这类路径应填写容器路径，并先在项目运行配置中登记相应只读挂载。
 
 HTTP 代理可在该表设置 `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY`。宿主工具的 CA 可使用 `PIP_CERT`、`NODE_EXTRA_CA_CERTS`、`SSL_CERT_FILE`、`GIT_SSL_CAINFO`、`REQUESTS_CA_BUNDLE`，建议填绝对路径。Docker Desktop 守护进程的代理/网络仍由其自身设置管理。保持 TLS 校验开启。
 

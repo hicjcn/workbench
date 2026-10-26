@@ -43,7 +43,32 @@ class PlatformTests(unittest.TestCase):
             with self.assertRaises(WorkbenchError): runtime.docker("ps", timeout=15)
         watcher.join(timeout=2)
         self.assertTrue(pid_file.exists())
-        self.assertFalse(psutil.pid_exists(int(pid_file.read_text())))
+        # A Windows PID can remain queryable while a terminated process handle
+        # is open. Waiting verifies termination rather than handle lifetime.
+        try: psutil.Process(int(pid_file.read_text())).wait(timeout=3)
+        except psutil.NoSuchProcess: pass
+
+    @unittest.skipUnless(host.IS_WINDOWS, "NTFS reader sharing semantics require Windows")
+    def test_atomic_state_update_survives_a_concurrent_windows_reader(self):
+        path = self.root / "state.json"
+        write_json(path, {"phase": "RUNNING"})
+        entered, finished = threading.Event(), threading.Event()
+        failures = []
+        def publish():
+            entered.set()
+            try: write_json(path, {"phase": "STOPPING"})
+            except Exception as error: failures.append(error)
+            finally: finished.set()
+        with path.open("rb") as reader:
+            writer = threading.Thread(target=publish); writer.start()
+            self.assertTrue(entered.wait(3))
+            self.assertFalse(finished.wait(0.15))
+            self.assertEqual(json.loads(reader.read()), {"phase": "RUNNING"})
+        writer.join(timeout=4)
+        self.assertFalse(writer.is_alive())
+        self.assertEqual(failures, [])
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"phase": "STOPPING"})
+        self.assertEqual(list(self.root.glob(".state.json.*")), [])
 
     def test_inspection_cancellation_context_never_starts_mutating_commands(self):
         with patch("agent_workbench.runtime.subprocess.Popen") as spawn, runtime.interruptible_inspection(threading.Event()):
