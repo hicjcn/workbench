@@ -242,7 +242,7 @@ def supervise(configuration, directory, instance):
             def launch(role):
                 handle = (logs_dir / (role + ".log")).open("ab"); logs.append(handle)
                 process = subprocess.Popen([sys.executable, "-m", "agent_workbench.launcher", "_child", "--role", role, "--instance", instance,
-                    "--stop-file", str(marker(directory, instance, role))], env=environment, cwd=Path(__file__).resolve().parents[2], stdin=subprocess.PIPE, stdout=handle, stderr=handle)
+                    "--stop-file", str(marker(directory, instance, role))], env=environment, cwd=Path(__file__).resolve().parents[2], stdout=handle, stderr=handle)
                 children[role] = process
                 state["roles"][role] = process_info(process.pid); save()
             launch("api")
@@ -280,10 +280,6 @@ def supervise(configuration, directory, instance):
                 if role in children:
                     state["stopping_role"] = role; save()
                     write_json(marker(directory, instance, role), {"stop": True})
-                    try: children[role].stdin.write(b"S"); children[role].stdin.flush()
-                    except (BrokenPipeError, OSError): pass
-                    try: children[role].stdin.close()
-                    except (BrokenPipeError, OSError): pass
                     while children[role].poll() is None:
                         time.sleep(0.2)
             try:
@@ -310,18 +306,14 @@ def child(role, stop_file):
                 event.set()
     def watch():
         while not event.wait(0.2):
-            if stop_file.exists(): stop()
-    def pipe():
-        try: os.read(sys.stdin.fileno(), 1)
-        except OSError: pass
-        stop()
+            try:
+                if stop_file.exists(): stop()
+            except OSError: continue  # A transient Windows sharing error must not lose stop delivery.
     threading.Thread(target=watch, daemon=True).start()
-    threading.Thread(target=pipe, daemon=True).start()
     sys.argv = [role, "--config", "-"]
     from .server import main as serve
     from .runner import main as run
-    try: (serve if role == "api" else run)(stop_event=event)
-    finally: faulthandler.cancel_dump_traceback_later()
+    (serve if role == "api" else run)(stop_event=event)
 
 
 def build_image(configuration, rebuild=False):
