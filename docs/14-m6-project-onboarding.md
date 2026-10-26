@@ -39,11 +39,17 @@ docker build -t agent-workbench-node:local poc/onboarding
 
 1. 更新安装并构建页面：`.venv/bin/python -m pip install -e '.[server]'`、`npm ci --prefix web`、`npm run --prefix web build`。
 2. 启动 API 和 Runner，使用相同的数据目录与模型配置。本轮预检不需要模型凭据；正常启动/开发仍使用已选择的模型配置，模型认证单独管理。
-3. “项目登记”选择 `$HOME/workbench-samples/node-service` 这个实际绝对路径作为源码目录。配置运行镜像为 `agent-workbench-node:local`，构建命令为 `node --check server.mjs`，验证命令为 `node --test server.test.mjs`；资源默认 1 CPU、1536 MiB、256 个进程即可。
+3. “项目登记”填写 `$HOME/workbench-samples/node-service` 这个实际绝对路径作为源码目录，从运行镜像下拉框选择 `agent-workbench-node:local`。示例项目的构建命令为 `node --check server.mjs`，验证命令为 `node --test server.test.mjs`；资源默认 1 CPU、1536 MiB、256 个进程即可。
 4. 填写登记人和原因，保存运行配置。等价的 API 请求体见 [profile.sample.json](../poc/onboarding/profile.sample.json)，这是本轮可解析的 JSON；旧 `design-examples/*.yaml` 仍是整体设计示意，不是此接口格式。
 5. 新建需求，点击“创建工作区”，然后在“项目环境与预检”点击“环境预检”。预检通过后再点击“启动环境”。
 6. 点击“执行项目构建”“执行项目验证”，从执行记录查看真实退出码和输出。样例后端包含两个测试用例。这里的通过不自动完成 M3 流程评审、主管审批或 M4 测试登记。
 7. 开启开发流程时，“验证命令”默认使用工作区固定配置中的命令，可在开启本轮时明确修改；当前轮次会保存实际命令。
+
+## 运行镜像选择
+
+项目登记与项目运行配置使用同一镜像下拉框，列表来自 Runner 上报的本机 Docker；新构建或拉取镜像后点击“刷新镜像列表”。无标签镜像可通过完整镜像 ID 选择。系统默认或当前配置的镜像即使缺失也会保留并标记，避免静默切换；保存配置不会自动下载镜像，启动环境前需确保镜像存在。Runner 断开、列表过期或获取失败时，页面保留已选值并提示刷新。
+
+镜像需包含所选 Agent CLI、项目依赖及所需技能，支持 OpenCode 或兼容其接口的自定义 CLI；在“Agent CLI 配置”中管理后，可在项目运行配置中选择。上文与下文的 OpenCode 版本及基础镜像契约描述对应内置示例；自定义封装使用其配置的命令和版本进行预检。镜像构建与拉取入口见 [Docker 管理](24-docker-management.md)。
 
 ## 配置版本与环境边界
 
