@@ -1,0 +1,48 @@
+# Copy to workbench.toml. UTF-8; paths below are relative to this file.
+# Environment overrides: AWB_<FIELD_NAME>, e.g. AWB_PORT=8341.
+[workbench]
+data_dir = ".local-data/workbench"
+web_dir = "web/dist"
+use_sqlite = true
+database_url = ""
+port = 8340
+api_url = "" # Empty: automatically use http://127.0.0.1:<port>.
+model = "opencode/glm-5.3-flash-free"
+max_active_jobs = 2
+max_containers = 4
+lease_seconds = 45
+task_timeout_seconds = 300
+proxy_ca = "" # Windows example: 'C:\certs\proxy-ca.pem'.
+docker_endpoint = "" # Empty: select the local endpoint for this OS.
+
+[launcher]
+venv_dir = ".venv"
+logs_dir = ".local-data/logs"
+tool_context = "poc/container"
+tool_image = "agent-workbench-m1:local"
+startup_timeout_seconds = 90
+stop_timeout_seconds = 120
+graceful_timeout_seconds = 10
+image_build_timeout_seconds = 900
+open_browser = true
+require_docker = true
+stop_managed_environments = true
+
+# Optional provider/wrapper variables. Existing process environment wins.
+# This real local file is ignored by Git. Never put credentials in the example.
+[environment]
+# OPENROUTER_API_KEY = ""
+# TEAM_API_KEY = ""
+# AGENT_CONFIG = "/run/team-agent/config.json" # Add its read-only mount in the project profile first.
+# HTTPS_PROXY = "http://127.0.0.1:7890"
+# HTTP_PROXY = "http://127.0.0.1:7890"
+# NO_PROXY = "localhost,127.0.0.1"
+
+# Optional initial/new-workspace default. The executable must exist in the image.
+[agent_cli]
+enabled = false
+name = "Team OpenCode"
+executable = "team-code"
+expected_version = ""
+timeout_seconds = 300
+credential_env = []

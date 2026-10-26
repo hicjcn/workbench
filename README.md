@@ -4,7 +4,7 @@
 
 **本机运行方式：React 页面 + Python 控制 API + 独立 Runner + Docker，元数据默认存入本地 SQLite，无需额外部署数据库。**
 
-[工作流程](#工作流程) · [启动说明](#启动说明) · [Windows 11 启动](docs/27-windows11.md) · [首次接入项目](#首次接入项目) · [Agent CLI 与模型配置](#agent-cli-与模型配置) · [常见问题](#常见问题) · [详细文档](#详细文档)
+[工作流程](#工作流程) · [启动说明](#启动说明) · [统一配置与 Windows 脚本](docs/28-local-configuration.md) · [Windows 11 兼容性](docs/27-windows11.md) · [首次接入项目](#首次接入项目) · [详细文档](#详细文档)
 
 ## 功能与页面
 
@@ -52,6 +52,31 @@ flowchart TD
 流程按步骤由用户明确启动，人工确认点不会自动通过。Agent 完成、命令退出成功、代码自审通过和最终业务验收是不同的状态。
 
 ## 启动说明
+
+### Windows：配置一次，再用脚本启停
+
+安装 Python 3.11+（推荐 3.12）、Node.js 22.12+、Git 和 Docker Desktop；Docker Desktop 使用 WSL2 后端与 Linux 容器。在仓库根目录的 PowerShell 终端执行：
+
+```powershell
+Copy-Item workbench.example.toml workbench.toml
+notepad workbench.toml
+.\setup.cmd
+.\start.cmd
+```
+
+`workbench.toml` 集中配置 SQLite 数据目录、端口、模型、资源配额、超时、代理/CA、工具镜像、日志目录和可选 Agent CLI 预置。`[environment]` 可提供模型/封装 CLI 的进程变量；现有环境变量优先于文件。相对路径以配置文件所在目录为基准。真实配置已被 Git 忽略，示例文件中不要填写密钥。
+
+`setup.cmd` 安装虚拟环境依赖、构建页面和基础镜像；未复制配置时会创建默认文件，已有文件不会覆盖。`start.cmd` 在后台启动同一配置的 API 和 Runner，通过认证的就绪检查后打开浏览器。日常操作：
+
+```powershell
+.\status.cmd
+.\stop.cmd
+.\start.cmd --no-browser
+```
+
+也可使用 `scripts/setup.ps1`、`start.ps1`、`stop.ps1`、`status.ps1`。停止会先让 Runner 完成取消/收尾，再关闭 API，按配置核实并停止当前数据目录的受管容器；不删除 SQLite、源码或材料。重复启停可安全重试，尚未结束的操作显示 `STOPPING`。安装升级前先停止服务。
+
+详细字段、环境变量、CLI 预置、自定义配置路径、日志与故障恢复见[统一配置和本地脚本](docs/28-local-configuration.md)。下面保留 Linux/手动运行方式。
 
 ### 1. 环境要求
 
@@ -207,11 +232,11 @@ docker build -t agent-workbench-node:local poc/onboarding
 | --- | --- |
 | OpenCode 免费模型 | 支持显式 `opencode/*-free` 或 `opencode/big-pickle` 标识；免凭据路径仍受服务开放情况、额度和网络影响 |
 | OpenRouter 免费模型 | 支持 `openrouter/vendor/model:free`；Runner 需要继承已有的 `OPENROUTER_API_KEY`，执行前核实公开目录免费价格 |
-| 未设置 `AWB_MODEL` | 代码默认 `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`，需要 OpenRouter 凭据；上面的启动示例已显式覆盖它 |
+| 未显式设置模型 | 优先读取 `workbench.toml`；示例文件选择 OpenCode 免费模型。没有配置文件或环境覆盖时沿用代码默认 OpenRouter 免费 Nemotron，需要已有凭据 |
 
 API 和 Runner 启动时均需设置同一个 `AWB_MODEL`。更换模型后重启两个进程，并停止、重新启动需求环境以应用配置。当前没有任意付费模型接入或付费回退，不能只填入其他厂商模型名就认为已经支持。
 
-凭据由 Runner 继承的进程环境提供；封装 CLI 的额外变量在配置页只登记名称，不填写值。工作台不自动加载 `.env`，不要把实际密钥放进 CLI 参数、Dockerfile 或提交到 Git。
+凭据可写入本机私有 `workbench.toml` 的 `[environment]` 表，或由 Runner 继承已有环境变量；已有环境变量优先。封装 CLI 管理页面只登记变量名。工作台不自动加载其他 `.env` 文件；实际密钥不放进 CLI 参数、Dockerfile 或 Git。
 
 需要检查网络时，可使用不发送提示词的诊断命令：
 
@@ -312,5 +337,6 @@ npm run --prefix web build
 | SQLite | [本地存储与维护](docs/25-local-sqlite.md) | 说明内附验证范围 |
 | Agent CLI | [兼容封装配置](docs/26-agent-cli.md) | 说明内附证据 |
 | Windows 11 | [兼容性与 PowerShell 启动](docs/27-windows11.md) | Windows/Linux CI 及实测边界 |
+| 统一配置与本地脚本 | [TOML、环境覆盖及 Windows 启停](docs/28-local-configuration.md) | 说明内附验证范围 |
 
 可运行的接入示例：[Node 配置](poc/onboarding/profile.sample.json)、[项目 Dockerfile](poc/onboarding/Dockerfile)、[PostgreSQL 配置](poc/postgres-sample/profile.sample.json)。`design-examples/*.yaml` 是设计评审示意，当前不是可直接执行的 Compose、OpenCode 或流程配置。

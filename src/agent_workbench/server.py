@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+import threading
 
 from .settings import Settings
 
@@ -12,14 +13,17 @@ def migrate(settings):
     command.upgrade(config, "head")
 
 
-def main():
+def main(stop_event=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path)
-    parser.add_argument("--port", type=int, default=8340)
+    parser.add_argument("--config", help="统一 TOML 配置文件；- 表示只使用环境变量")
+    parser.add_argument("--port", type=int)
     parser.add_argument("--init-only", action="store_true")
     parser.add_argument("--sqlite", action="store_true", help="使用数据目录中的本地 workbench.db，忽略 AWB_DATABASE_URL")
     args = parser.parse_args()
-    settings = Settings.load(args.data_dir, sqlite=args.sqlite)
+    from .configuration import configured
+    configuration = configured(args)
+    settings = Settings.load(args.data_dir, sqlite=args.sqlite, config_file=args.config)
     from .resources import controller_lock
     with controller_lock(settings.data_dir):
         migrate(settings)
@@ -30,7 +34,17 @@ def main():
         if not args.init_only:
             import uvicorn
             from .api import create_app
-            uvicorn.run(create_app(settings), host="127.0.0.1", port=args.port)
+            from .configured_agent import apply_preset
+            application = create_app(settings)
+            application.state.preset_warning = apply_preset(configuration, settings)
+            service = uvicorn.Server(uvicorn.Config(application, host="127.0.0.1", port=args.port if args.port is not None else configuration.port,
+                timeout_graceful_shutdown=configuration.graceful_timeout_seconds))
+            if stop_event is not None:
+                def shutdown():
+                    stop_event.wait()
+                    service.should_exit = True
+                threading.Thread(target=shutdown, daemon=True).start()
+            service.run()
 
 
 if __name__ == "__main__":

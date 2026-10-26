@@ -17,10 +17,13 @@ class Settings:
     web_dir: Path | None = None
     max_active_jobs: int = 2
     max_containers: int = 4
+    default_image: str = "agent-workbench-m1:local"
 
     @classmethod
-    def load(cls, data_dir: Path | None = None, *, sqlite: bool = False):
-        root = (data_dir or Path(os.environ.get("AWB_DATA_DIR", ".local-data/workbench"))).resolve()
+    def load(cls, data_dir: Path | None = None, *, sqlite: bool = False, config_file=None):
+        from .configuration import Configuration
+        configuration = Configuration.load(config_file)
+        root = (data_dir or configuration.data_dir).resolve()
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
         values = []
         for name in ("access-token", "runner-token"):
@@ -36,11 +39,10 @@ class Settings:
                 raise ValueError("Access token file is empty or invalid")
             values.append(value)
         local_database = f"sqlite:///{root / 'workbench.db'}"
-        database_url = local_database if sqlite else os.environ.get("AWB_DATABASE_URL", "").strip() or local_database
+        database_url = local_database if sqlite or configuration.use_sqlite else configuration.database_url or local_database
         return cls(root, database_url,
-                   *values, model=os.environ.get("AWB_MODEL", "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"),
-                   web_dir=Path(__file__).resolve().parents[2] / "web/dist",
-                   max_active_jobs=positive_int("AWB_MAX_ACTIVE_JOBS", 2), max_containers=positive_int("AWB_MAX_CONTAINERS", 4))
+                   *values, model=configuration.model, lease_seconds=configuration.lease_seconds, web_dir=configuration.web_dir,
+                   max_active_jobs=configuration.max_active_jobs, max_containers=configuration.max_containers, default_image=configuration.tool_image)
 
 
 def positive_int(name, default):

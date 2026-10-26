@@ -8,9 +8,18 @@ import stat
 IS_WINDOWS = os.name == "nt"
 
 
+def checked_docker_endpoint(value=""):
+    default = "npipe:////./pipe/dockerDesktopLinuxEngine" if IS_WINDOWS else "unix:///var/run/docker.sock"
+    value = value or default
+    allowed = ("npipe:////./pipe/dockerDesktopLinuxEngine", "npipe:////./pipe/docker_engine") if IS_WINDOWS else ("unix:///var/run/docker.sock",)
+    if value not in allowed:
+        raise ValueError("Only a local Docker endpoint is supported")
+    return value
+
+
 def docker_argv(*args):
     # Never let source-controlled environment/context redirect execution remotely.
-    endpoint = "npipe:////./pipe/dockerDesktopLinuxEngine" if IS_WINDOWS else "unix:///var/run/docker.sock"
+    endpoint = checked_docker_endpoint(os.environ.get("AWB_DOCKER_ENDPOINT", ""))
     return ["docker", "--host=" + endpoint, *args]
 
 

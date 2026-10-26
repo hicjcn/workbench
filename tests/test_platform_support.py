@@ -8,6 +8,7 @@ import subprocess
 import sys
 import socket
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -27,6 +28,53 @@ class PlatformTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
+
+    def test_shutdown_interrupts_a_slow_read_only_docker_query_and_reaps_it(self):
+        import psutil
+        pid_file = self.root / "query.pid"
+        program = "import os,sys,time; from pathlib import Path; Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)"
+        canceled = threading.Event()
+        def request_stop():
+            deadline = time.monotonic() + 10
+            while not pid_file.exists() and time.monotonic() < deadline: time.sleep(0.02)
+            canceled.set()
+        watcher = threading.Thread(target=request_stop, daemon=True); watcher.start()
+        with patch("agent_workbench.runtime.docker_argv", return_value=[sys.executable, "-c", program, str(pid_file)]), runtime.interruptible_inspection(canceled):
+            with self.assertRaises(WorkbenchError): runtime.docker("ps", timeout=15)
+        watcher.join(timeout=2)
+        self.assertTrue(pid_file.exists())
+        # A Windows PID can remain queryable while a terminated process handle
+        # is open. Waiting verifies termination rather than handle lifetime.
+        try: psutil.Process(int(pid_file.read_text())).wait(timeout=3)
+        except psutil.NoSuchProcess: pass
+
+    @unittest.skipUnless(host.IS_WINDOWS, "NTFS reader sharing semantics require Windows")
+    def test_atomic_state_update_survives_a_concurrent_windows_reader(self):
+        path = self.root / "state.json"
+        write_json(path, {"phase": "RUNNING"})
+        entered, finished = threading.Event(), threading.Event()
+        failures = []
+        def publish():
+            entered.set()
+            try: write_json(path, {"phase": "STOPPING"})
+            except Exception as error: failures.append(error)
+            finally: finished.set()
+        with path.open("rb") as reader:
+            writer = threading.Thread(target=publish); writer.start()
+            self.assertTrue(entered.wait(3))
+            self.assertFalse(finished.wait(0.15))
+            self.assertEqual(json.loads(reader.read()), {"phase": "RUNNING"})
+        writer.join(timeout=4)
+        self.assertFalse(writer.is_alive())
+        self.assertEqual(failures, [])
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"phase": "STOPPING"})
+        self.assertEqual(list(self.root.glob(".state.json.*")), [])
+
+    def test_inspection_cancellation_context_never_starts_mutating_commands(self):
+        with patch("agent_workbench.runtime.subprocess.Popen") as spawn, runtime.interruptible_inspection(threading.Event()):
+            for args in (("run", "fixture"), ("rm", "fixture"), ("build", ".")):
+                with self.assertRaises(WorkbenchError): runtime.docker(*args)
+            spawn.assert_not_called()
 
     def child_lock(self, path, shared=False):
         code = ("import sys; from agent_workbench import locking; "

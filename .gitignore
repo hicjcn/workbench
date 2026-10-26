@@ -8,6 +8,8 @@ dist/
 .env.*
 !.env.example
 .local-data/
+workbench.toml
+.workbench-run/
 runtime-secrets/
 *.log
 web/node_modules/

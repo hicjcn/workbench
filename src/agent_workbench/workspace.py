@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
 
 from .platform_support import IS_WINDOWS, is_link
 
@@ -37,7 +38,7 @@ def excluded(name: str) -> bool:
     if IS_WINDOWS:
         parts = tuple(part.casefold() for part in parts)
     return any(
-        p in {".git", "node_modules", "__pycache__", ".venv", "target", "runtime-secrets", "credentials"}
+        p in {".git", "node_modules", "__pycache__", ".venv", "target", "runtime-secrets", "credentials", "workbench.toml", ".workbench-run", ".local-data"}
         or p == ".env" or p.startswith(".env.")
         for p in parts
     )
@@ -80,7 +81,15 @@ def write_json(path: Path, value: dict, *, private: bool = False) -> None:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             json.dump(value, stream, ensure_ascii=False, indent=2)
             stream.write("\n")
-        temporary.replace(path)
+        # Windows readers normally omit FILE_SHARE_DELETE. A short concurrent
+        # read must not abort a control-state transition before stop is sent.
+        for attempt in range(50):
+            try:
+                temporary.replace(path)
+                break
+            except PermissionError as error:
+                if not IS_WINDOWS or getattr(error, "winerror", None) not in (5, 32, 33) or attempt == 49: raise
+                time.sleep(0.05)
     finally:
         temporary.unlink(missing_ok=True)
 

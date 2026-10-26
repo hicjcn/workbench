@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 from functools import wraps
 import json
@@ -10,11 +12,45 @@ from pathlib import Path
 import re
 import secrets
 import subprocess
+import time
 
 from . import locking
 from .opencode import OpenCodeClient
 from .platform_support import bind_mount, container_user, docker_argv, docker_environment
 from .workspace import WorkbenchError, load_workspace, safe_path, write_json
+
+_inspection_stop = ContextVar("docker_inspection_stop", default=None)
+
+
+@contextmanager
+def interruptible_inspection(stop_event):
+    """Only read-only discovery may be interrupted during controller shutdown."""
+    token = _inspection_stop.set(stop_event)
+    try: yield
+    finally: _inspection_stop.reset(token)
+
+
+def inspection_command(args, environment, timeout, stop_event):
+    if not (args[0] in ("ps", "inspect") or args[:2] in (("image", "ls"), ("image", "inspect"), ("network", "ls"), ("network", "inspect"), ("volume", "inspect"))):
+        raise WorkbenchError("资源查询上下文不允许修改 Docker 资源")
+    if stop_event.is_set(): raise WorkbenchError("资源状态查询已停止")
+    argv = docker_argv(*args)
+    with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", env=environment) as process:
+        deadline = time.monotonic() + timeout
+        try:
+            while True:
+                if stop_event.is_set(): raise WorkbenchError("资源状态查询已停止")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0: raise subprocess.TimeoutExpired(argv, timeout)
+                try:
+                    output, error = process.communicate(timeout=min(0.2, remaining))
+                    return subprocess.CompletedProcess(argv, process.returncode, output, error)
+                except subprocess.TimeoutExpired: pass
+        finally:
+            if process.poll() is None:
+                # This is our own read-only CLI query, never a build/run command.
+                process.kill()
+                process.communicate()
 
 
 def exclusive_workspace(function):
@@ -33,7 +69,8 @@ def exclusive_workspace(function):
 def docker(*args: str, environment: dict | None = None, check: bool = True,
            timeout: float = 120) -> subprocess.CompletedProcess:
     env = docker_environment(environment)
-    result = subprocess.run(
+    stop_event = _inspection_stop.get()
+    result = inspection_command(args, env, timeout, stop_event) if stop_event is not None else subprocess.run(
         docker_argv(*args),
         capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=timeout,
     )

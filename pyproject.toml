@@ -16,6 +16,7 @@ server = [
   "SQLAlchemy==2.1.6",
   "alembic==1.20.1",
   "httpx==0.28.1",
+  "psutil==7.0.0",
 ]
 postgres = ["psycopg[binary]==3.3.6"]
 browser = ["playwright==1.62.0"]
@@ -26,6 +27,7 @@ agent-workbench-api = "agent_workbench.server:main"
 agent-workbench-runner = "agent_workbench.runner:main"
 agent-workbench-maintenance = "agent_workbench.maintenance:main"
 agent-workbench-acceptance = "agent_workbench.acceptance:main"
+agent-workbench-control = "agent_workbench.launcher:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

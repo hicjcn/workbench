@@ -1,7 +1,9 @@
 """A separate, trusted single-host Runner which pulls typed jobs from the API."""
 import argparse
 import json
+import os
 from pathlib import Path
+import subprocess
 import threading
 import time
 from urllib.parse import urlparse
@@ -16,13 +18,14 @@ from .workspace import WorkbenchError
 
 
 class Runner:
-    def __init__(self, settings, base_url="http://127.0.0.1:8340", executor=None, transport=None):
+    def __init__(self, settings, base_url="http://127.0.0.1:8340", executor=None, transport=None, shutdown_event=None):
         parsed = urlparse(base_url)
         if parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost", "testserver") or parsed.username:
             raise ValueError("Runner 仅连接本机控制 API")
         self.settings = settings
         self.executor = executor or Executor(settings)
         self.owner = "runner_" + uuid.uuid4().hex
+        self.shutdown_event = shutdown_event or threading.Event()
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": "Bearer " + settings.runner_token},
             trust_env=False, timeout=15, transport=transport)
 
@@ -45,7 +48,11 @@ class Runner:
         canceled = threading.Event()
         lost = threading.Event()
         def heartbeat():
-            while not stop_heartbeat.wait(3):
+            last = time.monotonic()
+            while not stop_heartbeat.wait(0.2):
+                if self.shutdown_event.is_set(): canceled.set()
+                if time.monotonic() - last < 3: continue
+                last = time.monotonic()
                 try:
                     observed = self.post(f"/internal/jobs/{job['id']}/heartbeat", base)
                     if observed["cancel_requested"]:
@@ -118,13 +125,16 @@ class Runner:
 
     def report_once(self):
         from . import resources
-        try:
-            report = {"available": True, "controller_id": resources.controller_id(self.settings.data_dir), "containers": resources.inventory(self.settings.data_dir)}
-        except (WorkbenchError, OSError):
-            report = {"available": False, "controller_id": resources.controller_id(self.settings.data_dir), "containers": [], "error": "暂时无法核实 Docker 资源"}
+        from .runtime import interruptible_inspection
         from .docker_execution import inventory
-        try: report.update(images=inventory(), images_available=True)
-        except (WorkbenchError, OSError, ValueError): report.update(images=[], images_available=False)
+        with interruptible_inspection(self.shutdown_event):
+            try:
+                report = {"available": True, "controller_id": resources.controller_id(self.settings.data_dir), "containers": resources.inventory(self.settings.data_dir)}
+            except (WorkbenchError, OSError, subprocess.TimeoutExpired):
+                report = {"available": False, "controller_id": resources.controller_id(self.settings.data_dir), "containers": [], "error": "暂时无法核实 Docker 资源"}
+            try: report.update(images=inventory(), images_available=True)
+            except (WorkbenchError, OSError, ValueError, subprocess.TimeoutExpired): report.update(images=[], images_available=False)
+        report.update(pid=os.getpid(), launcher_instance=os.environ.get("AWB_LAUNCHER_INSTANCE"))
         self.post("/internal/runtime", {"owner": self.owner, "report": report})
 
     def image_once(self):
@@ -132,23 +142,28 @@ class Runner:
         return run_once(self)
 
 
-def main():
+def main(stop_event=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path)
-    parser.add_argument("--api", default="http://127.0.0.1:8340")
+    parser.add_argument("--config", help="统一 TOML 配置文件；- 表示只使用环境变量")
+    parser.add_argument("--api")
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
-    settings = Settings.load(args.data_dir)
+    from .configuration import configured
+    configuration = configured(args)
+    settings = Settings.load(args.data_dir, config_file=args.config)
     from .resources import controller_lock
     with controller_lock(settings.data_dir):
-        runner = Runner(settings, args.api)
+        stop_event = stop_event or threading.Event()
+        runner = Runner(settings, args.api or configuration.api_url, shutdown_event=stop_event)
         print("Runner 已启动，等待本机控制服务分配任务", flush=True)
         last_watch = 0.0
         try:
-            while True:
+            while not stop_event.is_set():
                 try:
                     worked = runner.run_once()
-                    if not worked: worked = runner.image_once()
+                    if not worked and not stop_event.is_set(): worked = runner.image_once()
+                    if stop_event.is_set(): break
                     if time.monotonic() - last_watch > 2:
                         runner.watch_once()
                         last_watch = time.monotonic()
