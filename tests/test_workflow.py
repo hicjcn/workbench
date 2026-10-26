@@ -144,7 +144,9 @@ class WorkflowTests(ControlFixture):
         self.store.expire()
         self.assertEqual(self.state()["current"]["state"], "STALE")
         self.assertEqual(self.enqueue("analysis").status_code, 409)
-        self.action(self.req, "reconcile"); self.runner.run_once()
+        self.action(self.req, "reconcile")
+        with patch("agent_workbench.resources.inventory", return_value=[]):
+            self.runner.run_once()
         self.start()
         self.assertEqual(len(self.state()["history"]), 2)
 
@@ -218,10 +220,11 @@ class WorkflowTests(ControlFixture):
         journals = list((self.data / "attempts").glob("*/*/*/runtime.json"))
         self.assertEqual(len(journals), 1)
         self.action(self.req, "reconcile")
-        with patch("agent_workbench.runtime.stop", side_effect=lambda workspace: (workspace / "runtime.json").unlink()) as stop:
+        with patch("agent_workbench.resources.inventory", return_value=[]), patch("agent_workbench.runtime.stop", side_effect=lambda workspace: (workspace / "runtime.json").unlink()) as stop:
             self.runner.run_once()
             stop.assert_called_once_with(journals[0].parent)
-        self.assertEqual(self.detail(self.req)["jobs"][0]["status"], "SUCCEEDED")
+        completed = self.detail(self.req)["jobs"][0]
+        self.assertEqual(completed["status"], "SUCCEEDED", completed.get("error"))
 
     def test_progress_text_does_not_become_the_final_structured_report(self):
         write_json(self.workspace / "runtime.json", {"container": "fixture"})
