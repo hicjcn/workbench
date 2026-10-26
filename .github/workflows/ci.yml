@@ -46,10 +46,6 @@ jobs:
             if ($errors.Count) { throw ($errors | Out-String) }
           }
           python -m unittest discover -s tests -p test_platform_support.py -v
-      - name: Workspace and local control API tests
-        run: python poc/run_unit_tests.py
-      - name: Sample backend tests
-        run: node --test poc/sample-project/server.test.mjs
       - name: Build Web interface
         run: |
           npm ci --prefix web --no-audit --no-fund
@@ -57,4 +53,8 @@ jobs:
       - name: Native Windows CMD and PowerShell lifecycle in a fresh venv
         if: runner.os == 'Windows'
         run: python poc/verify_windows_launcher.py
+      - name: Workspace and local control API tests
+        run: python poc/run_unit_tests.py
+      - name: Sample backend tests
+        run: node --test poc/sample-project/server.test.mjs
 

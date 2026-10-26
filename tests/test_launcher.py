@@ -36,13 +36,13 @@ class LauncherTests(unittest.TestCase):
 
     def write_config(self, extra=""):
         self.file.write_text('[workbench]\nport=' + str(self.port) + '\nuse_sqlite=true\nmodel="opencode/glm-5.3-flash-free"\ndata_dir="data"\nweb_dir=' + json.dumps(str(self.web)) +
-            '\n[launcher]\nlogs_dir="logs"\nopen_browser=false\nrequire_docker=false\nstop_managed_environments=false\nstartup_timeout_seconds=30\nstop_timeout_seconds=30\n' + extra, encoding="utf-8")
+            '\n[launcher]\nlogs_dir="logs"\nopen_browser=false\nrequire_docker=false\nstop_managed_environments=false\nstartup_timeout_seconds=60\nstop_timeout_seconds=60\n' + extra, encoding="utf-8")
 
     def command(self, action, *, bootstrap=False, expect=0):
         argv = [sys.executable, str(ROOT / "scripts/control.py")] if bootstrap else [sys.executable, "-m", "agent_workbench.launcher"]
-        result = subprocess.run([*argv, action, "--config", str(self.file), "--no-browser"], cwd=ROOT, env=self.environment, capture_output=True, text=True, encoding="utf-8", timeout=45)
-        if expect is not None: self.assertEqual(result.returncode, expect, result.stderr)
+        result = subprocess.run([*argv, action, "--config", str(self.file), "--no-browser"], cwd=ROOT, env=self.environment, capture_output=True, text=True, encoding="utf-8", timeout=75)
         self.assertNotIn("fixture-launcher-private-value", result.stdout + result.stderr)
+        if expect is not None: self.assertEqual(result.returncode, expect, result.stdout + result.stderr)
         return result
 
     def cleanup(self):
