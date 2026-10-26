@@ -1,5 +1,7 @@
 """Trusted host operations; project commands execute only inside managed containers."""
-import fcntl
+from .platform_support import is_link
+from . import locking
+from .platform_support import docker_argv, docker_environment
 import hashlib
 import json
 import math
@@ -41,8 +43,8 @@ class Executor:
                 self.guard_git(path); targets.add(mount["target"])
         admission = self.settings.data_dir / "locks" / "runtime-admission.lock"
         admission.parent.mkdir(parents=True, exist_ok=True)
-        with admission.open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        with admission.open("a+b") as lock:
+            locking.flock(lock, locking.LOCK_EX)
             from . import dependencies
             use_dependencies = workspace.is_relative_to(self.settings.data_dir / "workspaces") and not options.get("read_only_source")
             extra = dependencies.needed(self.settings.data_dir, workspace) if use_dependencies else 0
@@ -60,13 +62,13 @@ class Executor:
         values = [self.settings.access_token, self.settings.runner_token, os.environ.get("OPENROUTER_API_KEY", "")]
         path = workspace / "runtime.json"
         if path.exists():
-            values.append(json.loads(path.read_text()).get("password", ""))
+            values.append(json.loads(path.read_text(encoding="utf-8")).get("password", ""))
         from .dependencies import read, PRIVATE
         dependency = read(workspace, PRIVATE) if workspace.exists() else None
         if dependency: values.append(dependency["password"])
         manifest = workspace / "workspace.json"
-        if manifest.exists() and not manifest.is_symlink():
-            agent = json.loads(manifest.read_text()).get("agent_cli")
+        if manifest.exists() and not is_link(manifest):
+            agent = json.loads(manifest.read_text(encoding="utf-8")).get("agent_cli")
             if agent:
                 from .agent_clis import checked
                 values.extend(os.environ.get(name, "") for name in checked(agent)["credential_env"])
@@ -83,7 +85,7 @@ class Executor:
         load_workspace(workspace)
         self.guard_git(workspace / "repo")
         current = snapshot(workspace / "repo")
-        manifest = json.loads((workspace / "workspace.json").read_text())
+        manifest = json.loads((workspace / "workspace.json").read_text(encoding="utf-8"))
         baseline = manifest["source_baseline"]["commit_sha"]
         diff = git(workspace / "repo", "diff", "--no-ext-diff", "--no-textconv", "--binary", baseline).decode(errors="replace")
         tracked = set(git(workspace / "repo", "ls-files", "-z").decode().rstrip("\0").split("\0"))
@@ -105,11 +107,11 @@ class Executor:
     @staticmethod
     def guard_git(repo):
         directory = repo / ".git"
-        if not directory.is_dir() or directory.is_symlink():
+        if not directory.is_dir() or is_link(directory):
             raise WorkbenchError("工作区 Git 元数据不可信，请先停止并检查")
         if (directory / "objects/info/alternates").exists():
             raise WorkbenchError("工作区不能引用外部 Git 对象目录")
-        if any(path.is_symlink() for path in directory.rglob("*")):
+        if any(is_link(path) for path in directory.rglob("*")):
             raise WorkbenchError("工作区 Git 元数据包含符号链接")
 
     def execute(self, job, emit, canceled):
@@ -119,9 +121,9 @@ class Executor:
         workspace = Path(job["workspace"]["path"])
         lock_dir = self.settings.data_dir / "locks"
         lock_dir.mkdir(parents=True, exist_ok=True)
-        with (lock_dir / (job["requirement_id"] + ".lock")).open("a") as lock:
+        with (lock_dir / (job["requirement_id"] + ".lock")).open("a+b") as lock:
             try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locking.flock(lock, locking.LOCK_EX | locking.LOCK_NB)
             except BlockingIOError:
                 raise Unknown("旧执行仍持有工作区，不能开始第二个写入者") from None
             try:
@@ -227,13 +229,13 @@ class Executor:
         state_path = workspace / "runtime.json"
         if not state_path.exists():
             raise WorkbenchError("请先启动运行环境")
-        state = json.loads(state_path.read_text())
+        state = json.loads(state_path.read_text(encoding="utf-8"))
         model = model or self.settings.model
         if model.startswith("openrouter/"):
             openrouter_catalog_model(model)
         expected = runtime.model_config(model, read_only, state.get("context_paths"))
         configuration = safe_path(workspace, "agent-home/.config/opencode/opencode.json")
-        if not runtime.matches_model_config(json.loads(configuration.read_text()), expected):
+        if not runtime.matches_model_config(json.loads(configuration.read_text(encoding="utf-8")), expected):
             raise WorkbenchError("运行环境模型配置已变化，请停止并重新启动环境")
         prompt = prompt or (f"需求：{job['requirement']['title']}\n背景：{job['requirement']['description']}\n"
                   f"验收标准：{job['requirement']['acceptance']}\n本次任务：{job['input']['prompt']}\n"
@@ -250,10 +252,8 @@ class Executor:
         if job.get("agent_cli") and (selected["id"] != job["agent_cli"]["id"] or selected["content_digest"] != job["agent_cli"]["content_digest"]):
             raise WorkbenchError("任务与运行环境的 Agent CLI 固定版本不一致，请停止并核实")
         cli_content = checked(selected)
-        command = ["docker", "--host=unix:///var/run/docker.sock", "exec", "-i", state["container"], *agent_command(selected, "run", model=model)]
-        environment = os.environ.copy()
-        for name in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
-            environment.pop(name, None)
+        command = docker_argv("exec", "-i", state["container"], *agent_command(selected, "run", model=model))
+        environment = docker_environment()
         emit("stage", {"text": "正在提交一次 Agent 任务并收集输出", "model": model})
         try:
             timeout = float(os.environ.get("AWB_TASK_TIMEOUT", "300")) if selected["id"] == "builtin-opencode" else cli_content["timeout_seconds"]
@@ -263,7 +263,8 @@ class Executor:
             raise WorkbenchError("AWB_TASK_TIMEOUT 必须是有限正数；尚未启动任务") from None
         deadline = time.monotonic() + timeout
         # OpenCode 1.19.4 reads piped stdin. Large documents exceed argv's per-argument limit.
-        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment)
+        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace", env=environment)
         input_finished = threading.Event()
         input_errors = []
         def write_input():

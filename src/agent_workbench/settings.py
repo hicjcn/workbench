@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import secrets
+from .platform_support import is_link
 
 
 @dataclass(frozen=True)
@@ -28,9 +29,9 @@ class Settings:
                 descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                 with os.fdopen(descriptor, "w") as stream:
                     stream.write(secrets.token_urlsafe(32))
-            if path.is_symlink():
+            if is_link(path):
                 raise ValueError("Access token files must not be symbolic links")
-            value = path.read_text().strip()
+            value = path.read_text(encoding="utf-8").strip()
             if len(value) < 32:
                 raise ValueError("Access token file is empty or invalid")
             values.append(value)

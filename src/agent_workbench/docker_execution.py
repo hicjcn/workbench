@@ -1,5 +1,4 @@
 """Runner-only, bounded Docker operations, never arbitrary shell or host contexts."""
-import fcntl
 import io
 import json
 import os
@@ -10,7 +9,9 @@ import tempfile
 import threading
 
 import httpx
+from . import locking
 from . import runtime
+from .platform_support import IS_WINDOWS, docker_argv, docker_environment
 from .workspace import WorkbenchError
 
 
@@ -28,13 +29,16 @@ def inventory():
 
 
 def command(args, lock, source=None):
-    env = os.environ.copy()
-    for key in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"): env.pop(key, None)
+    env = docker_environment()
     # Build output may contain application data or credentials. Never persist or expose it.
     with tempfile.TemporaryFile() as output:
         try:
-            result = subprocess.run(["docker", "--host=unix:///var/run/docker.sock", *args], stdin=source,
-                stdout=output, stderr=output, env=env, timeout=900, pass_fds=(lock.fileno(),))
+            if IS_WINDOWS:
+                from .docker_worker import run
+                result = run(args, Path(lock.name).with_name("docker-command.lock"), source)
+            else:
+                result = subprocess.run(docker_argv(*args), stdin=source,
+                    stdout=output, stderr=output, env=env, timeout=900, pass_fds=(lock.fileno(),))
         except (subprocess.TimeoutExpired, OSError):
             from .execution import Unknown
             raise Unknown("镜像操作超时或连接中断；请实际检查 Docker 后人工结束核实，禁止自动重试") from None
@@ -44,9 +48,12 @@ def command(args, lock, source=None):
 def execute(settings, job):
     from .execution import Unknown
     locks = settings.data_dir / "locks"; locks.mkdir(parents=True, exist_ok=True)
-    with (locks / "docker-images.lock").open("a") as lock:
-        try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with (locks / "docker-images.lock").open("a+b") as lock:
+        try: locking.flock(lock, locking.LOCK_EX | locking.LOCK_NB)
         except BlockingIOError: raise Unknown("旧镜像操作仍持有主机锁，禁止第二次执行") from None
+        with (locks / "docker-command.lock").open("a+b") as command_lock:
+            try: locking.flock(command_lock, locking.LOCK_EX | locking.LOCK_NB)
+            except BlockingIOError: raise Unknown("旧 Docker 子进程仍在执行，禁止第二次操作") from None
         request = job["input"]; ref = request["reference"]
         if job["kind"] == "build":
             if not ref.startswith("awb-user/"): raise WorkbenchError("界面构建目标必须使用 awb-user/ 前缀，避免覆盖其他工具镜像")
@@ -64,8 +71,8 @@ def execute(settings, job):
                 command([*args, "-"], lock, source)
         elif job["kind"] == "pull": command(["pull", ref], lock)
         elif job["kind"] == "remove":
-            with (locks / "runtime-admission.lock").open("a") as admission:
-                fcntl.flock(admission, fcntl.LOCK_EX)
+            with (locks / "runtime-admission.lock").open("a+b") as admission:
+                locking.flock(admission, locking.LOCK_EX)
                 current = image_info(ref)
                 if not current or current["id"] != request["expected_image_id"]: raise WorkbenchError("镜像标签或 ID 已变化，请刷新后重新选择")
                 for protected in job["protected_references"]:

@@ -1,11 +1,12 @@
 """Inspect and stop only verified resources owned by this data directory."""
-import fcntl
 import hashlib
 import json
 from pathlib import Path
 from contextlib import contextmanager
 
+from . import locking
 from . import runtime
+from .platform_support import mount_matches
 from .workspace import WorkbenchError, load_workspace
 
 
@@ -15,8 +16,8 @@ def controller_id(root): return hashlib.sha256(str(root.resolve()).encode()).hex
 @contextmanager
 def controller_lock(root, exclusive=False):
     directory = root / "locks"; directory.mkdir(parents=True, exist_ok=True)
-    with (directory / "controller.lock").open("a") as handle:
-        try: fcntl.flock(handle, (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB)
+    with (directory / "controller.lock").open("a+b") as handle:
+        try: locking.flock(handle, (locking.LOCK_EX if exclusive else locking.LOCK_SH) | locking.LOCK_NB)
         except BlockingIOError: raise WorkbenchError("工作台仍在运行或正在维护，请停止 API/Runner 后再重试") from None
         yield
 
@@ -38,8 +39,9 @@ def inventory(root):
         labels = detail["Config"].get("Labels") or {}
         if labels.get("awb.controller") != controller_id(root) and labels.get("awb.workspace") not in known: continue
         mount = next((item for item in detail.get("Mounts", []) if item["Destination"] == "/workspace/project"), None)
-        path = Path(mount["Source"]).parent if mount else None
-        verified = bool(path and path.is_relative_to(root) and path.resolve() == path and path.name and
+        path = known.get(labels.get("awb.workspace"))
+        verified = bool(path and mount and mount.get("Type") == "bind" and mount_matches(mount.get("Source"), path / "repo") and
+            path.is_relative_to(root) and path.resolve() == path and path.name and
             hashlib.sha256(str(path).encode()).hexdigest()[:10] == labels.get("awb.workspace") and
             (path.is_relative_to(root / "workspaces") or path.is_relative_to(root / "attempts")))
         kind = labels.get("awb.kind", "agent")

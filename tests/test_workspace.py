@@ -197,7 +197,8 @@ class WorkspaceTests(unittest.TestCase):
         destination = self.root / "record.json"
         write_json(destination, {"value": "saved"})
         self.assertEqual(victim.read_text(), "preserve")
-        self.assertEqual(destination.stat().st_mode & 0o777, 0o600)
+        if os.name != "nt":
+            self.assertEqual(destination.stat().st_mode & 0o777, 0o600)
 
 
 if __name__ == "__main__":

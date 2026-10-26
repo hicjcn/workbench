@@ -8,6 +8,7 @@ import tempfile
 import zipfile
 from datetime import datetime, timezone
 
+from .platform_support import is_link
 from .workspace import WorkbenchError
 
 
@@ -19,11 +20,11 @@ def export_path(root, job_id):
     if not re.fullmatch(r"job_[a-f0-9]{32}", job_id):
         raise WorkbenchError("导出任务标识不正确")
     directory = root / "exports"
-    if directory.is_symlink():
+    if is_link(directory):
         raise WorkbenchError("导出目录不能是符号链接")
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     path = directory / (job_id + ".zip")
-    if path.is_symlink():
+    if is_link(path):
         raise WorkbenchError("导出文件不能是符号链接")
     return path
 

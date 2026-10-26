@@ -1,11 +1,12 @@
 """Explicit local application lifecycle; HTTP probes run inside its own container."""
-import fcntl
 import hashlib
 import json
 import os
 import time
 
+from . import locking
 from . import dependencies, runtime
+from .platform_support import bind_mount, container_ids, container_user, mount_matches
 from .profiles import Content, command, digest, runtime_options
 from .workspace import WorkbenchError, load_workspace, safe_path, snapshot, write_json
 
@@ -64,7 +65,7 @@ def checked_container(root, workspace):
     profile = manifest.get("runtime_profile")
     source = next((item for item in detail.get("Mounts", []) if item.get("Destination") == "/workspace/project"), {})
     if (not spec(workspace) or not dependencies.labels_match(detail, labels(root, workspace)) or
-        source.get("Source") != str(workspace / "repo") or source.get("Type") != "bind" or source.get("RW") is not False or
+        not mount_matches(source.get("Source"), workspace / "repo") or source.get("Type") != "bind" or source.get("RW") is not False or
         detail.get("Image") != profile["image_id"] or detail.get("HostConfig", {}).get("PortBindings")):
         raise WorkbenchError("应用容器归属、镜像或挂载不符，拒绝接管或清理")
     return detail
@@ -111,8 +112,8 @@ def start(executor, workspace, emit, canceled):
         raise Unknown("开发容器状态待核实，应用尚未启动")
     if read(workspace, JOURNAL) or checked_container(root, workspace): raise WorkbenchError("已有服务或运行记录，请先停止应用服务再启动")
     admission = root / "locks/runtime-admission.lock"; admission.parent.mkdir(parents=True, exist_ok=True)
-    with admission.open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with admission.open("a+b") as lock:
+        locking.flock(lock, locking.LOCK_EX)
         if len(inventory(root)) + 1 > executor.settings.max_containers: raise WorkbenchError("托管容器达到上限，请先停止其他环境")
         options = runtime_options(workspace, root)
         # No dependency provisioning here: the explicitly started dev environment must own it.
@@ -131,16 +132,17 @@ def start(executor, workspace, emit, canceled):
             "code_digest": baseline, "checked_at": time.time()}
         write_json(workspace / JOURNAL, journal)
         limits = options["limits"]
+        uid, gid = container_ids()
         args = ["run", "--detach", "--init", "--name", name(workspace), "--network", network,
-            "--user", f"{os.getuid()}:{os.getgid()}", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--read-only",
-            "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m", "--tmpfs", f"/home/node:rw,nosuid,nodev,size=64m,uid={os.getuid()},gid={os.getgid()}",
+            "--user", container_user(), "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--read-only",
+            "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m", "--tmpfs", f"/home/node:rw,nosuid,nodev,size=64m,uid={uid},gid={gid}",
             "--cpus", str(limits["cpus"]), "--memory", str(limits["memory_mib"]) + "m", "--pids-limit", str(limits["pids_limit"]),
             "--log-driver", "local", "--log-opt", "max-size=1m", "--log-opt", "max-file=1", "--log-opt", "compress=false",
-            "--workdir", "/workspace/project", "--mount", f"type=bind,src={workspace / 'repo'},dst=/workspace/project,readonly",
+            "--workdir", "/workspace/project", "--mount", bind_mount(workspace / "repo", "/workspace/project", readonly=True),
             "--env", "HOME=/home/node", "--env", "PORT=" + str(configuration["port"])]
         for key, value in labels(root, workspace).items(): args += ["--label", key + "=" + value]
         for mount in options["config_mounts"]:
-            args += ["--mount", f"type=bind,src={mount['source']},dst={mount['target']},readonly"]
+            args += ["--mount", bind_mount(mount["source"], mount["target"], readonly=True)]
         for key in environment: args += ["--env", key]
         argv = command(configuration["start_command"])
         # Override image entrypoint, with argv passed directly rather than through a shell.
@@ -174,7 +176,7 @@ def check(executor, workspace):
         raise Unknown("应用容器缺失或归属待核实，请停止并核实；不会自动重启") from None
     baseline = code_digest(executor, workspace)
     report = {"schema": "workbench-http-check/v1", "checked_at": time.time(), "code_digest": journal.get("code_digest"),
-        "profile_digest": json.loads((workspace / "workspace.json").read_text())["runtime_profile"]["content_digest"],
+        "profile_digest": json.loads((workspace / "workspace.json").read_text(encoding="utf-8"))["runtime_profile"]["content_digest"],
         "path": configuration["health_path"], "port": configuration["port"], "expected_status": configuration["expected_status"],
         "passed": False, "phase": "FAILED", "model_inference": False, "business_tests": "NOT_RUN"}
     if baseline != journal.get("code_digest"): report["phase"] = "STALE"

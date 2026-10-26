@@ -1,5 +1,6 @@
 """Controlled M5 records; no live model calls or external approvals."""
 import io
+import os
 import json
 from pathlib import Path
 import threading
@@ -205,7 +206,8 @@ class MaintenanceTests(DeliveryFixture):
         info = restore(archive, destination)
         self.assertTrue(info["credentials_regenerated"])
         self.assertNotEqual((destination / "access-token").read_text(), self.settings.access_token)
-        self.assertEqual((destination / "access-token").stat().st_mode & 0o777, 0o600)
+        if os.name != "nt":
+            self.assertEqual((destination / "access-token").stat().st_mode & 0o777, 0o600)
         restored = Store(f"sqlite:///{destination / 'workbench.db'}")
         try:
             state = Delivery(restored).read(self.group)
