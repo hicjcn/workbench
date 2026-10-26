@@ -34,11 +34,24 @@ def git(directory: Path, *args: str) -> bytes:
 
 def excluded(name: str) -> bool:
     parts = PurePosixPath(name).parts
+    if IS_WINDOWS:
+        parts = tuple(part.casefold() for part in parts)
     return any(
         p in {".git", "node_modules", "__pycache__", ".venv", "target", "runtime-secrets", "credentials"}
         or p == ".env" or p.startswith(".env.")
         for p in parts
     )
+
+
+def windows_names(names, seen=None):
+    """Do not silently merge distinct Linux paths on a case-insensitive volume."""
+    seen = {} if seen is None else seen
+    for name in names:
+        parts = PurePosixPath(name).parts
+        for length in range(1, len(parts) + 1):
+            prefix = "/".join(parts[:length])
+            if seen.setdefault(prefix.casefold(), prefix) != prefix:
+                raise WorkbenchError("Source contains case-colliding paths that Windows cannot represent")
 
 
 def safe_path(root: Path, name: str) -> Path:
@@ -77,6 +90,8 @@ def inventory(repo: Path, *, untracked: bool = True) -> dict:
     if untracked:
         args += ["--others", "--exclude-standard"]
     names = set(git(repo, *args).decode().rstrip("\0").split("\0")) - {""}
+    if IS_WINDOWS:
+        windows_names(name for name in names if not excluded(name))
     executable = {}
     if IS_WINDOWS:
         # NTFS chmod does not express POSIX execute bits. Keep the Git index
@@ -155,10 +170,13 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
         archive = git(source, "archive", "--format=tar", source_sha)
         total = 0
         executable_paths = []
+        case_paths = {}
         with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
             for member in tar:
                 if excluded(member.name) or member.isdir():
                     continue
+                if IS_WINDOWS:
+                    windows_names([member.name], case_paths)
                 path = safe_path(repo, member.name)
                 if not member.isfile():
                     raise WorkbenchError(f"Unsupported archived entry: {member.name}")
@@ -172,7 +190,8 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
                 content = stream.read()
                 if content.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
                     raise WorkbenchError("Git LFS pointers are not materialized by M1")
-                path.write_bytes(content)
+                with path.open("xb") as output:
+                    output.write(content)
                 path.chmod(0o755 if member.mode & 0o111 else 0o644)
                 if member.mode & 0o111:
                     executable_paths.append(member.name)

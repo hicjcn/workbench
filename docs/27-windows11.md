@@ -16,7 +16,7 @@ Windows 上采用 **原生 Python API/Runner + Docker Desktop 的 Linux 容器**
 | Docker Desktop 挂载路径转换 | 构建挂载参数时保留盘符、空格和中文；核对挂载时只接受原 Windows 路径或已知的 Desktop `/run/desktop/mnt/host/<盘符>/...`、`/host_mnt/<盘符>/...` 映射 |
 | 默认文本编码不同 | 私有 JSON/配置文件显式使用 UTF-8，Docker 任务的输入输出按 UTF-8 处理 |
 | NTFS 没有 POSIX 执行位 | Windows 快照根据 Git index 保存执行标记，导出工作区时保留已提交脚本的执行标记；工作区关闭自动换行转换 |
-| Windows 特有路径 | 拒绝盘符逃逸、反斜杠相对路径、NTFS alternate data streams、设备名及尾随点/空格；重解析点和 junction 与符号链接一样拒绝 |
+| Windows 特有路径 | 拒绝盘符逃逸、反斜杠相对路径、NTFS alternate data streams、设备名、大小写冲突及尾随点/空格；重解析点和 junction 与符号链接一样拒绝 |
 
 Windows 专用依赖由 `pip install -e '.[server]'` 自动安装，不需要也不应单独安装 `fcntl`。
 
@@ -132,7 +132,7 @@ Windows 的 `chmod(0600)` 不等于设置 NTFS 私有 ACL。请把整个数据�
 
 ## 验证与边界
 
-CI 增加 `windows-latest` 与 `ubuntu-latest` 双平台检查，运行同一套 Python/API 测试、Node 样例测试和前端构建。专项测试实际创建跨进程共享/排他锁、守护进程、Git 工作区和 UTF-8 记录；Windows 还检查 NTFS junction 拒绝。
+CI 增加 `windows-latest` 与 `ubuntu-latest` 双平台检查，运行同一套 Python/API 测试、Node 样例测试和前端构建。专项测试实际启动 API 与 Runner 进程，在 SQLite 中登记项目并准备独立工作区，同时检查跨进程共享/排他锁、守护进程、Git 快照和 UTF-8 记录；Windows 还检查 NTFS junction 拒绝，并解析本指南的 PowerShell 代码块以验证语法。
 
 ```powershell
 $env:PYTHONUTF8 = "1"

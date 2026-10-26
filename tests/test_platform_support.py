@@ -6,15 +6,20 @@ import os
 from pathlib import Path, PureWindowsPath
 import subprocess
 import sys
+import socket
 import tempfile
 import time
 import unittest
 from unittest.mock import patch
 
+import httpx
+
 from agent_workbench import locking, platform_support as host, runtime
 from agent_workbench import docker_execution
+from agent_workbench import docker_worker
 from agent_workbench.resources import controller_lock
-from agent_workbench.workspace import WorkbenchError, create_workspace, git, inventory, safe_path, write_json
+from agent_workbench.settings import Settings
+from agent_workbench.workspace import WorkbenchError, create_workspace, excluded, git, inventory, safe_path, windows_names, write_json
 
 
 class PlatformTests(unittest.TestCase):
@@ -83,6 +88,23 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual(self.child_lock(lock).returncode, 0)
         process.stdout.close(); process.stderr.close()
 
+    def test_guardian_launcher_transfers_bounded_context_through_real_pipes(self):
+        marker = self.root / "context.bin"
+        lock = self.root / "docker-command.lock"
+        real_popen = subprocess.Popen
+        script = ("import sys; from agent_workbench.docker_worker import serve; "
+            "sys.exit(serve(sys.argv[1], [sys.executable, '-c', "
+            "\"from pathlib import Path; import sys; Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())\", sys.argv[2]]))")
+        def launch(argv, **kwargs):
+            self.assertEqual(argv[1:3], ["-m", "agent_workbench.docker_worker"])
+            return real_popen([sys.executable, "-c", script, str(lock), str(marker)], **kwargs)
+        payload = b"FROM scratch\n" * 5000
+        with patch.object(subprocess, "CREATE_NEW_PROCESS_GROUP", getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0), create=True), patch.object(subprocess, "CREATE_NO_WINDOW", getattr(subprocess, "CREATE_NO_WINDOW", 0), create=True), patch("agent_workbench.docker_worker.subprocess.Popen", side_effect=launch):
+            result = docker_worker.run(["build", "-"], lock, io.BytesIO(payload), timeout=15)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(marker.read_bytes(), payload)
+        self.assertEqual(self.child_lock(lock).returncode, 0)
+
     def test_docker_endpoint_is_local_and_environment_cannot_redirect_it(self):
         for windows, endpoint in ((True, "npipe:////./pipe/dockerDesktopLinuxEngine"), (False, "unix:///var/run/docker.sock")):
             with patch.object(host, "IS_WINDOWS", windows), patch.dict(os.environ,
@@ -123,6 +145,15 @@ class PlatformTests(unittest.TestCase):
                 with self.subTest(name=name), self.assertRaises(WorkbenchError):
                     safe_path(self.root, name)
 
+    def test_windows_case_collisions_and_case_variant_private_paths(self):
+        for names in (("A.txt", "a.txt"), ("Source/one.py", "source/two.py")):
+            with self.assertRaises(WorkbenchError):
+                windows_names(names)
+        windows_names(("Source/one.py", "Source/two.py"))
+        with patch("agent_workbench.workspace.IS_WINDOWS", True):
+            for name in (".GIT/config", ".ENV", "Credentials/token"):
+                self.assertTrue(excluded(name))
+
     def test_windows_snapshot_keeps_git_execute_mode_and_lf_bytes(self):
         source = self.root / "source"; source.mkdir()
         for args in (("init", "-b", "main"), ("config", "user.name", "Fixture"), ("config", "user.email", "fixture@example.invalid")):
@@ -148,6 +179,50 @@ class PlatformTests(unittest.TestCase):
                 docker_execution.command(["pull", "node:22"], lock)
                 direct.assert_not_called()
                 worker.assert_called_once_with(["pull", "node:22"], self.root / "docker-command.lock", None)
+
+    def test_real_api_and_runner_processes_prepare_workspace_without_docker(self):
+        data = self.root / "data"
+        settings = Settings.load(data, sqlite=True)
+        source = self.root / "source"; source.mkdir()
+        (source / "main.txt").write_bytes("中文源码\n".encode())
+        for args in (("init", "-b", "main"), ("config", "user.name", "Fixture"), ("config", "user.email", "fixture@example.invalid"), ("add", "--all"), ("-c", "commit.gpgsign=false", "commit", "-m", "fixture")):
+            git(source, *args)
+        with socket.socket() as reserved:
+            reserved.bind(("127.0.0.1", 0)); port = reserved.getsockname()[1]
+        base = f"http://127.0.0.1:{port}"
+        environment = {**os.environ, "PYTHONUTF8": "1", "AWB_MODEL": "opencode/glm-5.3-flash-free"}
+        with (self.root / "server.log").open("wb") as log:
+            process = subprocess.Popen([sys.executable, "-m", "agent_workbench.server", "--sqlite", "--data-dir", str(data), "--port", str(port)], env=environment, stdout=log, stderr=log)
+            try:
+                with httpx.Client(base_url=base, headers={"Authorization": "Bearer " + settings.access_token}, trust_env=False, timeout=15) as client:
+                    deadline = time.monotonic() + 30
+                    while True:
+                        try:
+                            if client.get("/api/v1/session").status_code == 200:
+                                break
+                        except httpx.TransportError:
+                            pass
+                        if process.poll() is not None or time.monotonic() > deadline:
+                            self.fail("real control API failed to start")
+                        time.sleep(0.1)
+                    def post(path, value):
+                        response = client.post("/api/v1" + path, json=value)
+                        response.raise_for_status(); return response.json()
+                    project = post("/projects", {"name": "Windows 启动样例", "source_path": str(source)})
+                    req = post("/requirements", {"project_id": project["id"], "title": "原生进程准备工作区"})
+                    job = post(f"/requirements/{req['id']}/actions", {"action": "prepare"})
+                    result = subprocess.run([sys.executable, "-m", "agent_workbench.runner", "--data-dir", str(data), "--api", base, "--once"], env=environment, capture_output=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
+                    current = client.get("/api/v1/jobs/" + job["id"]).json()
+                    self.assertEqual(current["status"], "SUCCEEDED", current.get("error"))
+                    detail = client.get("/api/v1/requirements/" + req["id"]).json()
+                    self.assertEqual((Path(detail["workspace"]["path"]) / "repo/main.txt").read_bytes(), "中文源码\n".encode())
+            finally:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill(); process.wait()
 
     @unittest.skipUnless(os.name == "nt", "NTFS junctions only exist on Windows")
     def test_windows_junction_is_rejected_as_a_source_component(self):
