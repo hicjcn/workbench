@@ -11,6 +11,7 @@ from .workspace import WorkbenchError, create_workspace, load_workspace, snapsho
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="agent-workbench")
+    parser.add_argument("--config", help="统一 TOML 配置文件")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("doctor")
     create = commands.add_parser("create")
@@ -25,9 +26,11 @@ def main() -> int:
         command = commands.add_parser(name)
         command.add_argument("--workspace", required=True, type=Path)
         if name == "start":
-            command.add_argument("--image", default="agent-workbench-m1:local")
+            command.add_argument("--image")
             command.add_argument("--proxy-ca", type=Path)
     args = parser.parse_args()
+    from .configuration import configured
+    configuration = configured(args)
     try:
         if args.command == "doctor":
             result = runtime.doctor()
@@ -38,7 +41,7 @@ def main() -> int:
             path, _ = load_workspace(args.workspace)
             result = snapshot(path / "repo")
         elif args.command == "start":
-            result = runtime.start(args.workspace, args.image, args.proxy_ca)
+            result = runtime.start(args.workspace, args.image or configuration.tool_image, args.proxy_ca or configuration.proxy_ca)
         elif args.command == "probe":
             result = runtime.probe(args.workspace)
         else:

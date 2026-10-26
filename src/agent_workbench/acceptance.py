@@ -243,9 +243,14 @@ class Session:
 
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument("command", choices=["doctor", "setup", "status", "advance", "resolve"])
-    parser.add_argument("--root", type=Path); parser.add_argument("--api", default="http://127.0.0.1:8340"); parser.add_argument("--token-file", type=Path)
-    parser.add_argument("--image", default="agent-workbench-m1:local"); parser.add_argument("--review-model", action="append")
+    parser.add_argument("--config", help="统一 TOML 配置文件")
+    parser.add_argument("--root", type=Path); parser.add_argument("--api"); parser.add_argument("--token-file", type=Path)
+    parser.add_argument("--image"); parser.add_argument("--review-model", action="append")
     parser.add_argument("--retry-job"); parser.add_argument("--job-id", "--resource-id", dest="resource_id"); args = parser.parse_args()
+    from .configuration import configured
+    configuration = configured(args)
+    args.api = args.api or configuration.api_url
+    args.image = args.image or configuration.tool_image
     reviewers = args.review_model or ["opencode/glm-5.3-flash-free", "opencode/big-pickle"]
     session = None
     try:

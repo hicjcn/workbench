@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import os
 from pathlib import Path
 import re
 import secrets
@@ -41,7 +42,7 @@ class Login(Input):
 class ProjectInput(Input):
     name: str = Field(min_length=1, max_length=160)
     source_path: str = Field(min_length=1, max_length=2000)
-    image: str = Field(default="agent-workbench-m1:local", min_length=1, max_length=240)
+    image: str | None = Field(default=None, min_length=1, max_length=240)
 
 
 class RequirementInput(Input):
@@ -184,6 +185,14 @@ def create_app(settings: Settings, store: Store | None = None):
         if not supplied or not secrets.compare_digest(supplied, settings.runner_token):
             raise HTTPException(401, "执行器认证失败")
 
+    @app.get("/internal/ready", dependencies=[Depends(runner)])
+    def process_ready():
+        reports = database.list(tables.runner_reports)
+        return {"pid": os.getpid(), "instance": os.environ.get("AWB_LAUNCHER_INSTANCE"),
+            "preset_warning": getattr(app.state, "preset_warning", None),
+            "runners": [{"pid": row["report"].get("pid"), "instance": row["report"].get("launcher_instance"), "updated_at": row["updated_at"]}
+                for row in reports if time.time() - row["updated_at"] <= 15]}
+
     from .material_api import install as install_material_routes
     install_material_routes(app, settings, database, user)
     from .delivery_api import install as install_delivery_routes
@@ -214,7 +223,7 @@ def create_app(settings: Settings, store: Store | None = None):
 
     @app.get("/api/v1/config", dependencies=[Depends(user)])
     def config():
-        return {"model": settings.model, "data_dir": str(settings.data_dir), "mode": "single-host"}
+        return {"model": settings.model, "data_dir": str(settings.data_dir), "mode": "single-host", "default_image": settings.default_image}
 
     @app.get("/api/v1/projects", dependencies=[Depends(user)])
     def list_projects():
@@ -223,7 +232,8 @@ def create_app(settings: Settings, store: Store | None = None):
     @app.post("/api/v1/projects", status_code=201, dependencies=[Depends(user)])
     def register(value: ProjectInput):
         source = Path(value.source_path).expanduser().resolve()
-        if not source.is_dir() or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._/:@-]*", value.image):
+        image = value.image or settings.default_image
+        if not source.is_dir() or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._/:@-]*", image):
             raise HTTPException(422, "代码目录或镜像名称不正确")
         try:
             if Path(git(source, "rev-parse", "--show-toplevel").decode().strip()).resolve() != source:
@@ -232,7 +242,7 @@ def create_app(settings: Settings, store: Store | None = None):
             raise HTTPException(422, str(error)) from None
         if settings.data_dir.is_relative_to(source):
             raise HTTPException(422, "代码目录不能包含工作台的数据目录")
-        record = dict(id=identifier("prj"), name=value.name.strip(), source_path=str(source), image=value.image, created_at=time.time())
+        record = dict(id=identifier("prj"), name=value.name.strip(), source_path=str(source), image=image, created_at=time.time())
         with database.engine.begin() as connection:
             connection.execute(insert(tables.projects).values(**record))
         return record

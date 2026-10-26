@@ -42,6 +42,7 @@ export default function App() {
   const [reason, setReason] = useState("");
   const [logId, setLogId] = useState("");
   const [model, setModel] = useState("");
+  const [defaultImage, setDefaultImage] = useState("agent-workbench-m1:local");
   const [workflowEnabled, setWorkflowEnabled] = useState(false);
   useEffect(() => {
     let live = true;
@@ -61,11 +62,12 @@ export default function App() {
     const [nextProjects, nextRequirements, configuration] = await Promise.all([
       api<Project[]>("/projects"),
       api<Requirement[]>("/requirements"),
-      api<{ model: string }>("/config"),
+      api<{ model: string; default_image?: string }>("/config"),
     ]);
     setProjects(nextProjects);
     setRequirements(nextRequirements);
     setModel(configuration.model);
+    setDefaultImage(configuration.default_image ?? "agent-workbench-m1:local");
     setSelected((previous) => previous || nextRequirements[0]?.id || "");
   }, []);
   useEffect(() => {
@@ -726,6 +728,7 @@ export default function App() {
         >
           {modal === "project" ? (
             <ProjectForm
+              defaultImage={defaultImage}
               submit={async (value) => {
                 await api("/projects", value);
                 await reload();

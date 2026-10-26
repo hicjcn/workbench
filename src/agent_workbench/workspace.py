@@ -37,7 +37,7 @@ def excluded(name: str) -> bool:
     if IS_WINDOWS:
         parts = tuple(part.casefold() for part in parts)
     return any(
-        p in {".git", "node_modules", "__pycache__", ".venv", "target", "runtime-secrets", "credentials"}
+        p in {".git", "node_modules", "__pycache__", ".venv", "target", "runtime-secrets", "credentials", "workbench.toml", ".workbench-run", ".local-data"}
         or p == ".env" or p.startswith(".env.")
         for p in parts
     )

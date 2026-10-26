@@ -2,6 +2,8 @@
 
 Windows 上采用 **原生 Python API/Runner + Docker Desktop 的 Linux 容器**。页面仍由本机 API 提供，配置和记录存入本地 SQLite，无需安装数据库服务。也可以把整套控制进程放到 WSL2，按 README 中的 Linux 命令启动。
 
+**推荐使用新增的[统一配置与启停脚本](28-local-configuration.md)**：复制 `workbench.example.toml` 为 `workbench.toml`，运行 `setup.cmd`，之后用 `start.cmd`、`status.cmd` 和 `stop.cmd` 管理服务。本文后续命令用于手动运行和兼容性排查。
+
 ## 兼容性检查与修复
 
 此前版本直接导入 `fcntl`，无法在 Windows 原生 Python 中加载 API 和 Runner。仅去掉这一个导入还不足以运行，以下依赖也一并调整：
@@ -83,7 +85,7 @@ $env:AWB_MODEL = "opencode/glm-5.3-flash-free"
 .\.venv\Scripts\python.exe -m agent_workbench.runner --data-dir "$PWD\.local-data\workbench" --api http://127.0.0.1:8340
 ```
 
-两个终端需要相同绝对数据目录和模型配置。模型凭据在启动 Runner 前通过本机私有环境配置，不放入聊天、仓库或 Dockerfile。工作台不自动加载 `.env`。
+两个终端需要相同绝对数据目录和模型配置；可在同一个 `workbench.toml` 中设置，手动入口也支持 `--config`。模型凭据通过该私有文件的 `[environment]` 或既有进程环境提供，不放入聊天、仓库或 Dockerfile。工作台不自动加载其他 `.env` 文件。
 
 ## 5. 登录与接入项目
 

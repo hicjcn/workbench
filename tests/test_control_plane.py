@@ -13,7 +13,7 @@ import httpx
 from sqlalchemy import update
 
 from agent_workbench.api import create_app
-from agent_workbench.execution import Executor, Unknown
+from agent_workbench.execution import Canceled, Executor, Unknown
 from agent_workbench.runner import Runner
 from agent_workbench.settings import Settings
 from agent_workbench.store import Store, jobs, metadata
@@ -75,6 +75,33 @@ class ControlFixture(unittest.TestCase):
 
 
 class ControlPlaneTests(ControlFixture):
+    def test_launcher_shutdown_cancels_active_job_and_records_result(self):
+        requirement = self.requirement()
+        queued = self.action(requirement, "prepare").json()
+        def waiting(job, emit, canceled):
+            self.runner.shutdown_event.set()
+            self.assertTrue(canceled.wait(5), "shutdown was not delivered to the active job")
+            raise Canceled("launcher requested stop")
+        with patch.object(self.runner.executor, "execute", side_effect=waiting), patch.object(self.runner.executor, "observe", return_value={"environment": "STOPPED"}):
+            self.assertTrue(self.runner.run_once())
+        self.assertEqual(self.store.get(jobs, queued["id"])["status"], "CANCELED")
+
+    def test_job_cancellation_does_not_stop_the_runner(self):
+        requirement = self.requirement()
+        queued = self.action(requirement, "prepare").json()
+        def waiting(job, emit, canceled):
+            self.assertEqual(self.client.post(f"/api/v1/jobs/{job['id']}/cancel", json={}).status_code, 200)
+            self.assertTrue(canceled.wait(5))
+            raise Canceled("user canceled this job")
+        with patch.object(self.runner.executor, "execute", side_effect=waiting), patch.object(self.runner.executor, "observe", return_value={"environment": "STOPPED"}):
+            self.assertTrue(self.runner.run_once())
+        self.assertEqual(self.store.get(jobs, queued["id"])["status"], "CANCELED")
+        self.assertFalse(self.runner.shutdown_event.is_set())
+        next_requirement = self.requirement()
+        self.action(next_requirement, "prepare")
+        self.assertTrue(self.runner.run_once())
+        self.assertEqual(self.detail(next_requirement)["jobs"][0]["status"], "SUCCEEDED")
+
     def test_auth_origin_and_internal_boundary(self):
         self.client.headers.pop("Authorization")
         self.assertEqual(self.client.get("/api/v1/projects").status_code, 401)

@@ -40,8 +40,10 @@ export function Modal({
 }
 
 export function ProjectForm({
+  defaultImage = "agent-workbench-m1:local",
   submit,
 }: {
+  defaultImage?: string;
   submit: (value: {
     name: string;
     source_path: string;
@@ -92,7 +94,7 @@ export function ProjectForm({
       </label>
       <label>
         运行镜像
-        <input name="image" required defaultValue="agent-workbench-m1:local" />
+        <input name="image" required defaultValue={defaultImage} />
       </label>
       <p className="hint">
         镜像需要包含 OpenCode 和项目依赖，可从仓库中的 M1 Dockerfile 构建。

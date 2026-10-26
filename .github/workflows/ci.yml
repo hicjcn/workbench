@@ -32,11 +32,17 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $guide = Get-Content docs/27-windows11.md -Raw -Encoding utf8
+          $guide = (Get-Content docs/27-windows11.md,docs/28-local-configuration.md -Raw -Encoding utf8) -join "`n"
           foreach ($block in [regex]::Matches($guide, '(?ms)^```powershell\r?\n(.*?)^```')) {
             $tokens = $null
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseInput($block.Groups[1].Value, [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
+          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
             if ($errors.Count) { throw ($errors | Out-String) }
           }
           python -m unittest discover -s tests -p test_platform_support.py -v
@@ -48,4 +54,7 @@ jobs:
         run: |
           npm ci --prefix web --no-audit --no-fund
           npm run --prefix web build
+      - name: Native Windows CMD and PowerShell lifecycle in a fresh venv
+        if: runner.os == 'Windows'
+        run: python poc/verify_windows_launcher.py
 
