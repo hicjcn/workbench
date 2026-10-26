@@ -50,7 +50,7 @@ def save_agent_output(root, stdout, stderr, secret_values=()):
         value = redact(value, secret_values)
         path = root / filename
         path.touch(mode=0o600)
-        path.write_text(value)
+        path.write_bytes(value.encode("utf-8"))
         if filename == "agent-events.jsonl":
             for line in value.splitlines():
                 try:

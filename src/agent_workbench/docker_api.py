@@ -1,8 +1,9 @@
-import fcntl
+from contextlib import ExitStack
 import time
 from fastapi import Depends, Header
 from sqlalchemy import select, update
 
+from . import locking
 from . import store as t
 from .docker_management import Acknowledge, ImageOperation, Images, RecipeInput, guard
 from .resources import controller_id
@@ -41,9 +42,11 @@ def install(app, settings, store, user, runner, Claim, Lease, Finish):
         if not value.checked_daemon or not value.actor.strip() or not value.reason.strip(): raise Conflict("需要记录实际核实人员、依据及 Docker 检查确认")
         service.expire()
         locks = settings.data_dir / "locks"; locks.mkdir(parents=True, exist_ok=True)
-        with (locks / "docker-images.lock").open("a") as lock:
-            try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError: raise Conflict("旧镜像操作仍持有主机锁，请等待原执行退出") from None
+        with ExitStack() as stack:
+            for name in ("docker-images.lock", "docker-command.lock"):
+                lock = stack.enter_context((locks / name).open("a+b"))
+                try: locking.flock(lock, locking.LOCK_EX | locking.LOCK_NB)
+                except BlockingIOError: raise Conflict("旧镜像操作仍持有主机锁，请等待原执行退出") from None
             with store.engine.begin() as c:
                 guard(c, store)
                 row = c.execute(select(t.docker_jobs).where(t.docker_jobs.c.id == identity).with_for_update()).mappings().first()

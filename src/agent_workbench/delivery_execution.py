@@ -1,7 +1,7 @@
 from contextlib import ExitStack
-import fcntl
 from pathlib import Path
 
+from . import locking
 from . import resources
 from .execution import Canceled, Unknown
 from .workspace import WorkbenchError
@@ -20,8 +20,8 @@ def execute(executor, job, emit, canceled):
             for member in members:
                 path = executor.settings.data_dir / "locks" / (member["requirement_id"] + ".lock")
                 path.parent.mkdir(parents=True, exist_ok=True)
-                lock = stack.enter_context(path.open("a"))
-                try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                lock = stack.enter_context(path.open("a+b"))
+                try: locking.flock(lock, locking.LOCK_EX | locking.LOCK_NB)
                 except BlockingIOError: raise Unknown("成员仍被旧执行占用，不能采集第二个基线") from None
             for member in members:
                 emit("delivery", {"text": "停止并核实项目：" + member["project"]["name"]})

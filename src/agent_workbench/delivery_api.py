@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, insert, select, update
 
+from .platform_support import is_link
 from .delivery import Delivery
 from .delivery_schemas import GroupInput, ScopeDecision, Operation, Integration, PanoramaOperation
 from .delivery_export import verify
@@ -84,11 +85,11 @@ def install(app, settings, store, user, runner):
         disk = shutil.disk_usage(settings.data_dir)
         backup_indexes = []
         for path in (settings.data_dir / "backups").glob("backup_*.json"):
-            if path.is_file() and not path.is_symlink() and path.stat().st_size <= 65536:
-                item = json.loads(path.read_text()); item["available"] = path.with_suffix(".zip").is_file(); backup_indexes.append(item)
+            if path.is_file() and not is_link(path) and path.stat().st_size <= 65536:
+                item = json.loads(path.read_text(encoding="utf-8")); item["available"] = path.with_suffix(".zip").is_file(); backup_indexes.append(item)
         restored = settings.data_dir / "restore-info.json"
         from .settings import storage_summary
         return {"storage": storage_summary(store.engine.url), "limits": {"active_jobs": settings.max_active_jobs, "containers": settings.max_containers}, "jobs": counts,
             "resources": latest, "resources_stale": not latest or time.time() - latest["updated_at"] > 15,
             "disk_free_bytes": disk.free, "data_dir": str(settings.data_dir), "backups": backup_indexes,
-            "restored": json.loads(restored.read_text()) if restored.is_file() and not restored.is_symlink() else None}
+            "restored": json.loads(restored.read_text(encoding="utf-8")) if restored.is_file() and not is_link(restored) else None}

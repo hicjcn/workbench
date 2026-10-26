@@ -4,7 +4,7 @@
 
 **本机运行方式：React 页面 + Python 控制 API + 独立 Runner + Docker，元数据默认存入本地 SQLite，无需额外部署数据库。**
 
-[工作流程](#工作流程) · [启动说明](#启动说明) · [首次接入项目](#首次接入项目) · [Agent CLI 与模型配置](#agent-cli-与模型配置) · [常见问题](#常见问题) · [详细文档](#详细文档)
+[工作流程](#工作流程) · [启动说明](#启动说明) · [Windows 11 启动](docs/27-windows11.md) · [首次接入项目](#首次接入项目) · [Agent CLI 与模型配置](#agent-cli-与模型配置) · [常见问题](#常见问题) · [详细文档](#详细文档)
 
 ## 功能与页面
 
@@ -55,7 +55,7 @@ flowchart TD
 
 ### 1. 环境要求
 
-当前本机执行链路面向 **Linux**，需要：
+支持 Linux 主机，以及 **Windows 11 原生 Python + Docker Desktop Linux 容器**的运行方式。下方命令采用 Linux Bash；Windows 用户请使用 [PowerShell 启动指南](docs/27-windows11.md)，其中列出了兼容性检查和实测边界。
 
 | 依赖 | 要求 |
 | --- | --- |
@@ -66,6 +66,8 @@ flowchart TD
 | 网络 | 构建镜像时能访问软件源；运行 AI 任务时能访问所选模型服务和模型目录 |
 
 工作台使用 SQLite 保存配置、需求、队列、日志与材料，首次启动自动建库并升级表结构。**无需安装 PostgreSQL、MySQL 或 Redis。** 项目运行配置中的 PostgreSQL 是待开发业务的可选依赖，默认关闭，与工作台数据库分开。
+
+Windows 11 需要 Docker Desktop 启用 WSL2 后端并使用 Linux 容器；API 和 Runner 可以直接在 PowerShell 运行。Windows 的虚拟环境 Python 位于 `.venv\Scripts\python.exe`，环境变量用 `$env:AWB_MODEL = "..."` 设置。不要直接复制下面的 Bash 命令到 PowerShell。
 
 ### 2. 获取源码、安装并构建
 
@@ -271,6 +273,8 @@ API 和 Runner 启动时均需设置同一个 `AWB_MODEL`。更换模型后重�
 | 任务一直排队 | 确认 Runner 已启动、数据目录及 API 地址一致、模型配置一致，检查「资源与恢复」的上报与配额 |
 | Docker 不可用、镜像不存在 | 在 Runner 所在主机确认 `docker info` 可执行，并构建基础/项目镜像；宿主机安装 CLI 不代表镜像内已安装 |
 | 创建工作区失败 | 确认填写的是有提交记录的 Git 根目录，源码与工作台数据目录互不包含；子模块、未物化的 Git LFS 文件等限制见 M1 说明 |
+| Windows 启动报 `No module named fcntl` | 更新到包含 Windows 兼容修复的版本，重新安装 `.[server]`；不要尝试安装同名 `fcntl` 包。详见 Windows 指南 |
+| Windows 无法连接 Docker pipe | 启动 Docker Desktop，确认 WSL2 后端、Linux 容器及本机 `dockerDesktopLinuxEngine` 管道可用 |
 | 预检通过但模型调用失败 | 预检不发起推理；另查模型当前开放情况、Runner 凭据、代理、CA 和模型服务网络，运行 `acceptance doctor` 辅助诊断 |
 | 更新配置后旧需求仍用旧版本 | 已有工作区固定原版本；在新工作区验证新 CLI、镜像或项目配置 |
 | 任务为 UNKNOWN / 待核实 | 先检查现场，再使用「停止并核实」；跨项目操作核实全部成员。镜像维护使用单独的人工核实入口，不自动重试 |
@@ -307,5 +311,6 @@ npm run --prefix web build
 | Docker 管理 | [镜像维护与容器管理](docs/24-docker-management.md) | 说明内附证据 |
 | SQLite | [本地存储与维护](docs/25-local-sqlite.md) | 说明内附验证范围 |
 | Agent CLI | [兼容封装配置](docs/26-agent-cli.md) | 说明内附证据 |
+| Windows 11 | [兼容性与 PowerShell 启动](docs/27-windows11.md) | Windows/Linux CI 及实测边界 |
 
 可运行的接入示例：[Node 配置](poc/onboarding/profile.sample.json)、[项目 Dockerfile](poc/onboarding/Dockerfile)、[PostgreSQL 配置](poc/postgres-sample/profile.sample.json)。`design-examples/*.yaml` 是设计评审示意，当前不是可直接执行的 Compose、OpenCode 或流程配置。

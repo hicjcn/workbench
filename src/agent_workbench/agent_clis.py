@@ -124,20 +124,20 @@ def configure(workspace, selected):
     content = Content.model_validate(selected["content"]).model_dump()
     if digest(content) != selected["content_digest"]: raise WorkbenchError("Agent CLI 配置摘要不一致")
     fixed = {key: selected[key] for key in ("id", "name", "number", "content", "content_digest")}
-    path = workspace / "workspace.json"; manifest = json.loads(path.read_text())
+    path = workspace / "workspace.json"; manifest = json.loads(path.read_text(encoding="utf-8"))
     if manifest.get("agent_cli") and manifest["agent_cli"] != fixed: raise WorkbenchError("工作区 Agent CLI 已固定，不能静默切换")
     manifest["agent_cli"] = fixed; write_json(path, manifest)
 
 
 def inherit(source, target):
-    source_manifest = json.loads((source / "workspace.json").read_text())
+    source_manifest = json.loads((source / "workspace.json").read_text(encoding="utf-8"))
     if source_manifest.get("agent_cli"):
-        path = target / "workspace.json"; manifest = json.loads(path.read_text()); manifest["agent_cli"] = source_manifest["agent_cli"]; write_json(path, manifest)
+        path = target / "workspace.json"; manifest = json.loads(path.read_text(encoding="utf-8")); manifest["agent_cli"] = source_manifest["agent_cli"]; write_json(path, manifest)
 
 
 def verify_workspace(workspace, selected=None):
     selected = selected or builtin()
-    configured = json.loads((workspace / "workspace.json").read_text()).get("agent_cli")
+    configured = json.loads((workspace / "workspace.json").read_text(encoding="utf-8")).get("agent_cli")
     if not configured:
         if selected["id"] != BUILTIN: raise WorkbenchError("工作区尚未固定所选 Agent CLI，请重新准备工作区")
         return

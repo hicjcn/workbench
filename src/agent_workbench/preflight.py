@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import time
 
+from .platform_support import is_link
 from . import runtime
 from .execution import Canceled, Unknown
 from .profiles import command, inherit, runtime_options
@@ -16,8 +17,8 @@ SUPERPOWERS = "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b"
 def read_report(workspace):
     path = workspace / "preflight-report.json"
     if not path.exists(): return None
-    if path.is_symlink() or path.stat().st_size > 128 * 1024: raise WorkbenchError("预检记录不可信")
-    return json.loads(path.read_text())
+    if is_link(path) or path.stat().st_size > 128 * 1024: raise WorkbenchError("预检记录不可信")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def require_passed(workspace, profile):
@@ -42,7 +43,7 @@ def execute(executor, job, workspace, emit, canceled):
     profile = job.get("profile")
     if not profile: raise WorkbenchError("请先保存项目运行配置，并创建使用该版本的新需求工作区")
     if (workspace / "runtime.json").exists(): raise WorkbenchError("请先停止当前开发环境，再进行独立预检")
-    fixed = json.loads((workspace / "workspace.json").read_text()).get("runtime_profile")
+    fixed = json.loads((workspace / "workspace.json").read_text(encoding="utf-8")).get("runtime_profile")
     if not fixed or fixed["content_digest"] != profile["content_digest"]: raise WorkbenchError("运行配置尚未准备完成")
     original = snapshot(workspace / "repo")
     created = create_workspace(workspace / "repo", executor.settings.data_dir / "attempts" / job["id"],
@@ -64,13 +65,13 @@ def execute(executor, job, workspace, emit, canceled):
             except WorkbenchError: pass
             if time.monotonic() >= deadline: raise WorkbenchError("预检服务未就绪，请检查镜像是否包含所需 OpenCode 和 Node 环境")
             time.sleep(.5)
-        state = json.loads((isolated / "runtime.json").read_text())
+        state = json.loads((isolated / "runtime.json").read_text(encoding="utf-8"))
         details = json.loads(runtime.docker("inspect", state["container"]).stdout)[0]
         labels = details["Config"].get("Labels") or {}
         config = {"commands": {"build": command(profile["content"]["build_command"]), "verify": command(profile["content"]["verification_command"])},
             "mounts": [item["target"] for item in profile["content"]["mounts"]]}
         from .agent_clis import checked, command as cli_command
-        agent_cli = json.loads((isolated / "workspace.json").read_text()).get("agent_cli")
+        agent_cli = json.loads((isolated / "workspace.json").read_text(encoding="utf-8")).get("agent_cli")
         cli_content = checked(agent_cli)
         config["version_argv"] = cli_command(agent_cli, "version")
         if agent_cli: report["agent_cli"] = {key: agent_cli[key] for key in ("id", "name", "number", "content_digest")}

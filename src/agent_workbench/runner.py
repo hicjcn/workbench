@@ -1,6 +1,5 @@
 """A separate, trusted single-host Runner which pulls typed jobs from the API."""
 import argparse
-import fcntl
 import json
 from pathlib import Path
 import threading
@@ -10,6 +9,7 @@ import uuid
 
 import httpx
 
+from . import locking
 from .execution import Canceled, Executor, Unknown
 from .settings import Settings
 from .workspace import WorkbenchError
@@ -101,9 +101,9 @@ class Runner:
         locks = self.settings.data_dir / "locks"
         locks.mkdir(parents=True, exist_ok=True)
         for workspace in response.json():
-            with (locks / (workspace["requirement_id"] + ".lock")).open("a") as lock:
+            with (locks / (workspace["requirement_id"] + ".lock")).open("a+b") as lock:
                 try:
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    locking.flock(lock, locking.LOCK_EX | locking.LOCK_NB)
                 except BlockingIOError:
                     continue
                 try:

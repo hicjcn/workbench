@@ -1,4 +1,4 @@
-import fcntl
+from agent_workbench import locking
 import io
 import json
 from pathlib import Path
@@ -24,7 +24,7 @@ class ControlFixture(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.data = self.root / "data"
         self.data.mkdir()
         self.settings = Settings(self.data, f"sqlite:///{self.data / 'test.db'}", "user-fixture-token" * 2, "runner-fixture-token" * 2,
@@ -192,8 +192,8 @@ class ControlPlaneTests(ControlFixture):
         queued = self.action(detail, "refresh").json()
         job = self.store.claim("fixture")
         lock_path = self.data / "locks" / (detail["id"] + ".lock")
-        with lock_path.open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with lock_path.open("a+b") as lock:
+            locking.flock(lock, locking.LOCK_EX | locking.LOCK_NB)
             with self.assertRaises(Unknown):
                 self.runner.executor.execute(job, lambda *_: None, threading.Event())
         self.assertEqual(job["id"], queued["id"])

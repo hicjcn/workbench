@@ -1,6 +1,5 @@
 """Operator-driven sample acceptance; one durable intent per advance, human gates pause."""
 import argparse
-import fcntl
 import json
 import shlex
 from pathlib import Path
@@ -11,6 +10,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from .platform_support import is_link
+from . import locking
 from .model_diagnostics import diagnose
 from .profiles import Content
 from .runtime import model_config
@@ -77,13 +78,13 @@ class Session:
         parsed = urlparse(api)
         if parsed.scheme != "http" or parsed.hostname not in ("localhost", "127.0.0.1") or parsed.username is not None or parsed.password is not None or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
             raise WorkbenchError("验收工具只连接本机 HTTP 工作台根地址")
-        if token_file.is_symlink(): raise WorkbenchError("令牌文件不能是符号链接")
-        token = token_file.read_text().strip()
+        if is_link(token_file): raise WorkbenchError("令牌文件不能是符号链接")
+        token = token_file.read_text(encoding="utf-8").strip()
         if len(token) < 32: raise WorkbenchError("令牌文件不正确")
         self.client = httpx.Client(base_url=api.rstrip("/") + "/api/v1", headers={"Authorization": "Bearer " + token}, trust_env=False, transport=transport, timeout=30)
         if self.file.exists():
-            if self.file.is_symlink(): raise WorkbenchError("验收日志不能是符号链接")
-            self.state = json.loads(self.file.read_text())
+            if is_link(self.file): raise WorkbenchError("验收日志不能是符号链接")
+            self.state = json.loads(self.file.read_text(encoding="utf-8"))
             if self.state.get("schema") != "workbench-sample-acceptance/v1" or self.state["api"] != api.rstrip("/"): raise WorkbenchError("验收目录或 API 不匹配")
         else:
             if self.root.exists(): raise WorkbenchError("初始化需要尚不存在的独立目录")
@@ -254,8 +255,8 @@ def main():
             if args.command != "setup" and not (args.root / "acceptance.json").is_file(): raise WorkbenchError("请先 setup 初始化独立验收目录")
             # A sibling lock also covers exclusive creation of a brand new root.
             lock_path = args.root.resolve().with_name(args.root.name + ".acceptance.lock"); lock_path.parent.mkdir(parents=True, exist_ok=True)
-            with lock_path.open("a") as lock:
-                try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with lock_path.open("a+b") as lock:
+                try: locking.flock(lock, locking.LOCK_EX | locking.LOCK_NB)
                 except BlockingIOError: raise WorkbenchError("另一个验收命令正在运行") from None
                 session = Session(args.root, args.api, args.token_file)
                 if args.command == "setup": result = session.setup(args.image, reviewers)

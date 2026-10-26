@@ -7,6 +7,7 @@ import stat
 import tempfile
 import zipfile
 
+from .platform_support import is_link
 from .workspace import WorkbenchError
 
 LIMIT = 512 * 1024 * 1024
@@ -28,7 +29,7 @@ def file_hash(path):
 
 def build(destination, header, entries, limit=LIMIT):
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if destination.exists() or destination.is_symlink() or destination.parent.is_symlink(): raise WorkbenchError("归档已存在或存储路径不可信")
+    if destination.exists() or is_link(destination) or is_link(destination.parent): raise WorkbenchError("归档已存在或存储路径不可信")
     fd, temporary = tempfile.mkstemp(prefix=".archive-", dir=destination.parent)
     recorded, seen, total = [], set(), 0
     try:
@@ -39,7 +40,7 @@ def build(destination, header, entries, limit=LIMIT):
                 seen.add(name)
                 mode, before = 0o600, None
                 if isinstance(source, Path):
-                    if source.is_symlink() or not source.is_file(): raise WorkbenchError("归档不接受符号链接或特殊文件")
+                    if is_link(source) or not source.is_file(): raise WorkbenchError("归档不接受符号链接或特殊文件")
                     before = source.stat(); size = before.st_size; mode = 0o755 if before.st_mode & 0o111 else 0o644
                 else: size = len(source)
                 total += size
@@ -69,7 +70,7 @@ def build(destination, header, entries, limit=LIMIT):
 
 def verify(path, expected=None, limit=LIMIT):
     try:
-        if path.is_symlink() or path.stat().st_size > limit + 20 * 1024 * 1024: raise WorkbenchError("归档文件不可信或过大")
+        if is_link(path) or path.stat().st_size > limit + 20 * 1024 * 1024: raise WorkbenchError("归档文件不可信或过大")
         if expected and (path.stat().st_size != expected["size"] or file_hash(path) != expected["sha256"]): raise WorkbenchError("归档文件摘要不符")
         with zipfile.ZipFile(path) as archive:
             if archive.getinfo("manifest.json").file_size > 16 * 1024 * 1024: raise WorkbenchError("归档清单过大")

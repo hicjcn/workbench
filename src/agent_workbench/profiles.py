@@ -12,6 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import and_, insert, select, update
 
+from .platform_support import is_link
 from . import runtime
 from .checked_archive import file_hash
 from .store import (Conflict, Missing, projects, requirements, workspaces, project_profiles as profiles,
@@ -113,7 +114,15 @@ def checked_source(raw, data_dir):
     path = Path(raw).expanduser()
     if not path.is_absolute() or any(char in str(path) for char in ",\n\r\x00"):
         raise WorkbenchError("配置文件必须使用绝对路径，且不能包含特殊分隔符")
-    if path.resolve() != path or not path.is_file() or path.is_symlink() or path.is_relative_to(data_dir):
+    current = path
+    while True:
+        if is_link(current):
+            raise WorkbenchError("只允许普通配置文件，不支持符号链接、junction 和重解析点")
+        if current.parent == current:
+            break
+        current = current.parent
+    path = path.resolve()
+    if not path.is_file() or path.is_relative_to(data_dir.resolve()):
         raise WorkbenchError("只允许工作台数据目录之外的普通配置文件，不支持符号链接和目录挂载")
     if path.stat().st_size > 1024 * 1024: raise WorkbenchError("单个配置文件不能超过 1 MiB")
     return path
@@ -167,21 +176,21 @@ def staged_mounts(workspace, profile, data_dir, source_workspace=None):
         target = safe_path(workspace, f"runtime-config/{index}.config")
         if not target.exists():
             source = safe_path(source_workspace, f"runtime-config/{index}.config") if source_workspace else checked_source(mount["source"], data_dir)
-            if source.is_symlink() or file_hash(source) != mount["sha256"]: raise WorkbenchError("配置文件与固定版本不一致，请还原文件或创建新版本和工作区")
+            if is_link(source) or file_hash(source) != mount["sha256"]: raise WorkbenchError("配置文件与固定版本不一致，请还原文件或创建新版本和工作区")
             target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             descriptor, temporary = tempfile.mkstemp(dir=target.parent)
             try:
                 with os.fdopen(descriptor, "wb") as output: output.write(source.read_bytes())
                 os.link(temporary, target)
             finally: Path(temporary).unlink(missing_ok=True)
-        if target.is_symlink() or file_hash(target) != mount["sha256"]: raise WorkbenchError("工作区配置副本摘要不符")
+        if is_link(target) or file_hash(target) != mount["sha256"]: raise WorkbenchError("工作区配置副本摘要不符")
         result.append({"source": str(target), "target": mount["target"]})
     return result
 
 
 def configure(workspace, profile, data_dir):
     if not profile: return
-    manifest = json.loads((workspace / "workspace.json").read_text())
+    manifest = json.loads((workspace / "workspace.json").read_text(encoding="utf-8"))
     fixed = manifest.get("runtime_profile")
     if fixed:
         if fixed["id"] != profile["id"] or fixed["content_digest"] != profile["content_digest"]: raise WorkbenchError("工作区运行配置与固定版本不一致")
@@ -199,16 +208,16 @@ def configure(workspace, profile, data_dir):
 def inherit(source, target, data_dir):
     from .agent_clis import inherit as inherit_agent
     inherit_agent(source, target)
-    manifest = json.loads((source / "workspace.json").read_text())
+    manifest = json.loads((source / "workspace.json").read_text(encoding="utf-8"))
     if manifest.get("runtime_profile"):
         fixed = manifest["runtime_profile"]
         staged_mounts(target, fixed, data_dir, source)
-        copied = json.loads((target / "workspace.json").read_text()); copied["runtime_profile"] = fixed
+        copied = json.loads((target / "workspace.json").read_text(encoding="utf-8")); copied["runtime_profile"] = fixed
         write_json(target / "workspace.json", copied)
 
 
 def runtime_options(workspace, data_dir):
-    manifest = json.loads((workspace / "workspace.json").read_text())
+    manifest = json.loads((workspace / "workspace.json").read_text(encoding="utf-8"))
     profile = manifest.get("runtime_profile")
     agent_options = {"agent_cli": manifest["agent_cli"]} if manifest.get("agent_cli") else {}
     if not profile: return agent_options

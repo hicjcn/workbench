@@ -7,7 +7,7 @@ name = "agent-workbench"
 version = "0.10.0"
 description = "Local development workbench with a persistent API and isolated OpenCode Runner"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["portalocker==3.2.0; sys_platform == 'win32'"]
 
 [project.optional-dependencies]
 server = [

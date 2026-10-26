@@ -1,4 +1,4 @@
-import fcntl
+from agent_workbench import locking
 import json
 from pathlib import Path
 import subprocess
@@ -80,10 +80,11 @@ class DockerManagementTests(ControlFixture):
         self.assertEqual(self.operation(key="new").status_code, 409)
         with self.assertRaisesRegex(Exception, "租约"): service.finish(job["id"], "old", job["epoch"], "SUCCEEDED", {}, None)
         locks = self.data / "locks"; locks.mkdir(exist_ok=True)
-        with (locks / "docker-images.lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            response = self.client.post(f"/api/v1/docker/operations/{job['id']}/acknowledge", json={"actor": "本人", "reason": "已实际核实", "checked_daemon": True})
-            self.assertEqual(response.status_code, 409)
+        for name in ("docker-images.lock", "docker-command.lock"):
+            with (locks / name).open("a+b") as lock:
+                locking.flock(lock, locking.LOCK_EX)
+                response = self.client.post(f"/api/v1/docker/operations/{job['id']}/acknowledge", json={"actor": "本人", "reason": "已实际核实", "checked_daemon": True})
+                self.assertEqual(response.status_code, 409)
         response = self.client.post(f"/api/v1/docker/operations/{job['id']}/acknowledge", json={"actor": "本人", "reason": "已在 Docker 主机检查原任务结束", "checked_daemon": True})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ACKNOWLEDGED")
@@ -142,11 +143,12 @@ class DockerManagementTests(ControlFixture):
 
     def test_command_timeout_is_unknown_and_docker_output_is_not_exposed(self):
         locks = self.data / "locks"; locks.mkdir()
-        with (locks / "test.lock").open("a") as lock:
-            with patch("agent_workbench.docker_execution.subprocess.run", side_effect=subprocess.TimeoutExpired("docker secret", 900)):
+        target = "agent_workbench.docker_worker.run" if docker_execution.IS_WINDOWS else "agent_workbench.docker_execution.subprocess.run"
+        with (locks / "test.lock").open("a+b") as lock:
+            with patch(target, side_effect=subprocess.TimeoutExpired("docker secret", 900)):
                 with self.assertRaises(Unknown) as raised: docker_execution.command(["pull", "node:22"], lock)
                 self.assertNotIn("secret", str(raised.exception))
-            with patch("agent_workbench.docker_execution.subprocess.run", return_value=Mock(returncode=1, stderr="PASSWORD=secret")):
+            with patch(target, return_value=Mock(returncode=1, stderr="PASSWORD=secret")):
                 with self.assertRaises(WorkbenchError) as raised: docker_execution.command(["pull", "node:22"], lock)
                 self.assertNotIn("PASSWORD", str(raised.exception))
 

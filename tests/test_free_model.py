@@ -76,7 +76,7 @@ class FreeModelTests(unittest.TestCase):
 
     def test_openrouter_missing_key_does_not_create_fixture_or_start_runtime(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "run"
+            root = Path(directory).resolve() / "run"
             with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}), \
                     patch.object(sys, "argv", ["verify_free_model.py", "--root", str(root), "--model", self.model]), \
                     patch.object(verification.runtime, "start") as start, \
@@ -89,7 +89,7 @@ class FreeModelTests(unittest.TestCase):
 
     def test_charged_catalog_model_is_blocked_before_container_or_prompt(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "run"
+            root = Path(directory).resolve() / "run"
             with patch.dict(os.environ, {"OPENROUTER_API_KEY": self.credential}), \
                     patch.object(sys, "argv", ["verify_free_model.py", "--root", str(root), "--model", self.model]), \
                     patch.object(verification, "urlopen", return_value=self.catalog_response({"prompt": "1", "completion": "0"})), \
@@ -111,7 +111,7 @@ class FreeModelTests(unittest.TestCase):
 
     def test_openrouter_routes_selected_provider_and_redacts_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "run"
+            root = Path(directory).resolve() / "run"
             workspace = root / "workspaces/req-free/backend"
 
             def start(*args, **kwargs):
@@ -151,7 +151,7 @@ class FreeModelTests(unittest.TestCase):
 
     def test_timeout_partial_output_redacts_key(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             partial = json.dumps({"type": "error", "message": self.credential}).encode()
             verification.save_agent_output(root, partial, self.credential.encode(), (self.credential,))
             for path in root.iterdir():
@@ -159,7 +159,7 @@ class FreeModelTests(unittest.TestCase):
 
     def test_timeout_preserves_partial_output_stops_runtime_and_never_replays(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "run"
+            root = Path(directory).resolve() / "run"
             workspace = root / "workspaces/req-free/backend"
             partial = b'{"type":"text","sessionID":"ses_fixture"}\n'
 
@@ -187,7 +187,8 @@ class FreeModelTests(unittest.TestCase):
             self.assertTrue(report["runtime_stopped"])
             self.assertEqual((root / "agent-events.jsonl").read_bytes(), partial)
             self.assertEqual((root / "agent-stderr.txt").read_text(), "partial stderr")
-            self.assertEqual((root / "agent-events.jsonl").stat().st_mode & 0o777, 0o600)
+            if os.name != "nt":
+                self.assertEqual((root / "agent-events.jsonl").stat().st_mode & 0o777, 0o600)
             self.assertEqual([call.args[3] for call in docker.call_args_list], ["models", "run"])
             stopped.assert_called_once_with(workspace)
             self.assertEqual(started.call_args.kwargs["opencode_model"], "opencode/glm-5.3-flash-free")

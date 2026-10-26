@@ -1,8 +1,10 @@
 import json
+import os
 from pathlib import Path
 import subprocess
 from datetime import datetime, timezone
 
+from .platform_support import is_link
 from .checked_archive import build as build_archive, verify as verify_archive
 from .workspace import WorkbenchError, git, safe_path, snapshot
 
@@ -11,12 +13,12 @@ def package_path(root, job_id):
     import re
     if not re.fullmatch(r"job_[a-f0-9]{32}", job_id): raise WorkbenchError("交付任务标识不正确")
     directory = root / "deliveries"
-    if directory.is_symlink(): raise WorkbenchError("交付目录不可信")
+    if is_link(directory): raise WorkbenchError("交付目录不可信")
     return directory / (job_id + ".zip")
 
 
 def full_diff(executor, workspace, files):
-    baseline = json.loads((workspace / "workspace.json").read_text())["source_baseline"]
+    baseline = json.loads((workspace / "workspace.json").read_text(encoding="utf-8"))["source_baseline"]
     names = sorted({item["path"] for item in files} | {item["path"] for item in baseline["files"]})
     chunks = []
     for index in range(0, len(names), 100):
@@ -24,8 +26,8 @@ def full_diff(executor, workspace, files):
     tracked = set(git(workspace / "repo", "ls-files", "-z").decode().rstrip("\0").split("\0"))
     for name in names:
         if name in tracked or not safe_path(workspace / "repo", name).is_file(): continue
-        result = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", str(workspace / "repo"),
-            "diff", "--no-index", "--no-ext-diff", "--no-textconv", "--binary", "--", "/dev/null", name], capture_output=True, timeout=120)
+        result = subprocess.run(["git", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false", "-C", str(workspace / "repo"),
+            "diff", "--no-index", "--no-ext-diff", "--no-textconv", "--binary", "--", os.devnull, name], capture_output=True, timeout=120)
         if result.returncode not in (0, 1): raise WorkbenchError("新增文件差异采集失败")
         chunks.append(result.stdout)
     content = b"".join(chunks)
@@ -50,7 +52,7 @@ def build(executor, job, observations):
         current = snapshot(repo); baselines[str(workspace)] = current["tree_digest"]
         if current["tree_digest"] != member["baseline"]["code_digest"] or current["commit_sha"] != member["baseline"]["commit_sha"]: raise WorkbenchError("实际代码与已验收基线不一致，请刷新差异")
         prefix = "projects/" + member["project_id"]
-        manifest = json.loads((workspace / "workspace.json").read_text())
+        manifest = json.loads((workspace / "workspace.json").read_text(encoding="utf-8"))
         header["projects"].append({"project_id": member["project_id"], "requirement_id": member["requirement_id"], "status": "READY",
             "baseline": member["baseline"], "source_commit": manifest["source_commit"], "source_baseline": manifest["source_baseline"],
             "runtime_profile": manifest.get("runtime_profile")})

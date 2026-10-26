@@ -9,6 +9,7 @@ import threading
 import time
 
 from . import runtime
+from .platform_support import docker_argv, docker_environment
 from .execution import Canceled, Unknown
 from .workflow_reports import Analysis, Development, Review, parse_report
 from .workspace import WorkbenchError, create_workspace, snapshot
@@ -95,13 +96,10 @@ def verify_command(executor, job, workspace, emit, canceled, argv=None):
     state_path = workspace / "runtime.json"
     if not state_path.exists():
         raise WorkbenchError("请先启动开发环境，再执行验证命令")
-    state = json.loads(state_path.read_text())
+    state = json.loads(state_path.read_text(encoding="utf-8"))
     argv = argv if argv is not None else job["input"]["bundle"]["config"]["verification_argv"]
-    env = os.environ.copy()
-    for name in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
-        env.pop(name, None)
-    process = subprocess.Popen(["docker", "--host=unix:///var/run/docker.sock", "exec", state["container"], *argv],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+    process = subprocess.Popen(docker_argv("exec", state["container"], *argv),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=docker_environment())
     output = queue.Queue()
     def read():
         try:

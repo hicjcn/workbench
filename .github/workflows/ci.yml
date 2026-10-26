@@ -9,7 +9,15 @@ permissions:
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: "1"
+      PYTHONPATH: src
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,8 +28,20 @@ jobs:
           node-version: "22"
       - name: Install controller dependencies
         run: python -m pip install -e '.[server]'
+      - name: Windows startup, locking and PowerShell guide
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $guide = Get-Content docs/27-windows11.md -Raw -Encoding utf8
+          foreach ($block in [regex]::Matches($guide, '(?ms)^```powershell\r?\n(.*?)^```')) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseInput($block.Groups[1].Value, [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
+          python -m unittest discover -s tests -p test_platform_support.py -v
       - name: Workspace and local control API tests
-        run: PYTHONPATH=src python -m unittest discover -s tests -v
+        run: python poc/run_unit_tests.py
       - name: Sample backend tests
         run: node --test poc/sample-project/server.test.mjs
       - name: Build Web interface

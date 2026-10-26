@@ -12,6 +12,7 @@ import zipfile
 
 from sqlalchemy import delete, insert, select, update
 
+from .platform_support import is_link
 from .checked_archive import build, verify, name_safe, file_hash
 from . import resources
 from .execution import Executor
@@ -66,7 +67,7 @@ def workspace_entries(root):
         checkpoints[relative] = {"tree_digest": current["tree_digest"], "commit_sha": current["commit_sha"]}
         entries += [("files/" + relative + "/repo/" + item["path"], safe_path(workspace / "repo", item["path"])) for item in current["files"]]
         for path in (workspace / "repo/.git").rglob("*"):
-            if path.is_symlink(): raise WorkbenchError("Git 元数据包含符号链接")
+            if is_link(path): raise WorkbenchError("Git 元数据包含符号链接")
             if path.is_file(): entries.append(("files/" + path.relative_to(root).as_posix(), path))
         for filename in ("workspace.json", "capability-report.json", "preflight-report.json", "application-report.json"):
             path = workspace / filename
@@ -76,7 +77,7 @@ def workspace_entries(root):
             entries.append(("files/" + relative + "/" + name, safe_path(workspace, name)))
     for folder in ("exports", "deliveries"):
         directory = root / folder
-        if directory.is_symlink(): raise WorkbenchError("正式存储目录不可信")
+        if is_link(directory): raise WorkbenchError("正式存储目录不可信")
         if directory.exists():
             entries += [("files/" + path.relative_to(root).as_posix(), path) for path in directory.iterdir() if path.is_file()]
     return entries, checkpoints
@@ -118,7 +119,7 @@ def backup(settings):
 def restore(archive_path, destination, project_maps=None):
     archive_path = archive_path.resolve(strict=True)
     destination = destination.absolute()
-    if destination.exists() or destination.is_symlink(): raise WorkbenchError("恢复目标必须是尚不存在的新目录")
+    if destination.exists() or is_link(destination): raise WorkbenchError("恢复目标必须是尚不存在的新目录")
     manifest = verify(archive_path)
     if (manifest.get("schema"), manifest.get("schema_revision")) not in (("workbench-backup/v1", "0005"), ("workbench-backup/v1", "0006"), ("workbench-backup/v2", "0006"), ("workbench-backup/v2", "0007"), ("workbench-backup/v2", "0008")): raise WorkbenchError("备份格式或数据版本不支持")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -161,7 +162,7 @@ def restore(archive_path, destination, project_maps=None):
             Executor.guard_git(workspace / "repo")
             observed = snapshot(workspace / "repo")
             if {"tree_digest": observed["tree_digest"], "commit_sha": observed["commit_sha"]} != expected: raise WorkbenchError("恢复源码摘要与备份不一致")
-            path = workspace / "workspace.json"; content = json.loads(path.read_text())
+            path = workspace / "workspace.json"; content = json.loads(path.read_text(encoding="utf-8"))
             content["repo"] = str(workspace / "repo"); write_json(path, content)
             from .dependencies import backup_files, STATE, read
             backup_files(workspace)

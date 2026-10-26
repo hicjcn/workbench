@@ -6,12 +6,15 @@ import hashlib
 import io
 import json
 import os
+import ntpath
 from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
+
+from .platform_support import IS_WINDOWS, is_link
 
 
 class WorkbenchError(Exception):
@@ -20,7 +23,7 @@ class WorkbenchError(Exception):
 
 def git(directory: Path, *args: str) -> bytes:
     result = subprocess.run(
-        ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", str(directory), *args],
+        ["git", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false", "-C", str(directory), *args],
         capture_output=True,
         timeout=120,
     )
@@ -31,6 +34,8 @@ def git(directory: Path, *args: str) -> bytes:
 
 def excluded(name: str) -> bool:
     parts = PurePosixPath(name).parts
+    if IS_WINDOWS:
+        parts = tuple(part.casefold() for part in parts)
     return any(
         p in {".git", "node_modules", "__pycache__", ".venv", "target", "runtime-secrets", "credentials"}
         or p == ".env" or p.startswith(".env.")
@@ -38,15 +43,29 @@ def excluded(name: str) -> bool:
     )
 
 
+def windows_names(names, seen=None):
+    """Do not silently merge distinct Linux paths on a case-insensitive volume."""
+    seen = {} if seen is None else seen
+    for name in names:
+        parts = PurePosixPath(name).parts
+        for length in range(1, len(parts) + 1):
+            prefix = "/".join(parts[:length])
+            if seen.setdefault(prefix.casefold(), prefix) != prefix:
+                raise WorkbenchError("Source contains case-colliding paths that Windows cannot represent")
+
+
 def safe_path(root: Path, name: str) -> Path:
     relative = PurePosixPath(name)
-    if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+    if relative.is_absolute() or ".." in relative.parts or not relative.parts or "\\" in name or ntpath.splitdrive(name)[0]:
         raise WorkbenchError("Source contains an unsafe path")
+    if IS_WINDOWS and any(part.endswith((" ", ".")) or any(char in part for char in '<>:"|?*') or
+        re.match(r"(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)", part) for part in relative.parts):
+        raise WorkbenchError("Source contains a name that Windows cannot safely represent")
     result = root.joinpath(*relative.parts)
     # The prototype rejects all symlinks instead of following an external target.
     current = result
     while current != root:
-        if current.is_symlink():
+        if is_link(current):
             raise WorkbenchError(f"Symlinks are not supported by M1: {name}")
         current = current.parent
     return result
@@ -71,6 +90,16 @@ def inventory(repo: Path, *, untracked: bool = True) -> dict:
     if untracked:
         args += ["--others", "--exclude-standard"]
     names = set(git(repo, *args).decode().rstrip("\0").split("\0")) - {""}
+    if IS_WINDOWS:
+        windows_names(name for name in names if not excluded(name))
+    executable = {}
+    if IS_WINDOWS:
+        # NTFS chmod does not express POSIX execute bits. Keep the Git index
+        # contract instead, including scripts exported from Linux repositories.
+        for item in git(repo, "ls-files", "--stage", "-z").decode().split("\0"):
+            if item:
+                metadata, name = item.split("\t", 1)
+                executable[name] = metadata.split()[0] == "100755"
     entries = []
     for name in sorted(names):
         if excluded(name):
@@ -82,13 +111,13 @@ def inventory(repo: Path, *, untracked: bool = True) -> dict:
             raise WorkbenchError(f"Unsupported source entry: {name}")
         before = path.stat()
         content = path.read_bytes()
-        if content.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
+        if content.startswith((b"version https://git-lfs.github.com/spec/v1\n", b"version https://git-lfs.github.com/spec/v1\r\n")):
             raise WorkbenchError("Git LFS pointers are not materialized by M1")
         digest = hashlib.sha256(content).hexdigest()
         after = path.stat()
         if (before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_ino, after.st_size, after.st_mtime_ns):
             raise WorkbenchError("Source changed while computing its snapshot")
-        entries.append({"path": name, "sha256": digest, "executable": bool(after.st_mode & 0o111)})
+        entries.append({"path": name, "sha256": digest, "executable": executable.get(name, False) if IS_WINDOWS else bool(after.st_mode & 0o111)})
     encoded = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()
     return {"tree_digest": hashlib.sha256(encoded).hexdigest(), "files": entries}
 
@@ -138,12 +167,18 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
     try:
         repo = temporary / "repo"
         repo.mkdir()
-        archive = git(source, "archive", "--format=tar", source_sha)
+        # Git archive applies host checkout conversion too. In particular the
+        # Git for Windows global autocrlf default must not rewrite source bytes.
+        archive = git(source, "-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar", source_sha)
         total = 0
+        executable_paths = []
+        case_paths = {}
         with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
             for member in tar:
                 if excluded(member.name) or member.isdir():
                     continue
+                if IS_WINDOWS:
+                    windows_names([member.name], case_paths)
                 path = safe_path(repo, member.name)
                 if not member.isfile():
                     raise WorkbenchError(f"Unsupported archived entry: {member.name}")
@@ -155,14 +190,22 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
                 if stream is None:
                     raise WorkbenchError("Source archive entry cannot be read")
                 content = stream.read()
-                if content.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
+                if content.startswith((b"version https://git-lfs.github.com/spec/v1\n", b"version https://git-lfs.github.com/spec/v1\r\n")):
                     raise WorkbenchError("Git LFS pointers are not materialized by M1")
-                path.write_bytes(content)
+                with path.open("xb") as output:
+                    output.write(content)
                 path.chmod(0o755 if member.mode & 0o111 else 0o644)
+                if member.mode & 0o111:
+                    executable_paths.append(member.name)
         git(repo, "init", "-b", f"req/{requirement}")
+        git(repo, "config", "core.autocrlf", "false")
+        git(repo, "config", "core.eol", "lf")
         git(repo, "config", "user.name", "Agent Workbench Snapshot")
         git(repo, "config", "user.email", "snapshot@agent-workbench.invalid")
         git(repo, "add", "--all")
+        if IS_WINDOWS:
+            for name in executable_paths:
+                git(repo, "update-index", "--chmod=+x", "--", name)
         git(repo, "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", f"Source snapshot {source_sha}")
         initial = snapshot(repo)
         if include_dirty:
@@ -195,10 +238,10 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
 
 def load_workspace(path: Path) -> tuple[Path, dict]:
     path = path.resolve(strict=True)
-    manifest = json.loads((path / "workspace.json").read_text())
+    manifest = json.loads((path / "workspace.json").read_text(encoding="utf-8"))
     if Path(manifest["repo"]).resolve() != path / "repo":
         raise WorkbenchError("Workspace manifest points outside its own repository")
-    if (path / "repo").is_symlink():
+    if is_link(path / "repo"):
         raise WorkbenchError("Workspace repository must not be a symlink")
     return path, manifest
 

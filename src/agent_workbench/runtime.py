@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import fcntl
 from functools import wraps
 import json
 import os
@@ -12,7 +11,9 @@ import re
 import secrets
 import subprocess
 
+from . import locking
 from .opencode import OpenCodeClient
+from .platform_support import bind_mount, container_user, docker_argv, docker_environment
 from .workspace import WorkbenchError, load_workspace, safe_path, write_json
 
 
@@ -20,9 +21,9 @@ def exclusive_workspace(function):
     @wraps(function)
     def wrapped(workspace: Path, *args, **kwargs):
         workspace, _ = load_workspace(workspace)
-        with (workspace / ".runtime.lock").open("a") as lock:
+        with (workspace / ".runtime.lock").open("a+b") as lock:
             try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locking.flock(lock, locking.LOCK_EX | locking.LOCK_NB)
             except BlockingIOError:
                 raise WorkbenchError("Another runtime operation owns this workspace") from None
             return function(workspace, *args, **kwargs)
@@ -31,14 +32,10 @@ def exclusive_workspace(function):
 
 def docker(*args: str, environment: dict | None = None, check: bool = True,
            timeout: float = 120) -> subprocess.CompletedProcess:
-    env = os.environ.copy()
-    for key in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
-        env.pop(key, None)
-    if environment:
-        env.update(environment)
+    env = docker_environment(environment)
     result = subprocess.run(
-        ["docker", "--host=unix:///var/run/docker.sock", *args],
-        capture_output=True, text=True, env=env, timeout=timeout,
+        docker_argv(*args),
+        capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=timeout,
     )
     if check and result.returncode:
         # Do not include argv/env: credentials are passed by environment name.
@@ -48,10 +45,8 @@ def docker(*args: str, environment: dict | None = None, check: bool = True,
 
 def docker_stream(*args: str, source=None, destination=None, timeout=120):
     """Stream private binary data without loading it into logs or command arguments."""
-    env = os.environ.copy()
-    for key in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
-        env.pop(key, None)
-    result = subprocess.run(["docker", "--host=unix:///var/run/docker.sock", *args], stdin=source,
+    env = docker_environment()
+    result = subprocess.run(docker_argv(*args), stdin=source,
         stdout=destination if destination is not None else subprocess.DEVNULL, stderr=subprocess.PIPE, env=env, timeout=timeout)
     if result.returncode: raise WorkbenchError(f"数据库流式导出或导入失败（退出码 {result.returncode}）；保留现场，不记录数据内容")
 
@@ -172,14 +167,14 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
         "run", "--detach", "--name", container,
         "--label", "awb.managed=true", "--label", f"awb.workspace={suffix}",
         "--label", "awb.kind=agent",
-        "--network", network, "--user", f"{os.getuid()}:{os.getgid()}",
+        "--network", network, "--user", container_user(),
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m",
         "--cpus", str(limits["cpus"]), "--memory", str(limits["memory_mib"]) + "m", "--pids-limit", str(limits["pids_limit"]),
         "--publish", "127.0.0.1::4096", "--workdir", "/workspace/project",
-        "--mount", f"type=bind,src={workspace / 'repo'},dst=/workspace/project" + (",readonly" if read_only_source else ""),
-        "--mount", f"type=bind,src={home},dst=/home/node",
-        "--mount", f"type=bind,src={staging},dst=/workbench/out",
+        "--mount", bind_mount(workspace / "repo", "/workspace/project", readonly=read_only_source),
+        "--mount", bind_mount(home, "/home/node"),
+        "--mount", bind_mount(staging, "/workbench/out"),
         "--env", "HOME=/home/node", "--env", "OPENCODE_SERVER_USERNAME=workbench",
         "--env", "OPENCODE_SERVER_PASSWORD",
     ]
@@ -188,12 +183,12 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     for name in dependency_environment or {}: command += ["--env", name]
     if controller: command += ["--label", f"awb.controller={controller}"]
     for mount in config_mounts or []:
-        command += ["--mount", f"type=bind,src={mount['source']},dst={mount['target']},readonly"]
+        command += ["--mount", bind_mount(mount["source"], mount["target"], readonly=True)]
     for mount in context_mounts or []:
-        command += ["--mount", f"type=bind,src={mount['source']},dst={mount['target']},readonly"]
+        command += ["--mount", bind_mount(mount["source"], mount["target"], readonly=True)]
     # Docker's configured proxy environment remains in effect. Mount session CA only at runtime.
     if proxy_ca:
-        command += ["--mount", f"type=bind,src={proxy_ca.resolve(strict=True)},dst=/run/proxy-ca.pem,readonly",
+        command += ["--mount", bind_mount(proxy_ca.resolve(strict=True), "/run/proxy-ca.pem", readonly=True),
                     "--env", "NODE_EXTRA_CA_CERTS=/run/proxy-ca.pem",
                     "--env", "SSL_CERT_FILE=/run/proxy-ca.pem",
                     "--env", "GIT_SSL_CAINFO=/run/proxy-ca.pem"]
@@ -216,7 +211,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
 
 def probe(workspace: Path) -> dict:
     workspace, _ = load_workspace(workspace)
-    state = json.loads((workspace / "runtime.json").read_text())
+    state = json.loads((workspace / "runtime.json").read_text(encoding="utf-8"))
     if state.get("phase") != "STARTED":
         raise WorkbenchError("Runtime is not ready for capability probing")
     report = OpenCodeClient(state["base_url"], state["password"]).probe()
@@ -242,7 +237,7 @@ def probe(workspace: Path) -> dict:
 def stop(workspace: Path) -> dict:
     workspace, _ = load_workspace(workspace)
     path = workspace / "runtime.json"
-    state = json.loads(path.read_text())
+    state = json.loads(path.read_text(encoding="utf-8"))
     inspected = docker("inspect", state["container"], check=False)
     if inspected.returncode == 0:
         details = json.loads(inspected.stdout)[0]

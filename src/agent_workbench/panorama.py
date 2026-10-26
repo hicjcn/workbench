@@ -149,7 +149,7 @@ def execute(executor, job, emit, canceled):
             except WorkbenchError: pass
             if time.monotonic() >= deadline: raise WorkbenchError("全景分析服务未就绪")
             time.sleep(.5)
-        state = json.loads((primary / "runtime.json").read_text())
+        state = json.loads((primary / "runtime.json").read_text(encoding="utf-8"))
         inspected = json.loads(runtime.docker("inspect", state["container"]).stdout)[0]
         probes = [{"project_id": item["project_id"], "target": item["target"], "samples": [file for file in item["files"] if len(file["path"].encode()) <= 512][:3]} for item in bundle]
         checked = json.loads(runtime.docker("exec", state["container"], "node", "-e", CHECK_SCRIPT, json.dumps(probes)).stdout)

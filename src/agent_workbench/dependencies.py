@@ -1,6 +1,5 @@
 """One owned PostgreSQL dataset per workspace, checkpointed before ordinary stop."""
 import hashlib
-import fcntl
 import json
 from pathlib import Path
 import secrets
@@ -8,6 +7,7 @@ import tempfile
 import time
 import uuid
 
+from . import locking
 from . import runtime
 from .checked_archive import file_hash
 from .workspace import WorkbenchError, safe_path, write_json
@@ -23,7 +23,7 @@ def read(workspace, filename):
     path = safe_path(workspace, filename)
     if not path.exists(): return None
     if path.stat().st_size > 65536: raise WorkbenchError("依赖记录超过限制")
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def spec(workspace):
@@ -188,8 +188,8 @@ def stop(root, workspace):
             from .resources import inventory
             from .settings import positive_int
             admission = root / "locks/runtime-admission.lock"; admission.parent.mkdir(parents=True, exist_ok=True)
-            with admission.open("a") as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX)
+            with admission.open("a+b") as lock:
+                locking.flock(lock, locking.LOCK_EX)
                 extra = needed(root, workspace)
                 if extra and len(inventory(root)) + extra > positive_int("AWB_MAX_CONTAINERS", 4): raise WorkbenchError("没有容量核实数据库，请先停止其他环境")
                 ensure(root, workspace)

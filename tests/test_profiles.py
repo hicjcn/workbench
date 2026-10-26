@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -61,7 +62,8 @@ class ProfileTests(ControlFixture):
         options = runtime_options(workspace, self.data)
         copied = Path(options["config_mounts"][0]["source"])
         self.assertEqual(copied.read_text(), "PRIVATE_FIXTURE=one\n")
-        self.assertEqual(copied.stat().st_mode & 0o777, 0o600)
+        if os.name != "nt":
+            self.assertEqual(copied.stat().st_mode & 0o777, 0o600)
         role = Path(create_workspace(workspace / "repo", self.data / "attempts/job_fixture", req["id"], req["project_id"])["workspace"])
         inherit(workspace, role, self.data)
         self.assertEqual(Path(runtime_options(role, self.data)["config_mounts"][0]["source"]).read_bytes(), copied.read_bytes())
