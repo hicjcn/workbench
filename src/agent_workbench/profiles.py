@@ -158,13 +158,12 @@ Content.model_rebuild()
 class Save(Input):
     expected_profile: str | None = None
     content: Content
-    actor: str = Field(min_length=1, max_length=160)
-    reason: str = Field(min_length=1, max_length=4000)
+    actor: str = Field(default="", max_length=160)
+    reason: str = Field(default="", max_length=4000)
 
     @field_validator("actor", "reason")
     @classmethod
-    def nonblank(cls, value):
-        if not value.strip(): raise ValueError("登记人和原因不能为空")
+    def trimmed(cls, value):
         return value.strip()
 
 

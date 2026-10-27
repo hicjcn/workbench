@@ -34,6 +34,19 @@ class ProfileTests(ControlFixture):
     def mounted(self):
         return Content(mounts=[{"source": str(self.config_file), "target": "/run/workbench-config/settings.conf"}]).model_dump()
 
+    def test_registration_metadata_may_be_omitted_or_blank(self):
+        expected = None
+        cases = [({}, "", ""), ({"actor": "", "reason": ""}, "", ""),
+            ({"actor": "  ", "reason": " \n "}, "", ""),
+            ({"actor": " 登记人 ", "reason": " 修订配置 "}, "登记人", "修订配置")]
+        for metadata, actor, reason in cases:
+            with self.subTest(metadata=metadata):
+                response = self.client.post(self.url, json={"expected_profile": expected, "content": Content().model_dump(), **metadata})
+                self.assertEqual(response.status_code, 201, response.text)
+                saved = self.client.get(self.url).json()["current"]
+                self.assertEqual((saved["actor"], saved["reason"]), (actor, reason))
+                expected = saved["id"]
+
     def test_versions_reject_stale_forms_and_preserve_original(self):
         first = self.save().json()
         second = self.save(Content(memory_mib=2048).model_dump(), first["id"])
