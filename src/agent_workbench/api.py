@@ -13,7 +13,7 @@ from typing import Literal
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import insert, select
+from sqlalchemy import insert, select, update
 from sqlalchemy.exc import IntegrityError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -237,8 +237,7 @@ def create_app(settings: Settings, store: Store | None = None):
     def list_projects():
         return database.list(tables.projects)
 
-    @app.post("/api/v1/projects", status_code=201, dependencies=[Depends(user)])
-    def register(value: ProjectInput):
+    def project_values(value: ProjectInput):
         from .multi_repo import source_root, validate_sources
         try: source = source_root(value.source_path)
         except (WorkbenchError, OSError) as error: raise HTTPException(422, str(error)) from None
@@ -258,11 +257,40 @@ def create_app(settings: Settings, store: Store | None = None):
             raise HTTPException(422, str(error)) from None
         if settings.data_dir.is_relative_to(source):
             raise HTTPException(422, "代码目录不能包含工作台的数据目录")
-        record = dict(id=identifier("prj"), name=value.name.strip(), source_path=str(source), image=image, created_at=time.time(),
+        return dict(name=value.name.strip(), source_path=str(source), image=image,
             repositories_json=tables.encoded(value.repositories), shared_files_json=tables.encoded(value.shared_files))
+
+    @app.post("/api/v1/projects", status_code=201, dependencies=[Depends(user)])
+    def register(value: ProjectInput):
+        record = dict(id=identifier("prj"), **project_values(value), created_at=time.time())
         with database.engine.begin() as connection:
             connection.execute(insert(tables.projects).values(**record))
         return tables.public(record)
+
+    @app.put("/api/v1/projects/{project_id}", dependencies=[Depends(user)])
+    def edit_project(project_id: str, value: ProjectInput):
+        database.get(tables.projects, project_id)
+        values = project_values(value)
+        with database.engine.begin() as connection:
+            previous = connection.execute(select(tables.projects).where(tables.projects.c.id == project_id).with_for_update()).mappings().one()
+            source_changed = any(previous[key] != values[key] for key in ("source_path", "repositories_json", "shared_files_json"))
+            if source_changed:
+                pending = connection.execute(select(tables.jobs.c.id).join(tables.requirements)
+                    .where(tables.requirements.c.project_id == project_id,
+                        tables.jobs.c.status.in_(["QUEUED", "RUNNING", "UNKNOWN"]))).first()
+                if pending: raise Conflict("项目有活动任务或待核实任务，请处理完成后再修改源码目录和仓库选择")
+                unprepared = connection.execute(select(tables.requirements.c.repositories_json).join(tables.workspaces)
+                    .where(tables.requirements.c.project_id == project_id, tables.workspaces.c.snapshot_json.is_(None))).scalars().all()
+                if unprepared and bool(json.loads(previous["repositories_json"])) != bool(value.repositories):
+                    raise Conflict("项目还有未创建工作区的需求，不能切换单仓库和多仓库模式")
+                if any(not set(json.loads(selected)).issubset(value.repositories) for selected in unprepared):
+                    raise Conflict("不能移除尚未创建工作区的需求已选择的仓库")
+                profile = connection.execute(select(tables.project_profiles.c.content_json).where(
+                    tables.project_profiles.c.project_id == project_id, tables.project_profiles.c.is_current.is_(True))).scalar_one_or_none()
+                if profile and any(item["path"] not in value.repositories for item in json.loads(profile).get("repository_commands", [])):
+                    raise Conflict("请先修订运行配置，移除不再登记的仓库命令")
+            connection.execute(update(tables.projects).where(tables.projects.c.id == project_id).values(**values))
+        return tables.public(dict(previous, **values))
 
     @app.post("/api/v1/projects/discover", dependencies=[Depends(user)])
     def discover_projects(value: DiscoverInput):
@@ -277,13 +305,15 @@ def create_app(settings: Settings, store: Store | None = None):
 
     @app.post("/api/v1/requirements", status_code=201, dependencies=[Depends(user)])
     def create_requirement(value: RequirementInput):
-        project = database.get(tables.projects, value.project_id)
-        selected = value.repositories if value.repositories is not None else project["repositories"]
-        if (project["repositories"] and not selected) or len(set(selected)) != len(selected) or not set(selected).issubset(project["repositories"]):
-            raise HTTPException(422, "请选择该业务项目已登记的候选仓库；至少选择一个")
-        record = dict(id=identifier("req"), **value.model_dump(exclude={"repositories"}),
-            repositories_json=tables.encoded(selected), created_at=time.time())
         with database.engine.begin() as connection:
+            row = connection.execute(select(tables.projects).where(tables.projects.c.id == value.project_id).with_for_update()).mappings().first()
+            if not row: raise Missing("项目不存在")
+            project = tables.public(row)
+            selected = value.repositories if value.repositories is not None else project["repositories"]
+            if (project["repositories"] and not selected) or len(set(selected)) != len(selected) or not set(selected).issubset(project["repositories"]):
+                raise HTTPException(422, "请选择该业务项目已登记的候选仓库；至少选择一个")
+            record = dict(id=identifier("req"), **value.model_dump(exclude={"repositories"}),
+                repositories_json=tables.encoded(selected), created_at=time.time())
             connection.execute(insert(tables.requirements).values(**record))
             connection.execute(insert(tables.workspaces).values(requirement_id=record["id"],
                 path=str(settings.data_dir / "workspaces" / record["id"] / value.project_id),
@@ -298,12 +328,14 @@ def create_app(settings: Settings, store: Store | None = None):
         from .preflight import read_report
         from .dependencies import status as dependency_status
         from .application import status as application_status
+        from .runtime import published_ports
         with database.engine.connect() as connection:
             profile = binding(connection, requirement_id)
             from .agent_clis import selection
             agent_cli = selection(connection, requirement_id)
         workspace = database.get(tables.workspaces, requirement_id)
         return {**requirement, "project": database.get(tables.projects, requirement["project_id"]), "profile": profile, "agent_cli": agent_cli,
+            "port_mappings": published_ports(Path(workspace["path"])),
             "preflight": read_report(Path(workspace["path"])),
             "dependency": dependency_status(Path(workspace["path"])),
             "application": application_status(Path(workspace["path"]), workspace.get("snapshot", {}).get("tree_digest") if workspace.get("snapshot") else None),

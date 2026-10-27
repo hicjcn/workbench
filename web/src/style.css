@@ -775,6 +775,117 @@ code {
   font-size: 18px;
   margin: 0;
 }
+.modal-wide {
+  width: min(1180px, calc(100vw - 48px));
+  max-width: none;
+  max-height: min(820px, calc(100dvh - 48px));
+}
+.modal-wide[open] {
+  display: flex;
+  flex-direction: column;
+}
+.modal-wide .modal-head {
+  flex: 0 0 auto;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e1e7f0;
+}
+.profile-form {
+  min-height: 0;
+  overflow: hidden;
+}
+.profile-form > .hint {
+  margin: 0;
+  flex: 0 0 auto;
+}
+.profile-config-grid,
+.project-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+.profile-config-grid {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 4px 10px 6px 2px;
+  scrollbar-gutter: stable;
+}
+.profile-section {
+  min-width: 0;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid #dce2eb;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.profile-section legend {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 6px;
+}
+.profile-section .hint {
+  margin: 0;
+  line-height: 1.7;
+}
+.config-entry {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #e1e7f0;
+  background: #f7f9fc;
+  display: grid;
+  gap: 8px;
+}
+.config-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.config-pair > label {
+  min-width: 0;
+}
+.config-entry .text-button {
+  justify-self: start;
+}
+.profile-form-footer {
+  flex: 0 0 auto;
+  border-top: 1px solid #e1e7f0;
+  padding-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+.profile-form-footer > button {
+  justify-self: end;
+}
+.profile-form-footer > .inline-error {
+  margin: 0;
+}
+.profile-audit {
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 3fr);
+}
+.modal-wide .project-form {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+@media (max-width: 800px) {
+  .modal-wide {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    padding: 18px;
+  }
+  .profile-config-grid,
+  .project-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 480px) {
+  .config-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .form-stack {
   display: flex;
   flex-direction: column;

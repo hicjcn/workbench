@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -53,6 +54,12 @@ class Executor:
             from .profiles import runtime_options
             configured = runtime_options(workspace, self.settings.data_dir)
             image = configured.pop("image", image)
+            mappings = configured.pop("port_mappings", [])
+            from .runtime_ports import allocate
+            reserved = [(item["host_port"], item.get("protocol", "tcp")) for item in mappings if item.get("service") == "application" and item.get("host_port") is not None]
+            configured["port_mappings"] = allocate([item for item in mappings if item.get("service", "agent") == "agent"], self.settings, reserved=reserved) if use_dependencies else []
+            if options.get("read_only_source"):
+                configured["profile_environment"] = {}
             if options.get("openrouter_model") and not os.environ.get("OPENROUTER_API_KEY", "").strip():
                 raise WorkbenchError("Configure the existing OPENROUTER_API_KEY secret before starting OpenRouter")
             if use_dependencies: configured.update(dependencies.ensure(self.settings.data_dir, workspace))
@@ -68,7 +75,10 @@ class Executor:
         if dependency: values.append(dependency["password"])
         manifest = workspace / "workspace.json"
         if manifest.exists() and not is_link(manifest):
-            agent = json.loads(manifest.read_text(encoding="utf-8")).get("agent_cli")
+            document = json.loads(manifest.read_text(encoding="utf-8"))
+            values.extend(value for name, value in document.get("runtime_profile", {}).get("content", {}).get("environment", {}).items()
+                if len(value) >= 4 and re.search(r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API_KEY|PRIVATE_KEY|CONNECTION|(?:^|_)(?:URL|URI)$", name, re.IGNORECASE))
+            agent = document.get("agent_cli")
             if agent:
                 from .agent_clis import checked
                 values.extend(os.environ.get(name, "") for name in checked(agent)["credential_env"])
@@ -78,6 +88,13 @@ class Executor:
         for value in self.secret_values(workspace):
             text = text.replace(value, "[REDACTED]")
         return text
+
+    def redact_payload(self, value, workspace):
+        """Redact string values without altering JSON keys, numbers or booleans."""
+        if isinstance(value, str): return self.redact(value, workspace)
+        if isinstance(value, list): return [self.redact_payload(item, workspace) for item in value]
+        if isinstance(value, dict): return {key: self.redact_payload(item, workspace) for key, item in value.items()}
+        return value
 
     def observe(self, workspace, environment=None):
         if not (workspace / "workspace.json").exists():

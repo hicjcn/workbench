@@ -142,7 +142,8 @@ def matches_model_config(actual, expected):
 def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
           openrouter_model: str | None = None, opencode_model: str | None = None, read_only_source: bool = False, controller: str | None = None,
           limits: dict | None = None, config_mounts: list | None = None,
-          dependency_network: str | None = None, dependency_environment: dict | None = None, context_mounts: list | None = None, agent_cli: dict | None = None) -> dict:
+          dependency_network: str | None = None, dependency_environment: dict | None = None, context_mounts: list | None = None, agent_cli: dict | None = None,
+          volume_mounts: list | None = None, profile_environment: dict | None = None, port_mappings: list | None = None) -> dict:
     workspace, manifest = load_workspace(workspace)
     configuration = {"plugin": ["/opt/superpowers"], "permission": "allow"}
     provider_environment = {}
@@ -197,6 +198,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     password = secrets.token_urlsafe(32)
     state = {"container": container, "network": network, "password": password,
              "phase": "PREPARING", "image": image}
+    if port_mappings: state["port_mappings"] = port_mappings
     if agent_cli: state["agent_cli"] = agent_cli
     if context_mounts: state["context_paths"] = [item["target"] for item in context_mounts]
     write_json(workspace / "runtime.json", state, private=True)
@@ -218,9 +220,15 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     for name in provider_environment:
         command += ["--env", name]  # Pass the name, never the credential value, in argv.
     for name in dependency_environment or {}: command += ["--env", name]
+    for name in profile_environment or {}: command += ["--env", name]
+    if port_mappings:
+        from .runtime_ports import publish_args
+        command += publish_args(port_mappings)
     if controller: command += ["--label", f"awb.controller={controller}"]
     for mount in config_mounts or []:
         command += ["--mount", bind_mount(mount["source"], mount["target"], readonly=True)]
+    for mount in volume_mounts or []:
+        command += ["--mount", bind_mount(mount["source"], mount["target"], readonly=read_only_source or mount.get("read_only", True))]
     for mount in context_mounts or []:
         command += ["--mount", bind_mount(mount["source"], mount["target"], readonly=True)]
     # Docker's configured proxy environment remains in effect. Mount session CA only at runtime.
@@ -231,14 +239,14 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
                     "--env", "GIT_SSL_CAINFO=/run/proxy-ca.pem"]
     command += [image, *serve_argv]
     try:
-        docker(*command, environment={"OPENCODE_SERVER_PASSWORD": password, **provider_environment, **(dependency_environment or {})})
+        docker(*command, environment={**(profile_environment or {}), "OPENCODE_SERVER_PASSWORD": password, **provider_environment, **(dependency_environment or {})})
         if dependency_network: docker("network", "connect", dependency_network, container)
         address = docker("port", container, "4096/tcp").stdout.strip()
         if not address.startswith("127.0.0.1:"):
             raise WorkbenchError("OpenCode port was not bound to loopback")
         state.update({"phase": "STARTED", "base_url": f"http://{address}"})
         write_json(workspace / "runtime.json", state, private=True)
-        return {key: state[key] for key in ("container", "network", "phase", "base_url", "image")}
+        return {**{key: state[key] for key in ("container", "network", "phase", "base_url", "image")}, "port_mappings": state.get("port_mappings", [])}
     except BaseException:
         # Retain the journal so a failed run is inspectable and can be explicitly stopped.
         state["phase"] = "NEEDS_RECONCILIATION"
@@ -268,6 +276,22 @@ def probe(workspace: Path) -> dict:
     report["model_execution"] = "NOT_ATTEMPTED"
     write_json(workspace / "capability-report.json", report)
     return report
+
+
+def published_ports(workspace: Path) -> list:
+    """Expose only resolved public bindings, never the private runtime journal."""
+    path = workspace / "runtime.json"
+    try:
+        from .platform_support import is_link
+        if is_link(path): return []
+        state = json.loads(path.read_text(encoding="utf-8"))
+        result = []
+        for item in state.get("port_mappings", []):
+            if (isinstance(item, dict) and type(item.get("container_port")) is int and type(item.get("host_port")) is int and
+                1 <= item["container_port"] <= 65535 and 1024 <= item["host_port"] <= 65535 and item.get("protocol") in ("tcp", "udp")):
+                result.append({"container_port": item["container_port"], "host_port": item["host_port"], "protocol": item["protocol"], "service": "agent"})
+        return result
+    except (OSError, ValueError, TypeError, AttributeError): return []
 
 
 @exclusive_workspace

@@ -47,6 +47,36 @@ class Mount(Input):
         return value
 
 
+class VolumeMount(Input):
+    source: str = Field(min_length=1, max_length=2000)
+    target: str = Field(min_length=1, max_length=240)
+    read_only: bool = True
+
+    @field_validator("target")
+    @classmethod
+    def target_path(cls, value):
+        path = PurePosixPath(value)
+        protected = ("/workspace", "/home/node", "/workbench", "/proc", "/sys", "/dev", "/tmp", "/run/workbench-config", "/run/proxy-ca.pem", "/var/run/docker.sock")
+        if (not value.startswith("/") or value != str(path) or value == "/" or ".." in path.parts or
+            any(char in value for char in ",\n\r\x00") or
+            any(value == item or value.startswith(item + "/") or item.startswith(value + "/") for item in protected)):
+            raise ValueError("挂载目标必须是容器绝对路径，且不能覆盖工作台目录、系统设备或 Docker socket")
+        return value
+
+
+class PortMapping(Input):
+    container_port: int = Field(ge=1, le=65535)
+    host_port: int | None = Field(default=None, ge=1024, le=65535)
+    protocol: Literal["tcp", "udp"] = "tcp"
+    service: Literal["agent", "application"] = "agent"
+
+    @model_validator(mode="after")
+    def reserved_port(self):
+        if self.service == "agent" and self.container_port == 4096 and self.protocol == "tcp":
+            raise ValueError("4096/tcp 已由 Agent CLI 控制服务使用")
+        return self
+
+
 class RepositoryCommand(Input):
     path: str = Field(min_length=1, max_length=240)
     build_command: str = Field(default="", max_length=2000)
@@ -71,6 +101,9 @@ class Content(Input):
     verification_command: str = Field(default="node --test", max_length=2000)
     repository_commands: list[RepositoryCommand] = Field(default_factory=list, max_length=16)
     mounts: list[Mount] = Field(default_factory=list, max_length=8)
+    volume_mounts: list[VolumeMount] = Field(default_factory=list, max_length=16)
+    environment: dict[str, str] = Field(default_factory=dict, max_length=64)
+    port_mappings: list[PortMapping] = Field(default_factory=list, max_length=16)
     dependencies: list["Postgres"] = Field(default_factory=list, max_length=1)
     application: "Application | None" = None
 
@@ -80,9 +113,20 @@ class Content(Input):
         if not command(self.verification_command) and not any(item.verification_command.strip() for item in self.repository_commands): raise ValueError("请填写验证命令")
         paths = [item.path for item in self.repository_commands]
         if len(set(paths)) != len(paths): raise ValueError("仓库命令不能重复")
-        targets = [item.target for item in self.mounts]
+        for name, value in self.environment.items():
+            if (not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", name) or "\x00" in value or len(value) > 8000 or
+                name in ("HOME", "PATH", "PORT", "ENV", "BASH_ENV", "SHELLOPTS", "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM") or
+                name.startswith(("AWB_", "DOCKER_", "LD_", "DYLD_", "PYTHON", "OPENCODE_SERVER_", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))):
+                raise ValueError("环境变量名或值无效，或使用了工作台保留变量")
+        targets = [item.target for item in [*self.mounts, *self.volume_mounts]]
         if len(set(targets)) != len(targets) or any(a != b and b.startswith(a + "/") for a in targets for b in targets):
             raise ValueError("配置挂载目标不能重复或互相覆盖")
+        ports = [(item.service, item.container_port, item.protocol) for item in self.port_mappings]
+        hosts = [(item.host_port, item.protocol) for item in self.port_mappings if item.host_port is not None]
+        if len(set(ports)) != len(ports) or len(set(hosts)) != len(hosts):
+            raise ValueError("端口映射不能重复")
+        if not self.application and any(item.service == "application" for item in self.port_mappings):
+            raise ValueError("请先配置应用服务，再添加应用端口映射")
         return self
 
 
@@ -145,6 +189,23 @@ def checked_source(raw, data_dir):
     return path
 
 
+def checked_volume_source(raw, data_dir):
+    path = Path(raw).expanduser()
+    if not path.is_absolute() or any(char in str(path) for char in ",\n\r\x00"):
+        raise WorkbenchError("容器挂载源必须是绝对路径，且不能包含特殊分隔符")
+    current = path
+    while True:
+        if is_link(current): raise WorkbenchError("容器挂载源不支持符号链接、junction 和重解析点")
+        if current.parent == current: break
+        current = current.parent
+    path = path.resolve()
+    root = data_dir.resolve()
+    if (not (path.is_file() or path.is_dir()) or path.is_relative_to(root) or root.is_relative_to(path) or
+        any(path == Path(item) or path.is_relative_to(Path(item)) or Path(item).is_relative_to(path) for item in ("/proc", "/sys", "/dev", "/run", "/var/run"))):
+        raise WorkbenchError("容器挂载源必须是工作台数据目录之外的文件或目录，且不能包含工作台数据目录或系统设备")
+    return path
+
+
 def binding(connection, requirement_id):
     return public(connection.execute(select(profiles).join(bindings, bindings.c.profile_id == profiles.c.id)
         .where(bindings.c.requirement_id == requirement_id)).mappings().first())
@@ -161,19 +222,24 @@ def pin(connection, requirement_id):
 
 
 class Profiles:
-    def __init__(self, store, data_dir): self.store, self.data_dir = store, data_dir
+    def __init__(self, store, data_dir, settings=None): self.store, self.data_dir, self.settings = store, data_dir, settings
 
     def read(self, project_id):
         self.store.get(projects, project_id)
         history = self.store.list(profiles, profiles.c.project_id == project_id)
         history.sort(key=lambda item: item["number"], reverse=True)
-        return {"current": next((item for item in history if item["is_current"]), None), "history": history}
+        return {"current": next((item for item in history if item["is_current"]), None), "history": history,
+            "port_range": {"start": getattr(self.settings, "port_range_start", 20000), "end": getattr(self.settings, "port_range_end", 29999)}}
 
     def save(self, project_id, value):
         content = value["content"]
         for item in content["mounts"]:
             path = checked_source(item["source"], self.data_dir)
             item["sha256"] = file_hash(path)
+        for item in content.get("volume_mounts", []): item["source"] = str(checked_volume_source(item["source"], self.data_dir))
+        low, high = getattr(self.settings, "port_range_start", 20000), getattr(self.settings, "port_range_end", 29999)
+        if any(item.get("host_port") is not None and not low <= item["host_port"] <= high for item in content.get("port_mappings", [])):
+            raise WorkbenchError(f"宿主端口必须位于配置范围 {low}–{high}")
         with self.store.engine.begin() as connection:
             if content.get("agent_cli_id"):
                 from .agent_clis import get
@@ -256,4 +322,6 @@ def runtime_options(workspace, data_dir):
     if digest(profile["content"]) != profile["content_digest"]: raise WorkbenchError("运行配置摘要不符")
     Content.model_validate(profile["content"])
     return {**agent_options, "image": profile["image_id"], "limits": {key: profile["content"][key] for key in ("cpus", "memory_mib", "pids_limit")},
-        "config_mounts": staged_mounts(workspace, profile, data_dir)}
+        "config_mounts": staged_mounts(workspace, profile, data_dir),
+        "volume_mounts": [{**mount, "source": str(checked_volume_source(mount["source"], data_dir))} for mount in profile["content"].get("volume_mounts", [])],
+        "profile_environment": profile["content"].get("environment", {}), "port_mappings": profile["content"].get("port_mappings", [])}
