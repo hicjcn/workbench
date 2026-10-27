@@ -1,4 +1,5 @@
 import type { Detail } from "./api";
+import { RuntimeProfileSync } from "./RuntimeProfileSync";
 export function EnvironmentPanel({
   detail,
   disabled,
@@ -19,6 +20,11 @@ export function EnvironmentPanel({
           <span className="version-pill">固定配置 v{profile.number}</span>
         )}
       </div>
+      <RuntimeProfileSync
+        detail={detail}
+        disabled={disabled}
+        action={() => void action("sync_profile")}
+      />
       {profile ? (
         <>
           <p>
@@ -185,7 +191,7 @@ export function EnvironmentPanel({
         </>
       ) : (
         <p className="muted">
-          该需求沿用原有环境。可在“项目登记”保存运行配置后，创建新需求以使用版本固定和预检能力。
+          该需求沿用原有环境。可先停止环境，再同步项目最新运行配置，在现有工作区使用预检能力。
         </p>
       )}
     </section>

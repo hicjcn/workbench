@@ -1632,6 +1632,33 @@ code {
   padding: 24px;
   margin-bottom: 24px;
 }
+.environment-sync {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  margin: 16px 0;
+  border: 1px solid #dce2eb;
+  border-radius: 8px;
+  background: #f7f9fc;
+  font-size: 13px;
+}
+.environment-sync > div {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.environment-sync > button {
+  flex: 0 0 auto;
+}
+.environment-sync .hint {
+  margin: 6px 0 0;
+}
+.environment-sync > .hint {
+  flex-basis: 100%;
+  margin: 0;
+}
 .preflight-result {
   margin-top: 18px;
   border-top: 1px solid #e1e7f0;

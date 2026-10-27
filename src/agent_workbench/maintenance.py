@@ -34,9 +34,14 @@ def metadata_digest(rows):
 def stop(settings):
     with resources.controller_lock(settings.data_dir, exclusive=True):
         migrate(settings)
-        report = resources.stop_all(settings.data_dir)
         store = Store(settings.database_url)
         try:
+            from .profile_sync import completed_job, resolve
+            with store.engine.connect() as connection:
+                for row in connection.execute(select(workspaces)).mappings():
+                    path = Path(row["path"])
+                    if path.exists(): resolve(path, completed_job(connection, row["requirement_id"]), rollback=True)
+            report = resources.stop_all(settings.data_dir)
             with store.engine.begin() as connection:
                 incomplete = connection.execute(select(jobs).where(jobs.c.status.in_(["QUEUED", "RUNNING", "UNKNOWN"]))).mappings().all()
                 from .workflow import invalidate
@@ -94,7 +99,7 @@ def backup(settings):
     with resources.controller_lock(settings.data_dir, exclusive=True):
         migrate(settings)
         if resources.inventory(settings.data_dir): raise WorkbenchError("仍有托管容器，请先运行维护 stop")
-        if any((path / name).exists() for path in resources.known_workspaces(settings.data_dir) for name in ("runtime.json", "application-runtime.json")): raise WorkbenchError("运行记录尚未核实，请先运行维护 stop")
+        if any((path / name).exists() for path in resources.known_workspaces(settings.data_dir) for name in ("runtime.json", "application-runtime.json", "profile-sync.json")): raise WorkbenchError("运行记录或配置同步记录尚未核实，请先运行维护 stop")
         store = Store(settings.database_url)
         try:
             data = rows_snapshot(store)

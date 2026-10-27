@@ -68,6 +68,13 @@ export type Review = {
   created_at: number;
 };
 export type Detail = Omit<Requirement, "workspace"> & {
+  profile_sync?: {
+    latest_profile_id: string | null;
+    latest_profile_number: number | null;
+    latest_agent_cli_id: string;
+    latest_agent_cli_number: number;
+    has_update: boolean;
+  };
   port_mappings?: import("./RuntimeConfigFields").PortMapping[];
   agent_cli?: import("./AgentCliPanel").AgentCliConfig;
   workspace: Workspace;
@@ -162,6 +169,7 @@ export const labels: Record<string, string> = {
   panorama: "跨项目联合分析",
   panorama_check: "全景分析环境检查",
   preflight: "环境预检",
+  sync_profile: "同步最新配置",
   build: "项目构建",
   verify: "项目验证",
   app_start: "启动应用服务",

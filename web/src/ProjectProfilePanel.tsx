@@ -115,7 +115,9 @@ export function ProjectProfilePanel({ project }: { project: Project }) {
                   timeLabel(item.created_at),
                   item.actor,
                   item.reason,
-                ].filter(Boolean).join(" · ")}
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </p>
             ))}
           </details>
@@ -288,7 +290,9 @@ function ProfileForm({
   }
   return (
     <form className="form-stack profile-form" onSubmit={save}>
-      <p className="hint">保存后创建新的运行配置版本，只影响后续新工作区。</p>
+      <p className="hint">
+        保存后创建新的运行配置版本。已有需求可在“项目环境与预检”中同步最新配置。
+      </p>
       <div className="profile-config-grid">
         <fieldset className="profile-section">
           <legend>基础环境与资源</legend>
@@ -311,7 +315,7 @@ function ProfileForm({
           </label>
           <p className="hint">
             选择兼容封装 CLI
-            时，镜像必须已经包含相应程序。只影响后续新工作区，已有需求继续使用其固定版本。
+            时，镜像必须已经包含相应程序。新工作区使用该选择；已有需求显式同步后生效。
           </p>
           <div className="profile-resources">
             <label>
