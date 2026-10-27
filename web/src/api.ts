@@ -94,6 +94,11 @@ export type Detail = Omit<Requirement, "workspace"> & {
       control_error?: string;
       log_tail?: string;
       inspection_error?: string;
+      launch_error?: string;
+      executable?: string;
+      container_path?: string;
+      container_home?: string;
+      container_user?: string;
     };
     tools?: {
       agent_cli?: { ok: boolean; value: string; error?: string | null };

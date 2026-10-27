@@ -1119,6 +1119,7 @@ code {
   background: #fff3f1;
   border-radius: 6px;
   margin: 8px 0;
+  overflow-wrap: anywhere;
 }
 .error-banner {
   display: flex;

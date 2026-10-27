@@ -9,10 +9,13 @@
     "real_readonly_preflight_uses_pinned_wrapper_serve_and_stderr_version_commands",
     "development_runtime_honors_wrapper_command_over_image_entrypoint",
     "exited_wrapper_fails_promptly_with_cli_identity_command_exit_code_and_log_tail",
+    "missing_executable_reports_actual_program_container_path_and_home_before_service_starts",
+    "absolute_cli_path_outside_image_path_passes_preflight_without_opencode_fallback",
     "browser_displays_selected_cli_commands_and_failure_diagnostics_on_desktop_and_mobile",
+    "browser_shows_missing_executable_path_and_startup_error_on_mobile",
     "source_unchanged_and_no_browser_errors_or_model_calls"
   ],
-  "completed_checks": 6,
-  "verifier_sha256": "b6bac370935f53b6b81ad8e5ee2cd77fde8e1ba7176e1f8c5760dac8c053db74",
+  "completed_checks": 9,
+  "verifier_sha256": "2171fcdd05d77ecb8435ab6cd62ea770e63b01045fcbe73a7d84b4f8f2784a89",
   "fixture_sha256": "9c4ae9f2d27ac723ddb6a7441b0953c8119bcabb04c06bb9819391f151eb86bd"
 }

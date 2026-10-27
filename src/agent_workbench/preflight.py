@@ -45,8 +45,13 @@ def startup_diagnostics(executor, workspace, *, logs=False):
     result = runtime.docker("inspect", state["container"], check=False, timeout=10)
     if result.returncode:
         return {"inspection_error": executor.redact(result.stderr, workspace)[-2000:]}
-    observed = json.loads(result.stdout)[0].get("State", {})
+    details = json.loads(result.stdout)[0]
+    observed = details.get("State", {})
     diagnostic = {"container_status": observed.get("Status"), "exit_code": observed.get("ExitCode"), "container_error": observed.get("Error", "")}
+    config = details.get("Config") or {}
+    environment = dict(item.split("=", 1) for item in config.get("Env") or [] if "=" in item)
+    diagnostic.update(container_path=environment.get("PATH", "")[:4000], container_home=environment.get("HOME", "")[:2000],
+        container_user=config.get("User", "")[:200], executable=(details.get("Path") or "")[:2000])
     if logs:
         output = runtime.docker("logs", "--tail", "40", state["container"], check=False, timeout=10)
         diagnostic["log_tail"] = (output.stdout + "\n" + output.stderr)[-8000:]
@@ -77,7 +82,18 @@ def execute(executor, job, workspace, emit, canceled):
         emit("preflight", {"text": "创建独立只读预检环境；不调用模型，不执行项目测试"})
         emit("preflight", {"text": executor.redact(f"检查固定 Agent CLI：{cli_name}；服务：{shlex.join(serve_argv)}；版本：{shlex.join(version_argv)}", isolated)})
         ca = Path(os.environ["CODEX_PROXY_CERT"]) if os.environ.get("CODEX_PROXY_CERT") else None
-        executor.start_runtime(isolated, profile["content"]["image"], ca, read_only_source=True, opencode_model="opencode/glm-5.3-flash-free")
+        try:
+            executor.start_runtime(isolated, profile["content"]["image"], ca, read_only_source=True, opencode_model="opencode/glm-5.3-flash-free")
+        except Exception as error:
+            report["checks"] = [{"name": "agent_cli_service", "passed": False}]
+            report["diagnostics"] = {"launch_error": executor.redact(str(error), isolated)[:4000]}
+            if (isolated / "runtime.json").exists():
+                try:
+                    report["diagnostics"].update(startup_diagnostics(executor, isolated, logs=True))
+                except Exception as diagnostic_error:
+                    # Preserve the startup error even if Docker cannot inspect a failed create.
+                    report["diagnostics"]["inspection_error"] = executor.redact(str(diagnostic_error), isolated)[:2000]
+            raise
         deadline = time.monotonic() + 90
         inspected_at, control_error = 0, ""
         while True:
