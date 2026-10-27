@@ -75,7 +75,7 @@ def main():
             assert job["status"]=="SUCCEEDED", {"action":action,"error":job.get("error")}
         detail=get(f"/requirements/{req['id']}");workspace=Path(detail["workspace"]["path"])
         assert detail["agent_cli"]["id"]==saved["id"] and detail["agent_cli"]["fixed"]
-        assert detail["preflight"]["tools"]["opencode"]["value"]=="awb-opencode-fixture/1.0.0"
+        assert detail["preflight"]["tools"]["agent_cli"]["value"]=="awb-opencode-fixture/1.0.0"
         state=json.loads((workspace/"runtime.json").read_text()); inspected=json.loads(runtime.docker("inspect",state["container"]).stdout)[0]
         assert inspected["Config"]["Cmd"][0]=="awb-opencode"
         check("prepare_pin_and_preflight_really_use_wrapper_version_and_serve_command")

@@ -79,6 +79,26 @@ export type Detail = Omit<Requirement, "workspace"> & {
     status: string;
     image_id: string;
     checks: { name: string; passed: boolean }[];
+    agent_cli?: {
+      id: string;
+      name: string;
+      number: number;
+      content_digest: string;
+    };
+    commands?: { serve: string[]; version: string[] };
+    error?: string;
+    diagnostics?: {
+      container_status?: string;
+      exit_code?: number;
+      container_error?: string;
+      control_error?: string;
+      log_tail?: string;
+      inspection_error?: string;
+    };
+    tools?: {
+      agent_cli?: { ok: boolean; value: string; error?: string | null };
+      opencode?: { ok: boolean; value: string };
+    };
   } | null;
   dependency: {
     kind: string;
