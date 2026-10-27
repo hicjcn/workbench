@@ -188,7 +188,12 @@ class Executor:
             return {"environment": "NOT_CREATED"}
         if not (workspace / "workspace.json").exists():
             raise WorkbenchError("请先创建需求工作区")
+        from .profile_sync import resolve as resolve_sync
+        resolve_sync(workspace, job.get("completed_profile_sync_job_id"), rollback=action == "reconcile")
         load_workspace(workspace)
+        if action == "sync_profile":
+            from .profile_sync import execute as sync_profile
+            return sync_profile(self, job, workspace, emit, canceled)
         if action in ("start", "task", "workflow", "materials", "preflight"):
             from .agent_clis import verify_workspace
             verify_workspace(workspace, job.get("agent_cli"))

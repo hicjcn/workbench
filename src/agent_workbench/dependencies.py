@@ -239,7 +239,6 @@ def status(workspace):
 
 
 def backup_files(workspace):
-    if not spec(workspace): return []
     if read(workspace, JOURNAL): raise WorkbenchError("依赖运行记录尚未核实，请先停止")
     data = read(workspace, STATE)
     if not data: return []

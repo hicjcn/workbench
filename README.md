@@ -218,7 +218,9 @@ docker build -t agent-workbench-node:local poc/onboarding
 
 端口范围也可通过 `AWB_PORT_RANGE_START` / `AWB_PORT_RANGE_END` 设置，详见[统一配置](docs/28-local-configuration.md#项目运行环境)。构建/验证命令按参数列表执行，复杂操作放入仓库脚本，不在表单拼接 Shell 管道或重定向。
 
-项目配置和 CLI 配置在**创建工作区任务入队时**固定，Runner 准备时固定实际镜像 ID。之后更新默认 CLI、项目配置或镜像标签，都不会改变已绑定需求；使用新配置应创建新的需求工作区。
+项目配置和 CLI 配置在**创建工作区任务入队时**固定，Runner 准备时固定实际镜像 ID。修改项目配置、默认 CLI 或镜像标签不会自动改变已有需求。已有工作区可先停止环境、处理活动或待核实任务，再在需求详情的「项目环境与预检」或「容器管理」点击「同步最新配置」。原先未绑定运行配置的旧工作区也可通过该入口采用项目配置。
+
+同步任务在入队时固定目标项目配置：使用其中指定的 CLI 版本，未指定时采用当前系统默认 CLI，并重新解析本机镜像标签；同版本也可重新同步以刷新镜像。源码、Agent 会话和数据库数据保留，旧预检结果清除，旧流程、自审与材料结论失效，历史记录保留。同步不会自动预检或启动，完成后需重新执行「环境预检」，通过后再「启动环境」。
 
 ## Agent CLI 与模型配置
 
@@ -236,7 +238,7 @@ docker build -t agent-workbench-node:local poc/onboarding
    ```
 
 3. 保存任务超时、可选的精确版本输出及所需凭据**变量名**，设为新工作区默认，或在「项目运行配置」选定具体版本。
-4. 创建新工作区并预检，再验证实际任务。管理页面只保存配置，不会自动安装 CLI。
+4. 创建新工作区，或停止已有环境后同步最新配置，再执行预检并验证实际任务。管理页面只保存配置，不会自动安装 CLI。
 
 当前支持 OpenCode 兼容 HTTP API、认证、标准输入和 JSONL 事件格式。其他协议的 CLI 需要单独适配，详见 [Agent CLI 接入](docs/26-agent-cli.md)。如报 `executable file not found in $PATH`，请查看预检启动诊断中的容器 PATH，并核对程序的容器内路径；处理步骤见[封装 CLI 镜像预检](docs/32-wrapper-cli-preflight.md#镜像找不到-cli-时如何处理)。
 
@@ -317,7 +319,7 @@ API 和 Runner 启动时均需设置同一个 `AWB_MODEL`。更换模型后重�
 | Windows 启动报 `No module named fcntl` | 更新到包含 Windows 兼容修复的版本，重新安装 `.[server]`；不要尝试安装同名 `fcntl` 包。详见 Windows 指南 |
 | Windows 无法连接 Docker pipe | 启动 Docker Desktop，确认 WSL2 后端、Linux 容器及本机 `dockerDesktopLinuxEngine` 管道可用 |
 | 预检通过但模型调用失败 | 预检不发起推理；另查模型当前开放情况、Runner 凭据、代理、CA 和模型服务网络，运行 `acceptance doctor` 辅助诊断 |
-| 更新配置后旧需求仍用旧版本 | 已有工作区固定原版本；在新工作区验证新 CLI、镜像或项目配置 |
+| 更新配置后旧需求仍用旧版本 | 停止环境并处理活动或待核实任务，在「项目环境与预检」或「容器管理」同步最新配置，再预检并启动 |
 | 任务为 UNKNOWN / 待核实 | 先检查现场，再使用「停止并核实」；跨项目操作核实全部成员。镜像维护使用单独的人工核实入口，不自动重试 |
 | 站点里点击启动没有真实容器 | Sites 站点是浏览器试用版，使用 localStorage，不运行 Python API、SQLite、Docker 或 Runner；真实开发按本文部署本机版 |
 

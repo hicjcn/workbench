@@ -314,6 +314,8 @@ def inherit(source, target, data_dir):
 
 
 def runtime_options(workspace, data_dir):
+    if safe_path(workspace, "profile-sync.json").exists():
+        raise WorkbenchError("配置同步结果尚未确认，请先停止并核实")
     manifest = json.loads((workspace / "workspace.json").read_text(encoding="utf-8"))
     profile = manifest.get("runtime_profile")
     agent_options = {"agent_cli": manifest["agent_cli"]} if manifest.get("agent_cli") else {}

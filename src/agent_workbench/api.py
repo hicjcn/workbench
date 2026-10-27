@@ -60,7 +60,7 @@ class RequirementInput(Input):
 
 
 class ActionInput(Input):
-    action: Literal["prepare", "start", "stop", "refresh", "task", "reconcile", "preflight", "build", "verify", "app_start", "app_stop", "app_check", "app_logs"]
+    action: Literal["prepare", "start", "stop", "refresh", "task", "reconcile", "preflight", "sync_profile", "build", "verify", "app_start", "app_stop", "app_check", "app_logs"]
     prompt: str = Field(default="", max_length=32000)
 
 
@@ -329,13 +329,16 @@ def create_app(settings: Settings, store: Store | None = None):
         from .dependencies import status as dependency_status
         from .application import status as application_status
         from .runtime import published_ports
+        from .profile_sync import describe as describe_sync
         with database.engine.connect() as connection:
             profile = binding(connection, requirement_id)
             from .agent_clis import selection
             agent_cli = selection(connection, requirement_id)
+            sync_state = describe_sync(connection, requirement_id, profile, agent_cli)
         workspace = database.get(tables.workspaces, requirement_id)
         return {**requirement, "project": database.get(tables.projects, requirement["project_id"]), "profile": profile, "agent_cli": agent_cli,
             "port_mappings": published_ports(Path(workspace["path"])),
+            "profile_sync": sync_state,
             "preflight": read_report(Path(workspace["path"])),
             "dependency": dependency_status(Path(workspace["path"])),
             "application": application_status(Path(workspace["path"]), workspace.get("snapshot", {}).get("tree_digest") if workspace.get("snapshot") else None),

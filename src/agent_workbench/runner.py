@@ -44,6 +44,12 @@ class Runner:
                 "status": "FAILED", "result": {}, "error": "API 与 Runner 的模型配置不一致"})
             return True
         base = {"owner": self.owner, "epoch": job["epoch"]}
+        def resolve_sync(committed=None, *, rollback=False):
+            from .profile_sync import resolve
+            directory = self.settings.data_dir / "locks"; directory.mkdir(parents=True, exist_ok=True)
+            with (directory / (job["requirement_id"] + ".lock")).open("a+b") as handle:
+                locking.flock(handle, locking.LOCK_EX)
+                resolve(Path(job["workspace"]["path"]), committed, rollback=rollback, expected_job_id=job["id"])
         stop_heartbeat = threading.Event()
         canceled = threading.Event()
         lost = threading.Event()
@@ -93,14 +99,24 @@ class Runner:
         if lost.is_set():
             status = "UNKNOWN"
             error = "执行期间与控制服务失联；结果需停止并核实"
+        if job["action"] == "sync_profile" and status != "SUCCEEDED":
+            try:
+                resolve_sync(rollback=True)
+            except Exception:
+                status, error = "UNKNOWN", "配置同步回滚尚未核实，请停止并核实当前需求"
         try:
             self.post(f"/internal/jobs/{job['id']}/finish", {**base, "status": status, "result": result, "error": error})
         except httpx.HTTPStatusError as failure:
             if failure.response.status_code == 409 and status == "SUCCEEDED":
+                if job["action"] == "sync_profile":
+                    resolve_sync(rollback=True)
                 self.post(f"/internal/jobs/{job['id']}/finish", {**base, "status": "FAILED", "result": result,
                     "error": "代码版本或执行租约已变化，结果未通过确认"})
             else:
                 raise
+        if job["action"] == "sync_profile" and status == "SUCCEEDED":
+            try: resolve_sync(job["id"])
+            except (OSError, WorkbenchError): pass  # The acknowledged binding lets the next job finish cleanup.
         return True
 
     def watch_once(self):

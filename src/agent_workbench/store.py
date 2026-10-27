@@ -275,7 +275,9 @@ class Store:
             previous = connection.execute(select(jobs).where(and_(jobs.c.requirement_id == requirement_id,
                 jobs.c.idempotency_key == key))).mappings().first()
             if previous:
-                if previous["action"] != action or previous["input_json"] != encoded(payload):
+                previous_input = json.loads(previous["input_json"])
+                if action == "sync_profile": previous_input.pop("sync_target", None)
+                if previous["action"] != action or encoded(previous_input) != encoded(payload):
                     raise Conflict("同一个请求标识对应了不同操作")
                 return public(previous)
         from .delivery import guard_workspace
@@ -290,6 +292,9 @@ class Store:
             pin(connection, requirement_id)
             from .agent_clis import pin as pin_agent
             pin_agent(connection, requirement_id)
+        if action == "sync_profile":
+            from .profile_sync import enqueue_target
+            payload = {**payload, "sync_target": enqueue_target(connection, requirement_id)}
         now = time.time()
         value = dict(id=identifier("job"), requirement_id=requirement_id, action=action,
             input_json=encoded(payload), status="QUEUED", idempotency_key=key,
@@ -327,8 +332,10 @@ class Store:
             workspace = connection.execute(select(workspaces).where(workspaces.c.requirement_id == requirement["id"])).mappings().one()
             from .profiles import binding
             from .agent_clis import selection
+            from .profile_sync import completed_job
             return {**public(result), "requirement": public(requirement), "project": public(project), "workspace": public(workspace),
-                "profile": binding(connection, requirement["id"]), "agent_cli": selection(connection, requirement["id"])}
+                "profile": binding(connection, requirement["id"]), "agent_cli": selection(connection, requirement["id"]),
+                "completed_profile_sync_job_id": completed_job(connection, requirement["id"])}
 
     def owned(self, connection, job_id, owner, epoch):
         row = connection.execute(select(jobs).where(jobs.c.id == job_id).with_for_update()).mappings().first()
@@ -369,6 +376,9 @@ class Store:
             # A consistent requirement -> flow/material order avoids cross-resource deadlocks.
             connection.execute(select(requirements.c.id).where(requirements.c.id == job["requirement_id"]).with_for_update()).one()
             from .workflow import complete, invalidate
+            if job["action"] == "sync_profile":
+                from .profile_sync import finish as finish_sync
+                finish_sync(connection, job, status, result)
             if job["action"] == "workflow":
                 status, error = complete(connection, job, status, result, error)
             elif job["action"] == "materials":
