@@ -100,8 +100,34 @@ class ProfileTests(ControlFixture):
             self.assertEqual(self.save(value).status_code, 422)
 
     def test_invalid_limits_and_shell_pipelines_are_rejected(self):
-        for patch_value in [{"cpus": 0}, {"memory_mib": 1}, {"pids_limit": 0}, {"verification_command": "npm test | cat"}, {"verification_command": " "}]:
+        for patch_value in [{"cpus": 0}, {"memory_mib": 1}, {"pids_limit": 0}, {"verification_command": "npm test | cat"}]:
             self.assertEqual(self.save({**Content().model_dump(), **patch_value}).status_code, 422)
+
+    def test_verification_command_may_be_omitted_or_blank(self):
+        expected = None
+        for command_value in (None, "", " "):
+            with self.subTest(command=command_value):
+                content = Content().model_dump()
+                if command_value is None: content.pop("verification_command")
+                else: content["verification_command"] = command_value
+                response = self.client.post(self.url, json={"expected_profile": expected, "content": content})
+                self.assertEqual(response.status_code, 201, response.text)
+                saved = self.client.get(self.url).json()["current"]
+                self.assertFalse(saved["content"]["verification_command"].strip())
+                expected = saved["id"]
+
+    def test_missing_verification_command_does_not_report_success(self):
+        profile = self.save().json()
+        req = self.prepare(self.requirement(self.project_record))
+        workspace = Path(req["workspace"]["path"])
+        write_json(workspace / "preflight-report.json", {"status": "PASSED", "profile_digest": profile["content_digest"]})
+        self.assertEqual(self.action(req, "verify").status_code, 202)
+        with patch("agent_workbench.workflow_execution.verify_command") as verify:
+            self.assertTrue(self.runner.run_once())
+            verify.assert_not_called()
+        job = self.detail(req)["jobs"][0]
+        self.assertEqual(job["status"], "FAILED")
+        self.assertIn("未登记此命令", job["error"])
 
     def test_environment_ports_and_writable_directory_are_pinned_and_redacted(self):
         directory = self.root / "external-data"; directory.mkdir()

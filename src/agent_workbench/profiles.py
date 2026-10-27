@@ -98,7 +98,7 @@ class Content(Input):
     memory_mib: int = Field(default=1536, ge=256, le=32768)
     pids_limit: int = Field(default=256, ge=64, le=2048)
     build_command: str = Field(default="", max_length=2000)
-    verification_command: str = Field(default="node --test", max_length=2000)
+    verification_command: str = Field(default="", max_length=2000)
     repository_commands: list[RepositoryCommand] = Field(default_factory=list, max_length=16)
     mounts: list[Mount] = Field(default_factory=list, max_length=8)
     volume_mounts: list[VolumeMount] = Field(default_factory=list, max_length=16)
@@ -110,7 +110,7 @@ class Content(Input):
     @model_validator(mode="after")
     def validate_content(self):
         command(self.build_command)
-        if not command(self.verification_command) and not any(item.verification_command.strip() for item in self.repository_commands): raise ValueError("请填写验证命令")
+        command(self.verification_command)
         paths = [item.path for item in self.repository_commands]
         if len(set(paths)) != len(paths): raise ValueError("仓库命令不能重复")
         for name, value in self.environment.items():

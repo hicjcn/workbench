@@ -96,7 +96,7 @@ export function ProjectProfilePanel({ project }: { project: Project }) {
             验证：
             {state.current.content.repository_commands?.length
               ? `${state.current.content.repository_commands.length} 个仓库分别配置`
-              : state.current.content.verification_command}
+              : state.current.content.verification_command.trim() || "未配置"}
           </p>
           <p className="hint">
             {Object.keys(state.current.content.environment ?? {}).length}{" "}
@@ -362,19 +362,16 @@ function ProfileForm({
             />
           </label>
           <label>
-            验证命令
+            验证命令（可选）
             <input
               name="verify"
-              required={!repositories.length}
-              defaultValue={
-                defaults?.verification_command ??
-                (repositories.length ? "" : "node --test")
-              }
+              defaultValue={defaults?.verification_command ?? ""}
               maxLength={2000}
+              placeholder="例如：node --test，可留空后再配置"
             />
           </label>
           <p className="hint">
-            命令在需求容器的源码根目录执行；多仓库项目为共同父目录，可提供统一验证脚本。配置逐仓库验证后，统一验证命令可留空。复杂步骤写入仓库脚本；不支持管道、重定向或多条命令拼接。
+            构建和验证命令均可留空，执行项目验证前再配置。命令在需求容器的源码根目录执行；多仓库项目为共同父目录，可提供统一验证脚本。复杂步骤写入仓库脚本；不支持管道、重定向或多条命令拼接。
           </p>
           {Boolean(repositories.length) && (
             <fieldset className="repository-options">
@@ -403,7 +400,7 @@ function ProfileForm({
                     />
                   </label>
                   <label>
-                    验证命令
+                    验证命令（可选）
                     <input
                       aria-label={`${item.path} 验证命令`}
                       value={item.verification_command}
