@@ -88,7 +88,7 @@ def execute(executor, job, workspace, emit, canceled):
         if agent_cli: report["agent_cli"] = {key: agent_cli[key] for key in ("id", "name", "number", "content_digest")}
         if profile["content"].get("application"): config["commands"]["application"] = command(profile["content"]["application"]["start_command"])
         result = runtime.docker("exec", state["container"], "node", "-e", CHECK_SCRIPT, json.dumps(config))
-        tools = json.loads(executor.redact(result.stdout, isolated))
+        tools = executor.redact_payload(json.loads(result.stdout), isolated)
         report["tools"] = tools; report["capabilities"] = capabilities
         checks = {
             "image_id": details["Image"] == fixed["image_id"],

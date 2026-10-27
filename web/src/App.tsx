@@ -34,7 +34,10 @@ export default function App() {
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [selected, setSelected] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
-  const [modal, setModal] = useState<"project" | "requirement" | null>(null);
+  const [modal, setModal] = useState<
+    "project" | "project-edit" | "requirement" | null
+  >(null);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [view, setView] = useState<
     | "requirements"
     | "projects"
@@ -375,7 +378,19 @@ export default function App() {
             projects.map((project) => (
               <article className="panel project-card" key={project.id}>
                 <div className="project-icon">⌘</div>
-                <h2>{project.name}</h2>
+                <div className="section-title">
+                  <h2>{project.name}</h2>
+                  <button
+                    className="text-button"
+                    aria-label={`修改项目 ${project.name}`}
+                    onClick={() => {
+                      setEditingProject(project);
+                      setModal("project-edit");
+                    }}
+                  >
+                    修改登记
+                  </button>
+                </div>
                 <p className="muted">源码目录</p>
                 <code className="path">{project.source_path}</code>
                 {Boolean(project.repositories?.length) && (
@@ -802,14 +817,34 @@ export default function App() {
       </footer>
       {modal ? (
         <Modal
-          title={modal === "project" ? "登记项目" : "新建需求"}
+          title={
+            modal === "project-edit"
+              ? "修改项目登记"
+              : modal === "project"
+                ? "登记项目"
+                : "新建需求"
+          }
+          wide={modal !== "requirement"}
           close={() => setModal(null)}
         >
-          {modal === "project" ? (
+          {modal !== "requirement" ? (
             <ProjectForm
+              key={modal === "project-edit" ? editingProject?.id : "new"}
+              project={
+                modal === "project-edit"
+                  ? (editingProject ?? undefined)
+                  : undefined
+              }
               defaultImage={defaultImage}
               submit={async (value) => {
-                await api("/projects", value);
+                if (modal === "project-edit" && editingProject) {
+                  await api(`/projects/${editingProject.id}`, value, "PUT");
+                  if (detail?.project_id === editingProject.id) {
+                    setDetail(await api<Detail>(`/requirements/${detail.id}`));
+                  }
+                } else {
+                  await api("/projects", value);
+                }
                 await reload();
                 setModal(null);
                 setView("projects");

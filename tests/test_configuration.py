@@ -40,6 +40,21 @@ class ConfigurationTests(unittest.TestCase):
             self.assertIn("env-marker", Settings.load(config_file=self.file).database_url)
             self.assertTrue(Settings.load(sqlite=True, config_file=self.file).database_url.startswith("sqlite:///"))
 
+    def test_runtime_port_range_load_export_and_validation(self):
+        result = self.write('[workbench]\nport_range_start=21000\nport_range_end=21010\n')
+        self.assertEqual((result.port_range_start, result.port_range_end), (21000, 21010))
+        self.assertEqual(result.public()["port_range_end"], 21010)
+        with patch.dict(os.environ, {"AWB_PORT_RANGE_START": "22000", "AWB_PORT_RANGE_END": "22005"}):
+            settings = Settings.load(config_file=self.file)
+            self.assertEqual((settings.port_range_start, settings.port_range_end), (22000, 22005))
+        result.apply()
+        self.assertEqual(os.environ["AWB_PORT_RANGE_START"], "21000")
+        self.assertEqual(os.environ["AWB_PORT_RANGE_END"], "21010")
+        os.environ.pop("AWB_PORT_RANGE_START"); os.environ.pop("AWB_PORT_RANGE_END")
+        for low, high in [(100, 2000), (2000, 65536), (24000, 23000)]:
+            with self.subTest(low=low, high=high), self.assertRaises(ConfigurationError):
+                self.write(f'[workbench]\nport_range_start={low}\nport_range_end={high}\n')
+
     def test_paths_are_relative_to_file_and_utf8_bom_is_accepted(self):
         self.file.write_text('[workbench]\ndata_dir="中文数据"\nweb_dir="页面"\nproxy_ca="cert.pem"\n[launcher]\nlogs_dir="logs"\nvenv_dir="venv"\n', encoding="utf-8-sig")
         result = Configuration.load(self.file)

@@ -44,6 +44,8 @@ class Configuration:
     database_url: str = field(default="", repr=False)
     use_sqlite: bool = False
     port: int = 8340
+    port_range_start: int = 20000
+    port_range_end: int = 29999
     api_url: str = "http://127.0.0.1:8340"
     max_active_jobs: int = 2
     max_containers: int = 4
@@ -78,7 +80,7 @@ class Configuration:
         unknown = set(document) - {"workbench", "launcher", "environment", "agent_cli"}
         if unknown:
             raise ConfigurationError("配置文件包含不支持的配置节")
-        allowed_workbench = {"data_dir", "web_dir", "model", "database_url", "use_sqlite", "port", "api_url",
+        allowed_workbench = {"data_dir", "web_dir", "model", "database_url", "use_sqlite", "port", "api_url", "port_range_start", "port_range_end",
             "max_active_jobs", "max_containers", "lease_seconds", "task_timeout_seconds", "proxy_ca", "docker_endpoint"}
         allowed_launcher = {"venv_dir", "logs_dir", "tool_context", "tool_image", "startup_timeout_seconds",
             "stop_timeout_seconds", "graceful_timeout_seconds", "image_build_timeout_seconds", "open_browser", "require_docker", "stop_managed_environments"}
@@ -132,6 +134,10 @@ class Configuration:
             return (raw if raw.is_absolute() else origin / raw).resolve()
 
         port = number("port", 8340, 1, 65535)
+        port_range_start = number("port_range_start", 20000, 1024, 65535)
+        port_range_end = number("port_range_end", 29999, 1024, 65535)
+        if port_range_start > port_range_end:
+            raise ConfigurationError("port_range_start 不能大于 port_range_end")
         api_url = text("api_url") or f"http://127.0.0.1:{port}"
         parsed = urlparse(api_url)
         try:
@@ -187,6 +193,7 @@ class Configuration:
         return cls(file=path, data_dir=location("data_dir", ".local-data/workbench"), web_dir=location("web_dir", PROJECT_ROOT / "web/dist"),
             venv_dir=location("venv_dir", ".venv"), logs_dir=location("logs_dir", ".local-data/logs"), tool_context=location("tool_context", PROJECT_ROOT / "poc/container"),
             model=model, database_url=text("database_url"), use_sqlite=boolean("use_sqlite", False), port=port, api_url=api_url.rstrip("/"),
+            port_range_start=port_range_start, port_range_end=port_range_end,
             max_active_jobs=number("max_active_jobs", 2, 1, 32), max_containers=number("max_containers", 4, 1, 32), lease_seconds=number("lease_seconds", 45, 10, 3600),
             task_timeout_seconds=number("task_timeout_seconds", 300, 0.001, 86400, integer=False), proxy_ca=proxy_path, docker_endpoint=endpoint,
             startup_timeout_seconds=number("startup_timeout_seconds", 90, 5, 600), stop_timeout_seconds=number("stop_timeout_seconds", 120, 5, 3600),
@@ -198,7 +205,7 @@ class Configuration:
         """Entry points export resolved settings once; reading a file is side-effect free."""
         for name, value in self.environment.items():
             os.environ.setdefault(name, value)
-        for name in ("data_dir", "web_dir", "venv_dir", "logs_dir", "tool_context", "model", "database_url", "use_sqlite", "port", "api_url", "max_active_jobs", "max_containers",
+        for name in ("data_dir", "web_dir", "venv_dir", "logs_dir", "tool_context", "model", "database_url", "use_sqlite", "port", "port_range_start", "port_range_end", "api_url", "max_active_jobs", "max_containers",
             "lease_seconds", "task_timeout_seconds", "docker_endpoint", "startup_timeout_seconds", "stop_timeout_seconds", "graceful_timeout_seconds", "image_build_timeout_seconds", "open_browser", "require_docker", "stop_managed_environments", "tool_image"):
             value = getattr(self, name)
             os.environ["AWB_" + name.upper()] = str(value).lower() if isinstance(value, bool) else str(value)
@@ -211,7 +218,8 @@ class Configuration:
 
     def public(self):
         return {"config_file": str(self.file) if self.file else None, "data_dir": str(self.data_dir), "web_dir": str(self.web_dir), "venv_dir": str(self.venv_dir),
-            "logs_dir": str(self.logs_dir), "model": self.model, "port": self.port, "api_url": self.api_url, "require_docker": self.require_docker,
+            "logs_dir": str(self.logs_dir), "model": self.model, "port": self.port, "port_range_start": self.port_range_start,
+            "port_range_end": self.port_range_end, "api_url": self.api_url, "require_docker": self.require_docker,
             "stop_managed_environments": self.stop_managed_environments, "docker_endpoint": checked_docker_endpoint(self.docker_endpoint),
             "tool_context": str(self.tool_context), "tool_image": self.tool_image}
 

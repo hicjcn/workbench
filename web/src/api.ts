@@ -68,6 +68,7 @@ export type Review = {
   created_at: number;
 };
 export type Detail = Omit<Requirement, "workspace"> & {
+  port_mappings?: import("./RuntimeConfigFields").PortMapping[];
   agent_cli?: import("./AgentCliPanel").AgentCliConfig;
   workspace: Workspace;
   project: Project;
@@ -89,6 +90,7 @@ export type Detail = Omit<Requirement, "workspace"> & {
     restored_from: string | null;
   } | null;
   application: {
+    port_mappings?: import("./RuntimeConfigFields").PortMapping[];
     phase: string;
     checked_at: number | null;
     code_digest: string | null;

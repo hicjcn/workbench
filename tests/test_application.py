@@ -17,10 +17,10 @@ from test_control_plane import ControlFixture
 
 
 class ApplicationTests(ControlFixture):
-    def prepare_app(self, preflight=True):
+    def prepare_app(self, preflight=True, content=None):
         project = self.project()
         self.url = f"/api/v1/projects/{project['id']}/profiles"
-        content = Content(application={"start_command": "node server.cjs"}).model_dump()
+        content = content or Content(application={"start_command": "node server.cjs"}).model_dump()
         saved = self.client.post(self.url, json={"expected_profile": None, "content": content, "actor": "fixture", "reason": "controlled application"})
         self.assertEqual(saved.status_code, 201)
         self.profile = saved.json(); self.req = self.requirement(project)
@@ -58,6 +58,40 @@ class ApplicationTests(ControlFixture):
         one = self.action(self.req, "app_start", "same").json()
         self.assertEqual(self.action(self.req, "app_start", "same").json()["id"], one["id"])
         self.assertEqual(self.action(self.req, "app_start", "different").status_code, 409)
+
+    def test_application_start_uses_profile_environment_mapped_ports_and_writable_mount(self):
+        directory = self.root / "application-data"; directory.mkdir()
+        content = Content(application={"start_command": "node server.cjs"}, environment={"APP_TOKEN": "application-private"},
+            volume_mounts=[{"source": str(directory), "target": "/mnt/data", "read_only": False}],
+            port_mappings=[{"container_port": 3000, "service": "application"}, {"container_port": 8080, "host_port": 20000}]).model_dump()
+        self.prepare_app(content=content)
+        write_json(self.workspace / "runtime.json", {"phase": "STARTED", "container": "dev", "network": "development-network"})
+        development = {"State": {"Running": True}, "Config": {"Labels": {**application.labels(self.data, self.workspace), "awb.kind": "agent"}}}
+        with patch("agent_workbench.dependencies.inspect", return_value=development), patch("agent_workbench.application.checked_container", return_value=None), \
+            patch("agent_workbench.resources.inventory", return_value=[]), patch("agent_workbench.runtime_ports.occupied_ports", return_value=set()), \
+            patch("agent_workbench.runtime_ports.available", return_value=True), patch("agent_workbench.application.check", return_value={"passed": True}), \
+            patch("agent_workbench.runtime.docker") as docker:
+            application.start(self.runner.executor, self.workspace, lambda *_: None, threading.Event())
+        run = docker.call_args
+        self.assertIn("127.0.0.1:20001:3000/tcp", run.args)
+        self.assertIn("development-network", run.args)
+        self.assertIn("APP_TOKEN", run.args)
+        self.assertNotIn("application-private", " ".join(run.args))
+        self.assertEqual(run.kwargs["environment"]["APP_TOKEN"], "application-private")
+        self.assertNotIn("readonly", next(value for value in run.args if "dst=/mnt/data" in value))
+        self.assertEqual(application.status(self.workspace)["port_mappings"][0]["host_port"], 20001)
+
+    def test_application_container_accepts_only_recorded_loopback_port_bindings(self):
+        self.prepare_app()
+        mapping = {"container_port": 3000, "host_port": 21000, "protocol": "tcp", "service": "application"}
+        write_json(self.workspace / application.JOURNAL, {"phase": "READY", "port_mappings": [mapping]})
+        detail = {"Id": "owned", "Image": "sha256:fixed", "Config": {"Labels": application.labels(self.data, self.workspace)},
+            "HostConfig": {"PortBindings": {"3000/tcp": [{"HostPort": "21000", "HostIp": "127.0.0.1"}]}},
+            "Mounts": [{"Type": "bind", "Source": str(self.workspace / "repo"), "Destination": "/workspace/project", "RW": False}]}
+        with patch("agent_workbench.dependencies.inspect", return_value=detail):
+            self.assertEqual(application.checked_container(self.data, self.workspace)["Id"], "owned")
+            detail["HostConfig"]["PortBindings"]["3000/tcp"][0]["HostIp"] = "0.0.0.0"
+            with self.assertRaises(WorkbenchError): application.checked_container(self.data, self.workspace)
 
     def test_capacity_rejection_never_provisions_database_or_application(self):
         self.prepare_app(); write_json(self.workspace / "runtime.json", {"phase": "STARTED", "container": "dev"})

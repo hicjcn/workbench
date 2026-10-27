@@ -90,6 +90,58 @@ class ProfileTests(ControlFixture):
         for patch_value in [{"cpus": 0}, {"memory_mib": 1}, {"pids_limit": 0}, {"verification_command": "npm test | cat"}, {"verification_command": " "}]:
             self.assertEqual(self.save({**Content().model_dump(), **patch_value}).status_code, 422)
 
+    def test_environment_ports_and_writable_directory_are_pinned_and_redacted(self):
+        directory = self.root / "external-data"; directory.mkdir()
+        content = Content(environment={"APP_TOKEN": "private-app-token", "DEBUG": "1", "FEATURE": "false"},
+            volume_mounts=[{"source": str(directory), "target": "/mnt/data", "read_only": False}],
+            port_mappings=[{"container_port": 3000}]).model_dump()
+        saved = self.save(content)
+        self.assertEqual(saved.status_code, 201, saved.text)
+        detail = self.prepare(self.requirement(self.project_record))
+        workspace = Path(detail["workspace"]["path"])
+        options = runtime_options(workspace, self.data)
+        self.assertEqual(options["volume_mounts"][0], {"source": str(directory), "target": "/mnt/data", "read_only": False})
+        self.assertEqual(options["profile_environment"], {"APP_TOKEN": "private-app-token", "DEBUG": "1", "FEATURE": "false"})
+        self.assertIsNone(options["port_mappings"][0]["host_port"])
+        self.assertEqual(self.runner.executor.redact("token=private-app-token", workspace), "token=[REDACTED]")
+        self.assertEqual(self.runner.executor.redact_payload({"ok": True, "passed": False, "number": 1, "version": "v1.0", "output": "private-app-token"}, workspace),
+            {"ok": True, "passed": False, "number": 1, "version": "v1.0", "output": "[REDACTED]"})
+        self.assertEqual(self.client.get(self.url).json()["port_range"], {"start": 20000, "end": 29999})
+
+    def test_development_auto_ports_reserve_application_ports_and_readonly_roles_do_not_publish(self):
+        content = Content(application={"start_command": "node server.js"}, environment={"DEBUG": "1"},
+            port_mappings=[{"container_port": 3000}, {"container_port": 3000, "host_port": 20000, "service": "application"}]).model_dump()
+        self.assertEqual(self.save(content).status_code, 201)
+        detail = self.prepare(self.requirement(self.project_record))
+        workspace = Path(detail["workspace"]["path"])
+        with patch("agent_workbench.resources.inventory", return_value=[]), patch("agent_workbench.runtime_ports.occupied_ports", return_value=set()), \
+            patch("agent_workbench.runtime_ports.available", return_value=True), patch("agent_workbench.runtime.start") as start:
+            self.runner.executor.start_runtime(workspace, "fixture")
+        self.assertEqual(start.call_args.kwargs["port_mappings"][0]["host_port"], 20001)
+        self.assertEqual(start.call_args.kwargs["profile_environment"], {"DEBUG": "1"})
+        with patch("agent_workbench.resources.inventory", return_value=[]), patch("agent_workbench.runtime.start") as start, \
+            patch("agent_workbench.runtime_ports.occupied_ports") as occupied:
+            self.runner.executor.start_runtime(workspace, "fixture", read_only_source=True, opencode_model="opencode/glm-5.3-flash-free")
+            occupied.assert_not_called()
+        self.assertEqual(start.call_args.kwargs["port_mappings"], [])
+        self.assertEqual(start.call_args.kwargs["profile_environment"], {})
+
+    def test_invalid_environment_ports_and_volume_boundaries_are_rejected(self):
+        for value in [
+            {"environment": {"DOCKER_HOST": "bad"}}, {"environment": {"LD_PRELOAD": "bad"}},
+            {"environment": {"bad-key": "bad"}}, {"environment": {"APP": "bad\u0000value"}},
+            {"port_mappings": [{"container_port": 4096}]},
+            {"port_mappings": [{"container_port": 3000, "host_port": 19999}]},
+            {"port_mappings": [{"container_port": 3000}, {"container_port": 3000}]},
+            {"port_mappings": [{"container_port": 3000, "service": "application"}]},
+            {"volume_mounts": [{"source": str(self.config_file), "target": "/workspace/project", "read_only": False}]},
+            {"volume_mounts": [{"source": str(self.data), "target": "/mnt/data"}]},
+            {"volume_mounts": [{"source": str(self.root), "target": "/mnt/data"}]},
+            {"volume_mounts": [{"source": str(self.config_file), "target": "/var/run/docker.sock"}]},
+        ]:
+            with self.subTest(value=value):
+                self.assertEqual(self.save({**Content().model_dump(), **value}).status_code, 422)
+
     def test_new_profile_does_not_change_existing_legacy_workspace(self):
         req = self.requirement(self.project_record); self.action(req, "prepare"); self.runner.run_once()
         self.save()
@@ -108,6 +160,17 @@ class ProfileTests(ControlFixture):
         self.client.headers.pop("Authorization")
         self.assertEqual(self.client.get(self.url).status_code, 401)
         self.assertEqual(self.save().status_code, 401)
+
+    def test_requirement_detail_exposes_only_public_runtime_port_fields(self):
+        req = self.requirement(self.project_record)
+        workspace = Path(self.detail(req)["workspace"]["path"])
+        workspace.mkdir(parents=True)
+        mapping = {"container_port": 8080, "host_port": 21000, "protocol": "tcp", "service": "agent", "private": "not-public"}
+        write_json(workspace / "runtime.json", {"password": "private-runtime-password", "port_mappings": [mapping]})
+        detail = self.detail(req)
+        self.assertEqual(detail["port_mappings"], [{key: mapping[key] for key in ("container_port", "host_port", "protocol", "service")}])
+        self.assertNotIn("private-runtime-password", json.dumps(detail))
+        self.assertNotIn("not-public", json.dumps(detail))
 
     def test_preflight_cleanup_failure_marks_report_and_job_unknown(self):
         self.save(); req = self.prepare(self.requirement(self.project_record))

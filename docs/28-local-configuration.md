@@ -64,6 +64,7 @@ notepad workbench.toml
 | `workbench.use_sqlite` | `AWB_USE_SQLITE` | 示例为 `true`，固定使用数据目录中的 `workbench.db` |
 | `workbench.database_url` | `AWB_DATABASE_URL` | 可选外部 SQLAlchemy URL；只有关闭 `use_sqlite` 才使用。`--sqlite` 始终优先 |
 | `workbench.port` | `AWB_PORT` | API/页面端口，默认 8340 |
+| `workbench.port_range_start` / `port_range_end` | `AWB_PORT_RANGE_START` / `AWB_PORT_RANGE_END` | 容器映射可用的宿主端口范围，含起止端口，默认 `20000–29999`；起止值须在 `1024–65535` 内 |
 | `workbench.api_url` | `AWB_API_URL` | Runner 连接地址；建议留空，自动跟随 port，仅允许本机回环 HTTP 根地址 |
 | `workbench.model` | `AWB_MODEL` | 开发/分析/材料模型；仍遵循现有免费模型规则 |
 | `workbench.web_dir` | `AWB_WEB_DIR` | 已构建的前端目录，默认 `web/dist` |
@@ -92,6 +93,21 @@ $env:AWB_MODEL = "opencode/big-pickle"
 ```
 
 脚本会让 API 与 Runner 共享同一有效配置，避免两个终端各自设置时出现差异。
+
+## 项目运行环境
+
+在「项目登记」的项目卡片选择「修改登记」，可修改名称、源码目录、仓库选择、共享文件和默认镜像。已有工作区保留独立源码副本；修改源码登记时，需先处理活动或待核实任务，不能移除未创建工作区的需求已选择的仓库。
+
+「项目运行配置」使用宽屏分栏表单，支持环境变量、端口映射以及文件/目录挂载。保存会追加配置版本，只影响后续新工作区；已绑定需求继续使用固定版本。
+
+| 运行配置字段 | 行为 |
+| --- | --- |
+| `environment` | 变量名到字符串值的字典，传入开发和应用容器。与本机 TOML 的 `[environment]` 分开保存；不接受 `PATH`、`HOME`、`PORT` 等工作台保留变量 |
+| `port_mappings` | 每项包含 `container_port`、`host_port`、`protocol`（`tcp` / `udp`）和 `service`（`agent` / `application`）。`host_port` 留空或为 `null` 时自动分配，指定时必须在上述端口范围内；启动时检查端口占用，只发布到 `127.0.0.1` |
+| `volume_mounts` | 每项包含本机绝对路径 `source`、容器绝对路径 `target` 和 `read_only`，支持现存文件或目录。默认只读；设为 `false` 后，容器修改会写回宿主机 |
+| `mounts` | 原有的只读配置文件副本：准备工作区时复制并固定摘要，目标位于 `/run/workbench-config/`，不修改原文件 |
+
+应用端口映射需要先启用应用服务。直接挂载不能覆盖工作台或系统保留路径；只读分析角色的直接挂载会强制只读。项目环境变量的值会随运行配置保存，模型/CLI 凭据仍通过下节的本机私有配置或既有进程环境提供。
 
 ## 凭据、代理与 Agent CLI
 

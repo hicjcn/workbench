@@ -66,7 +66,7 @@ class Runner:
         sequence = 0
         def emit(kind, payload):
             nonlocal sequence
-            sanitized = json.loads(self.executor.redact(json.dumps(payload, ensure_ascii=False), Path(job["workspace"]["path"])))
+            sanitized = self.executor.redact_payload(payload, Path(job["workspace"]["path"]))
             self.post(f"/internal/jobs/{job['id']}/events", {**base, "seq": sequence, "kind": kind, "payload": sanitized})
             sequence += 1
         status, result, error = "SUCCEEDED", {}, None

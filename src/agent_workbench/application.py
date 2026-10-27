@@ -64,10 +64,17 @@ def checked_container(root, workspace):
     _, manifest = load_workspace(workspace)
     profile = manifest.get("runtime_profile")
     source = next((item for item in detail.get("Mounts", []) if item.get("Destination") == "/workspace/project"), {})
+    from .runtime_ports import bindings_match
+    journal = read(workspace, JOURNAL) or {}
     if (not spec(workspace) or not dependencies.labels_match(detail, labels(root, workspace)) or
         not mount_matches(source.get("Source"), workspace / "repo") or source.get("Type") != "bind" or source.get("RW") is not False or
-        detail.get("Image") != profile["image_id"] or detail.get("HostConfig", {}).get("PortBindings")):
+        detail.get("Image") != profile["image_id"] or not bindings_match(detail.get("HostConfig", {}).get("PortBindings"), journal.get("port_mappings", []))):
         raise WorkbenchError("应用容器归属、镜像或挂载不符，拒绝接管或清理")
+    for expected in profile["content"].get("volume_mounts", []):
+        actual = next((item for item in detail.get("Mounts", []) if item.get("Destination") == expected["target"]), {})
+        if (actual.get("Type") != "bind" or not mount_matches(actual.get("Source"), expected["source"]) or
+            actual.get("RW") is not (not expected.get("read_only", True))):
+            raise WorkbenchError("应用容器挂载路径或读写权限不符，拒绝接管或清理")
     return detail
 
 
@@ -77,7 +84,8 @@ def status(workspace, current_digest=None):
     phase = journal["phase"] if journal else "STOPPED"
     if journal and phase != "UNKNOWN" and current_digest and journal.get("code_digest") != current_digest: phase = "STALE"
     return {"phase": phase, "checked_at": journal.get("checked_at") if journal else None,
-        "code_digest": journal.get("code_digest") if journal else None, "last_check": report}
+        "code_digest": journal.get("code_digest") if journal else None, "last_check": report,
+        "port_mappings": journal.get("port_mappings", []) if journal else []}
 
 
 def stop(root, workspace):
@@ -116,8 +124,13 @@ def start(executor, workspace, emit, canceled):
         locking.flock(lock, locking.LOCK_EX)
         if len(inventory(root)) + 1 > executor.settings.max_containers: raise WorkbenchError("托管容器达到上限，请先停止其他环境")
         options = runtime_options(workspace, root)
+        from .runtime_ports import allocate, publish_args
+        mappings = options.get("port_mappings", [])
+        reserved = [(item["host_port"], item.get("protocol", "tcp")) for item in mappings if item.get("service", "agent") == "agent" and item.get("host_port") is not None]
+        port_mappings = allocate([item for item in mappings if item.get("service") == "application"], executor.settings, reserved=reserved)
         # No dependency provisioning here: the explicitly started dev environment must own it.
-        network, environment = "none", {}
+        network = state.get("network", "bridge") if port_mappings else "none"
+        environment = dict(options.get("profile_environment", {}))
         if dependencies.spec(workspace):
             data = read(workspace, dependencies.STATE)
             database = dependencies.checked_container(root, workspace, data) if data else None
@@ -125,11 +138,11 @@ def start(executor, workspace, emit, canceled):
             if not database or not database["State"]["Running"] or not private or data["phase"] != "RUNNING":
                 raise Unknown("开发数据库状态待核实，应用尚未启动")
             network = dependencies.names(workspace)["network"]
-            environment = {"PGHOST": "awb-postgres", "PGPORT": "5432", "PGUSER": "app", "PGDATABASE": "app", "PGPASSWORD": private["password"]}
+            environment.update(PGHOST="awb-postgres", PGPORT="5432", PGUSER="app", PGDATABASE="app", PGPASSWORD=private["password"])
         if canceled.is_set(): raise Canceled("应用启动已取消")
         baseline = code_digest(executor, workspace)
         journal = {"schema": "workbench-application/v1", "phase": "STARTING", "container": name(workspace),
-            "code_digest": baseline, "checked_at": time.time()}
+            "code_digest": baseline, "checked_at": time.time(), "port_mappings": port_mappings}
         write_json(workspace / JOURNAL, journal)
         limits = options["limits"]
         uid, gid = container_ids()
@@ -143,6 +156,9 @@ def start(executor, workspace, emit, canceled):
         for key, value in labels(root, workspace).items(): args += ["--label", key + "=" + value]
         for mount in options["config_mounts"]:
             args += ["--mount", bind_mount(mount["source"], mount["target"], readonly=True)]
+        for mount in options.get("volume_mounts", []):
+            args += ["--mount", bind_mount(mount["source"], mount["target"], readonly=mount.get("read_only", True))]
+        args += publish_args(port_mappings)
         for key in environment: args += ["--env", key]
         argv = command(configuration["start_command"])
         # Override image entrypoint, with argv passed directly rather than through a shell.
@@ -151,7 +167,7 @@ def start(executor, workspace, emit, canceled):
         except Exception:
             journal.update(phase="UNKNOWN"); write_json(workspace / JOURNAL, journal)
             raise Unknown("应用启动响应未核实，保留运行记录；请停止并核实，不能自动重发") from None
-    emit("stage", {"text": "应用已提交，正在容器内检查固定 HTTP 路径；不开放宿主端口"})
+    emit("stage", {"text": "应用已提交，正在容器内检查固定 HTTP 路径"})
     deadline = time.monotonic() + configuration["ready_timeout_seconds"]
     while True:
         if canceled.is_set(): raise Canceled("应用启动已取消")

@@ -160,6 +160,39 @@ class WorkspaceTests(unittest.TestCase):
                     runtime.start(repo.parent, "fixture-image", openrouter_model=model)
             docker.assert_not_called()
 
+    def test_runtime_forwards_profile_environment_ports_and_mount_permissions(self):
+        workspace = self.create().parent
+        external = self.root / "external"; external.mkdir()
+        mapping = {"container_port": 3000, "host_port": 21000, "protocol": "tcp", "service": "agent"}
+        def docker(*args, **kwargs):
+            if args[:2] == ("network", "inspect"):
+                return subprocess.CompletedProcess([], 1, "", "missing")
+            return subprocess.CompletedProcess([], 0, "127.0.0.1:4096\n" if args[0] == "port" else "", "")
+        with patch.object(runtime, "docker", side_effect=docker) as calls:
+            result = runtime.start(workspace, "fixture-image", profile_environment={"APP_TOKEN": "private-value"},
+                volume_mounts=[{"source": str(external), "target": "/mnt/data", "read_only": False}], port_mappings=[mapping])
+        run = next(call for call in calls.call_args_list if call.args[0] == "run")
+        self.assertIn("127.0.0.1:21000:3000/tcp", run.args)
+        self.assertIn("APP_TOKEN", run.args)
+        self.assertNotIn("private-value", " ".join(run.args))
+        self.assertEqual(run.kwargs["environment"]["APP_TOKEN"], "private-value")
+        volume = next(value for value in run.args if "dst=/mnt/data" in value)
+        self.assertNotIn("readonly", volume)
+        self.assertEqual(result["port_mappings"], [mapping])
+        self.assertNotIn("private-value", (workspace / "runtime.json").read_text())
+
+    def test_readonly_runtime_forces_external_mounts_readonly(self):
+        workspace = self.create().parent
+        def docker(*args, **kwargs):
+            if args[:2] == ("network", "inspect"):
+                return subprocess.CompletedProcess([], 1, "", "missing")
+            return subprocess.CompletedProcess([], 0, "127.0.0.1:4096\n" if args[0] == "port" else "", "")
+        with patch.object(runtime, "docker", side_effect=docker) as calls:
+            runtime.start(workspace, "fixture-image", read_only_source=True, opencode_model="opencode/glm-5.3-flash-free",
+                volume_mounts=[{"source": str(self.source), "target": "/mnt/data", "read_only": False}])
+        run = next(call for call in calls.call_args_list if call.args[0] == "run")
+        self.assertIn("readonly", next(value for value in run.args if "dst=/mnt/data" in value))
+
     def test_opencode_free_model_overwrites_persisted_config_without_forwarding_credentials(self):
         workspace = self.create().parent
         model = "opencode/glm-5.3-flash-free"

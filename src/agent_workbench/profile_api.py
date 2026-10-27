@@ -3,7 +3,7 @@ from .profiles import Profiles, Save
 
 
 def install(app, settings, store, user):
-    service = Profiles(store, settings.data_dir)
+    service = Profiles(store, settings.data_dir, settings)
 
     @app.get("/api/v1/projects/{project_id}/profiles", dependencies=[Depends(user)])
     def read(project_id: str): return service.read(project_id)
