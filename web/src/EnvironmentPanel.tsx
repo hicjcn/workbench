@@ -27,7 +27,7 @@ export function EnvironmentPanel({
           </p>
           <p className="hint">
             构建：{profile.content.build_command || "未配置"} · 验证：
-            {profile.content.verification_command}
+            {profile.content.verification_command.trim() || "未配置"}
           </p>
           <div className="button-row">
             {Boolean(profile.content.dependencies?.length) && (
