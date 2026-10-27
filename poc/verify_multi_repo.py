@@ -42,7 +42,8 @@ def main():
     environment = {key: value for key, value in os.environ.items() if not key.startswith('AWB_')}
     environment.update(PYTHONUTF8='1', PYTHONPATH=str(repo / 'src'))
     processes, handles, checks = [], [], []
-    report = {'status': 'RUNNING', 'model_inference': False, 'controlled_cli_reports': True, 'real_docker': True, 'checks': checks}
+    report = {'status': 'RUNNING', 'model_inference': False, 'controlled_cli_reports': True, 'real_docker': True,
+        'container_scheduling': 'development_and_readonly_serialized', 'checks': checks}
     names = ['order service', 'services/payment 中文']
     parent = root / 'business parent 中文'; parent.mkdir()
     for name in [*names, 'ignored-service']:
@@ -158,7 +159,11 @@ def main():
                 time.sleep(.1)
             else: raise AssertionError('Workflow not created')
             assert len(current['config']['repository_verification']) == 2
+            def development_environment(enabled):
+                if enabled != (workspace / 'runtime.json').exists():
+                    wait(post(endpoint + '/actions', {'action': 'start' if enabled else 'stop'})['id'])
             for key in ['analysis', 'scope', 'development', 'verification', 'model_review_0', 'model_review_1', 'resolution', 'self_review']:
+                development_environment(key in ('development', 'verification'))
                 current = get(endpoint + '/workflow')['current']; assert current['next_step'] == key, current['next_step']
                 job = post(endpoint + '/workflow/steps', dict(flow_id=current['id'], step_key=key, decision='APPROVED', reason='Controlled fixture inspection', prompt='', dispositions={}))
                 finished = wait(job['id'])
@@ -185,6 +190,7 @@ def main():
             assert get(endpoint + '/materials')['current']['documents']['summary_design']['content']['title'].startswith('CONTROLLED_FIXTURE_NOT_MODEL')
             check('overview_document_generation_uses_complete_multi_repository_readonly_context')
             # The second command really fails; the successful first command cannot hide it.
+            development_environment(True)
             (workspace / 'repo' / names[1] / 'test.cjs').write_text("process.exit(7);\n")
             failed = wait(post(endpoint + '/actions', {'action': 'verify'})['id'], expected='FAILED')
             records = failed['result']['command_output']['repositories']
@@ -218,6 +224,9 @@ def main():
         finally: database.engine.dispose()
         check('sqlite_0010_backup_restore_preserves_both_git_histories_common_baseline_and_one_requirement')
         report.update(status='PASSED_MULTI_REPOSITORY_WORKSPACE', checks_passed=len(checks))
+    except BaseException as error:
+        report.update(status='FAILED', checks_passed=len(checks), error_type=type(error).__name__)
+        raise
     finally:
         client.close(); terminate()
         for handle in handles: handle.close()
