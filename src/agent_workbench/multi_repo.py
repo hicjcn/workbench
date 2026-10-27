@@ -185,8 +185,11 @@ def create(source, root, requirement, project, *, repositories, shared_files, in
             'repo': str(destination / 'repo'), 'source_history': 'independent_snapshot_exports', 'repositories': [],
             'include_dirty': include_dirty, 'include_untracked': include_untracked}
         for index, name in enumerate(repositories):
-            copied = create_workspace(safe_path(source, name), Path(staging.name), requirement, f'repository_{index}',
-                include_dirty=include_dirty, include_untracked=include_untracked, _single_repository=True)
+            try:
+                copied = create_workspace(safe_path(source, name), Path(staging.name), requirement, f'repository_{index}',
+                    include_dirty=include_dirty, include_untracked=include_untracked, _single_repository=True)
+            except WorkbenchError as error:
+                raise WorkbenchError(f"复制子仓库 {name} 失败：{error}") from error
             child = Path(copied['workspace'])
             manifest = json.loads((child / 'workspace.json').read_text(encoding='utf-8'))
             if manifest['source_commit'] != source_heads[name]: raise WorkbenchError('来源仓库在准备期间切换了提交，请重试')
@@ -195,7 +198,8 @@ def create(source, root, requirement, project, *, repositories, shared_files, in
             except OSError as error:
                 if error.errno != errno.EXDEV and getattr(error, 'winerror', None) != 17: raise
                 shutil.copytree(child / 'repo', target)
-            value['repositories'].append({'path': name, 'source_commit': manifest['source_commit'], 'baseline': manifest['source_baseline']})
+            value['repositories'].append({'path': name, 'source_commit': manifest['source_commit'], 'baseline': manifest['source_baseline'],
+                **({'materialized_links': manifest['materialized_links']} if manifest.get('materialized_links') else {})})
         shared_base = temporary / 'shared-base'; shared_base.mkdir()
         for name in shared_files:
             origin = safe_path(source, name)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import os
 import ntpath
@@ -11,7 +10,6 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
-import tarfile
 import tempfile
 
 from .platform_support import IS_WINDOWS, is_link, retry_file_access
@@ -166,6 +164,8 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
     tree = git(source, "ls-tree", "-r", source_sha).decode()
     if any(line.startswith("160000 ") for line in tree.splitlines()):
         raise WorkbenchError("Git submodules are not supported by M1")
+    if include_dirty and any(line.startswith("120000 ") for line in tree.splitlines()):
+        raise WorkbenchError("含已提交符号链接的原项目请先提交改动，再使用 HEAD 创建工作区；暂不支持脏文件叠加")
     declared_size = 0
     for line in git(source, "ls-tree", "-r", "-l", source_sha).decode().splitlines():
         size = line.split("\t", 1)[0].split()[-1]
@@ -185,33 +185,8 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
         # Git archive applies host checkout conversion too. In particular the
         # Git for Windows global autocrlf default must not rewrite source bytes.
         archive = git(source, "-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar", source_sha)
-        total = 0
-        executable_paths = []
-        case_paths = {}
-        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
-            for member in tar:
-                if excluded(member.name) or member.isdir():
-                    continue
-                if IS_WINDOWS:
-                    windows_names([member.name], case_paths)
-                path = safe_path(repo, member.name)
-                if not member.isfile():
-                    raise WorkbenchError(f"Unsupported archived entry: {member.name}")
-                total += member.size
-                if total > 100 * 1024 * 1024:
-                    raise WorkbenchError("M1 source export exceeds the 100 MiB limit")
-                path.parent.mkdir(parents=True, exist_ok=True)
-                stream = tar.extractfile(member)
-                if stream is None:
-                    raise WorkbenchError("Source archive entry cannot be read")
-                content = stream.read()
-                if content.startswith((b"version https://git-lfs.github.com/spec/v1\n", b"version https://git-lfs.github.com/spec/v1\r\n")):
-                    raise WorkbenchError("Git LFS pointers are not materialized by M1")
-                with path.open("xb") as output:
-                    output.write(content)
-                path.chmod(0o755 if member.mode & 0o111 else 0o644)
-                if member.mode & 0o111:
-                    executable_paths.append(member.name)
+        from .source_export import export
+        executable_paths, materialized_links = export(archive, repo)
         git(repo, "init", "-b", f"req/{requirement}")
         git(repo, "config", "core.autocrlf", "false")
         git(repo, "config", "core.eol", "lf")
@@ -242,6 +217,8 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
             "repo": str(destination / "repo"), "source_baseline": initial,
             "include_dirty": include_dirty, "include_untracked": include_untracked,
         }
+        if materialized_links:
+            manifest["materialized_links"] = materialized_links
         write_json(temporary / "workspace.json", manifest)
         temporary.rename(destination)
         return {"workspace": str(destination), "source_commit": source_sha,

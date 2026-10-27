@@ -85,6 +85,46 @@ class MultiRepositoryTests(ControlFixture):
         self.assertFalse((workspace / 'repo/.env').exists())
         self.assertFalse((workspace / 'repo/.git').exists())
 
+    def harness_link(self, directory, target):
+        (directory / '.harness').write_text(target)
+        git(directory, 'add', '--all')
+        oid = git(directory, 'hash-object', '-w', '.harness').decode().strip()
+        git(directory, 'update-index', '--cacheinfo', f'120000,{oid},.harness')
+        git(directory, '-c', 'commit.gpgsign=false', 'commit', '-m', 'committed harness link')
+
+    def test_child_harness_links_are_materialized_without_turning_parent_into_a_git_repository(self):
+        for name in self.names:
+            self.harness_link(self.parent / name, 'main.txt')
+        req, workspace = self.prepared_multi()
+        value = json.loads((workspace / 'workspace.json').read_text())
+        self.assertFalse((self.parent / '.git').exists())
+        for index, name in enumerate(self.names):
+            child = workspace / 'repo' / name
+            self.assertEqual((child / '.harness').read_bytes(), (child / 'main.txt').read_bytes())
+            self.assertFalse((child / '.harness').is_symlink())
+            self.assertEqual(value['repositories'][index]['materialized_links'], [{'path': '.harness', 'target': 'main.txt'}])
+        self.assertEqual(len(req['workspace']['snapshot']['repositories']), 2)
+        # Read-only analysis copies use ordinary files and can still include dirty edits.
+        (workspace / 'repo' / self.names[0] / '.harness').write_text('requirement-only change')
+        second = create_workspace(workspace / 'repo', self.root / 'analysis', 'analysis-copy', 'backend',
+            include_dirty=True, include_untracked=True)
+        self.assertEqual((Path(second['workspace']) / 'repo' / self.names[0] / '.harness').read_text(), 'requirement-only change')
+
+    def test_failed_child_copy_reports_repository_path_and_retries_without_partial_workspace(self):
+        directory = self.parent / self.names[1]
+        self.harness_link(directory, '../outside-project')
+        project = self.register()
+        req = self.requirement(project)
+        self.action(req, 'prepare'); self.assertTrue(self.runner.run_once())
+        first = self.detail(req)
+        self.assertEqual(first['jobs'][0]['status'], 'FAILED')
+        self.assertIn(self.names[1], first['jobs'][0]['error'])
+        self.assertIn('.harness', first['jobs'][0]['error'])
+        self.assertFalse(Path(first['workspace']['path']).exists())
+        self.harness_link(directory, 'main.txt')
+        self.action(req, 'prepare'); self.assertTrue(self.runner.run_once())
+        self.assertEqual(self.detail(req)['jobs'][0]['status'], 'SUCCEEDED')
+
     def test_invalid_overlapping_case_colliding_and_escaping_paths_are_rejected(self):
         with self.assertRaises(WorkbenchError): relative_names(['a', 'a-b', 'a/b'])
         for names in (['../other'], ['/absolute'], ['order service', 'ORDER SERVICE'], [self.names[0], self.names[0] + '/nested'], ['services\\payment 中文'], ['.git'], ['.']):
