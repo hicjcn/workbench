@@ -138,6 +138,12 @@ class Workflow:
             connection.execute(insert(revisions).values(**value))
             connection.execute(update(requirements).where(requirements.c.id == requirement_id).values(**content))
             invalidate(connection, requirement_id)
+            # Legacy requirements can have a direct code approval without a flow.
+            # A new requirement revision invalidates that confirmation as well.
+            connection.execute(update(workspaces).where(workspaces.c.requirement_id == requirement_id,
+                workspaces.c.approval.in_(["APPROVED", "REJECTED"])).values(approval="STALE"))
+            from .materials import invalidate as invalidate_materials
+            invalidate_materials(connection, requirement_id)
             return public(value)
 
     def start(self, requirement_id, models, command, reason, expected_digest, *, use_repository_commands=False):
