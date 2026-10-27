@@ -18,7 +18,7 @@ Windows 上采用 **原生 Python API/Runner + Docker Desktop 的 Linux 容器**
 | Docker Desktop 挂载路径转换 | 构建挂载参数时保留盘符、空格和中文；核对挂载时只接受原 Windows 路径或已知的 Desktop `/run/desktop/mnt/host/<盘符>/...`、`/host_mnt/<盘符>/...` 映射 |
 | 默认文本编码不同 | 私有 JSON/配置文件显式使用 UTF-8，Docker 任务的输入输出按 UTF-8 处理 |
 | NTFS 没有 POSIX 执行位 | Windows 快照根据 Git index 保存执行标记，导出工作区时保留已提交脚本的执行标记；工作区关闭自动换行转换 |
-| Windows 特有路径 | 拒绝盘符逃逸、反斜杠相对路径、NTFS alternate data streams、设备名、大小写冲突及尾随点/空格；重解析点和 junction 与符号链接一样拒绝 |
+| Windows 特有路径 | 拒绝盘符逃逸、反斜杠相对路径、NTFS alternate data streams、设备名、大小写冲突及尾随点/空格；宿主路径上的重解析点、junction 和运行时新增链接仍拒绝。Git 已提交且指向本仓库内的相对链接，在导出时展开为普通文件/目录，无需 Windows 创建符号链接权限 |
 
 Windows 专用依赖由 `pip install -e '.[server]'` 自动安装，不需要也不应单独安装 `fcntl`。
 
