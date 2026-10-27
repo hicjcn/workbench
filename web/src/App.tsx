@@ -399,42 +399,33 @@ export default function App() {
             </div>
             {requirements.length ? (
               requirements.map((item) => (
-                <div className="requirement-list-entry" key={item.id}>
-                  <button
-                    className={`requirement-card ${selected === item.id ? "selected" : ""}`}
-                    aria-pressed={selected === item.id}
-                    onClick={() => {
-                      setSelected(item.id);
-                      setError("");
-                    }}
-                  >
-                    <div className="card-meta">
-                      <span>
-                        {projects.find(
-                          (project) => project.id === item.project_id,
-                        )?.name ?? "项目"}
-                      </span>
-                      <Badge
-                        value={
-                          item.workspace.approval === "APPROVED"
-                            ? "APPROVED"
-                            : item.workspace.environment
-                        }
-                      />
-                    </div>
-                    <strong>{item.title}</strong>
-                    <p>{item.description || "尚未补充需求背景"}</p>
-                    <time>{timeLabel(item.created_at)}</time>
-                  </button>
-                  <button
-                    type="button"
-                    className="text-button requirement-edit-button"
-                    aria-label={`修改需求 ${item.title}`}
-                    onClick={() => setEditingRequirementId(item.id)}
-                  >
-                    修改
-                  </button>
-                </div>
+                <button
+                  key={item.id}
+                  className={`requirement-card ${selected === item.id ? "selected" : ""}`}
+                  aria-pressed={selected === item.id}
+                  onClick={() => {
+                    setSelected(item.id);
+                    setError("");
+                  }}
+                >
+                  <div className="card-meta">
+                    <span>
+                      {projects.find(
+                        (project) => project.id === item.project_id,
+                      )?.name ?? "项目"}
+                    </span>
+                    <Badge
+                      value={
+                        item.workspace.approval === "APPROVED"
+                          ? "APPROVED"
+                          : item.workspace.environment
+                      }
+                    />
+                  </div>
+                  <strong>{item.title}</strong>
+                  <p>{item.description || "尚未补充需求背景"}</p>
+                  <time>{timeLabel(item.created_at)}</time>
+                </button>
               ))
             ) : (
               <div className="list-empty">
@@ -452,6 +443,7 @@ export default function App() {
               key={`${detail.id}-${detailVersion}`}
               detail={detail}
               onChanged={refreshDetail}
+              onEdit={() => setEditingRequirementId(detail.id)}
               configureProject={() => setView("projects")}
             />
           ) : (
