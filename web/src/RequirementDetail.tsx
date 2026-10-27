@@ -27,10 +27,12 @@ function Badge({ value }: { value: string }) {
 export function RequirementDetail({
   detail,
   onChanged,
+  onEdit,
   configureProject,
 }: {
   detail: Detail;
   onChanged: () => Promise<void>;
+  onEdit: () => void;
   configureProject: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -128,7 +130,17 @@ export function RequirementDetail({
             {detail.agent_cli?.fixed ? "（已固定）" : "（准备时固定）"}
           </span>
         </div>
-        <h2>{detail.title}</h2>
+        <div className="section-title requirement-heading-actions">
+          <h2>{detail.title}</h2>
+          <button
+            type="button"
+            className="secondary"
+            aria-label={`修改需求 ${detail.title}`}
+            onClick={onEdit}
+          >
+            修改需求
+          </button>
+        </div>
         <details className="requirement-brief">
           <summary>
             查看需求背景与验收标准
