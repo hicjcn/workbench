@@ -199,7 +199,8 @@ def create(source, root, requirement, project, *, repositories, shared_files, in
                 if error.errno != errno.EXDEV and getattr(error, 'winerror', None) != 17: raise
                 shutil.copytree(child / 'repo', target)
             value['repositories'].append({'path': name, 'source_commit': manifest['source_commit'], 'baseline': manifest['source_baseline'],
-                **({'materialized_links': manifest['materialized_links']} if manifest.get('materialized_links') else {})})
+                **({'materialized_links': manifest['materialized_links']} if manifest.get('materialized_links') else {}),
+                **({'copied_link_files': manifest['copied_link_files']} if manifest.get('copied_link_files') else {})})
         shared_base = temporary / 'shared-base'; shared_base.mkdir()
         for name in shared_files:
             origin = safe_path(source, name)

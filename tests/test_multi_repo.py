@@ -85,24 +85,25 @@ class MultiRepositoryTests(ControlFixture):
         self.assertFalse((workspace / 'repo/.env').exists())
         self.assertFalse((workspace / 'repo/.git').exists())
 
-    def harness_link(self, directory, target):
-        (directory / '.harness').write_text(target)
+    def harness_link(self, directory, target, name='.harness'):
+        (directory / name).write_text(target)
         git(directory, 'add', '--all')
-        oid = git(directory, 'hash-object', '-w', '.harness').decode().strip()
-        git(directory, 'update-index', '--cacheinfo', f'120000,{oid},.harness')
+        oid = git(directory, 'hash-object', '-w', name).decode().strip()
+        git(directory, 'update-index', '--cacheinfo', f'120000,{oid},{name}')
         git(directory, '-c', 'commit.gpgsign=false', 'commit', '-m', 'committed harness link')
 
-    def test_child_harness_links_are_materialized_without_turning_parent_into_a_git_repository(self):
-        for name in self.names:
-            self.harness_link(self.parent / name, 'main.txt')
+    def test_child_harness_links_copy_literal_content_without_turning_parent_into_a_git_repository(self):
+        targets = ['main.txt', '../missing-parent-config']
+        for name, target in zip(self.names, targets):
+            self.harness_link(self.parent / name, target)
         req, workspace = self.prepared_multi()
         value = json.loads((workspace / 'workspace.json').read_text())
         self.assertFalse((self.parent / '.git').exists())
         for index, name in enumerate(self.names):
             child = workspace / 'repo' / name
-            self.assertEqual((child / '.harness').read_bytes(), (child / 'main.txt').read_bytes())
+            self.assertEqual((child / '.harness').read_text(), targets[index])
             self.assertFalse((child / '.harness').is_symlink())
-            self.assertEqual(value['repositories'][index]['materialized_links'], [{'path': '.harness', 'target': 'main.txt'}])
+            self.assertEqual(value['repositories'][index]['copied_link_files'], [{'path': '.harness', 'source_mode': '120000', 'stored_as': 'file'}])
         self.assertEqual(len(req['workspace']['snapshot']['repositories']), 2)
         # Read-only analysis copies use ordinary files and can still include dirty edits.
         (workspace / 'repo' / self.names[0] / '.harness').write_text('requirement-only change')
@@ -112,16 +113,16 @@ class MultiRepositoryTests(ControlFixture):
 
     def test_failed_child_copy_reports_repository_path_and_retries_without_partial_workspace(self):
         directory = self.parent / self.names[1]
-        self.harness_link(directory, '../outside-project')
+        self.harness_link(directory, '../outside-project', name='source-link')
         project = self.register()
         req = self.requirement(project)
         self.action(req, 'prepare'); self.assertTrue(self.runner.run_once())
         first = self.detail(req)
         self.assertEqual(first['jobs'][0]['status'], 'FAILED')
         self.assertIn(self.names[1], first['jobs'][0]['error'])
-        self.assertIn('.harness', first['jobs'][0]['error'])
+        self.assertIn('source-link', first['jobs'][0]['error'])
         self.assertFalse(Path(first['workspace']['path']).exists())
-        self.harness_link(directory, 'main.txt')
+        self.harness_link(directory, 'main.txt', name='source-link')
         self.action(req, 'prepare'); self.assertTrue(self.runner.run_once())
         self.assertEqual(self.detail(req)['jobs'][0]['status'], 'SUCCEEDED')
 
