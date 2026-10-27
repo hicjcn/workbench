@@ -1,0 +1,25 @@
+{
+  "status": "PASSED",
+  "model_inference": false,
+  "real_docker": false,
+  "controlled_jobs": true,
+  "real_api_and_sqlite": true,
+  "checks": [
+    "new_requirement_has_one_preparation_action_and_locks_future_stages",
+    "failed_step_stays_current_can_retry_and_scope_requires_human_reason",
+    "ordered_flow_advances_automatically_history_is_readable_and_reload_resumes_review",
+    "self_review_unlocks_design_without_marking_tests_or_delivery_complete",
+    "only_registered_material_acceptance_unlocks_delivery_audit_keeps_fixture_evidence_incomplete",
+    "desktop_and_mobile_have_no_horizontal_overflow_or_page_errors",
+    "requirement_revision_returns_to_analysis_and_preserves_previous_round",
+    "switching_requirements_resets_view_and_original_source_is_unchanged"
+  ],
+  "completed_checks": 8,
+  "page_errors": [],
+  "verifier_sha256": "a5f54f5f78e828759fc1b33fe4201ee122ab9ed1140f3b8423d5dc1be4e54d4e",
+  "frontend_state_tests": 11,
+  "backend_regression_tests": {
+    "workflow": 15,
+    "materials": 17
+  }
+}

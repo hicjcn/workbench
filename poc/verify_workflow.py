@@ -165,7 +165,10 @@ def main():
                         break
                     time.sleep(0.1)
                 assert observed["next_step"] != node["key"]
-            expect(panel.get_by_text("本轮分析到自审已完成，可进入后续概要设计阶段。", exact=True)).to_be_visible(timeout=15000)
+            guide_steps = page.locator(".requirement-steps > li > button")
+            expect(guide_steps.nth(4)).to_have_attribute("aria-current", "step", timeout=15000)
+            guide_steps.nth(3).click()
+            expect(panel.get_by_text("本轮分析到自审已完成，可进入后续概要设计阶段。", exact=True)).to_be_visible()
             report["checks"]["browser_fixed_workflow_to_self_review"] = "PASSED"
             report["checks"]["browser_per_finding_human_disposition"] = "PASSED"
             records = json.loads((root / "controlled-roles.json").read_text())
