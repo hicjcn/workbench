@@ -1,1 +1,3 @@
 *.cmd text eol=crlf
+poc/cli-wrapper/rootfs/usr/local/bin/awb-opencode text eol=lf
+poc/cli-wrapper/rootfs/opt/*.mjs text eol=lf

@@ -1,0 +1,22 @@
+{
+  "status": "PASSED_MULTI_REPOSITORY_WORKSPACE",
+  "model_inference": false,
+  "controlled_cli_reports": true,
+  "real_docker": true,
+  "container_scheduling": "development_and_readonly_serialized",
+  "checks": [
+    "browser_registers_parent_selects_two_git_repositories_and_shared_instructions",
+    "browser_saves_wrapper_cli_and_per_repository_verification_in_immutable_profile",
+    "single_business_requirement_prepares_independent_git_repositories_and_parallel_control_copy",
+    "real_docker_wrapper_service_and_preflight_run_from_shared_parent",
+    "actual_cli_stdin_json_transport_edits_both_repositories_tests_each_and_completes_two_readonly_reviews",
+    "kernel_denies_writes_to_each_repository_in_joint_readonly_copy",
+    "overview_document_generation_uses_complete_multi_repository_readonly_context",
+    "actual_failed_repository_preserves_per_repository_exit_codes_and_fails_the_job",
+    "browser_displays_repository_changes_and_mobile_layout_without_script_errors",
+    "sqlite_0010_backup_restore_preserves_both_git_histories_common_baseline_and_one_requirement"
+  ],
+  "checks_passed": 10,
+  "verified_platform": "Linux with real Docker",
+  "verifier_sha256": "d2c47857ad1109fc22b749500431bb01655d530546451e891569daa2ae723619"
+}
