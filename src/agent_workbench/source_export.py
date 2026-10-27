@@ -1,4 +1,4 @@
-"""Materialize committed, repository-local links without creating filesystem links."""
+"""Export committed source; .harness link contents are opaque ordinary files."""
 import io
 import ntpath
 from pathlib import PurePosixPath
@@ -12,9 +12,9 @@ MAX_ENTRIES = 100_000
 MAX_LINKS = 40
 
 
-def export(archive, repo):
+def export(archive, repo, *, read_link_blob=None):
     entries, directories, children = {}, {""}, {}
-    executable, links, cases = [], [], {}
+    executable, links, cases, literal_links = [], [], {}, {}
     total, count = 0, 0
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
         for member in tar:
@@ -36,7 +36,11 @@ def export(archive, repo):
                 if length < len(parts) or member.isdir():
                     directories.add(child)
             if member.issym():
-                links.append({"path": name, "target": member.linkname})
+                if ".harness" in PurePosixPath(name).parts:
+                    # Copy only the Git blob, never inspect or follow its target.
+                    literal_links[name] = read_link_blob(name) if read_link_blob else member.linkname.encode("utf-8", errors="surrogateescape")
+                else:
+                    links.append({"path": name, "target": member.linkname})
         for name in directories - {""}:
             if name in entries and not entries[name].isdir():
                 raise WorkbenchError(f"源码归档的文件与目录冲突：{name}")
@@ -57,7 +61,7 @@ def export(archive, repo):
                 if excluded(name):
                     raise WorkbenchError(f"源码链接指向已排除的内容：{name}")
                 member = entries.get(name)
-                if member and member.issym():
+                if member and member.issym() and name not in literal_links:
                     if name in chain or len(chain) >= MAX_LINKS:
                         raise WorkbenchError(f"源码链接形成循环或超过 {MAX_LINKS} 层：{name}")
                     target = member.linkname
@@ -67,7 +71,7 @@ def export(archive, repo):
                         resolved = list(resolve(PurePosixPath(target).parts, tuple(resolved), (*chain, name)))
                     except WorkbenchError as error:
                         raise WorkbenchError(f"链接 {name} → {target[:240]}：{error}") from error
-                elif name in directories or member and member.isfile():
+                elif name in directories or name in literal_links or member and member.isfile():
                     resolved.append(part)
                 else:
                     raise WorkbenchError(f"源码链接目标未包含在已提交的导出内容中：{name}")
@@ -104,20 +108,25 @@ def export(archive, repo):
             if IS_WINDOWS:
                 windows_names([output], cases)
             path = safe_path(repo, output)
-            total += member.size
+            literal = literal_links.get(resolved)
+            total += len(literal) if literal is not None else member.size
             if total > LIMIT:
                 raise WorkbenchError("展开链接后的源码超过 100 MiB 限制")
-            stream = tar.extractfile(member)
-            if stream is None:
-                raise WorkbenchError(f"源码归档条目无法读取：{resolved}")
-            with stream:
-                content = stream.read()
-            if content.startswith((b"version https://git-lfs.github.com/spec/v1\n", b"version https://git-lfs.github.com/spec/v1\r\n")):
+            if literal is not None:
+                content = literal
+            else:
+                stream = tar.extractfile(member)
+                if stream is None:
+                    raise WorkbenchError(f"源码归档条目无法读取：{resolved}")
+                with stream:
+                    content = stream.read()
+            if literal is None and content.startswith((b"version https://git-lfs.github.com/spec/v1\n", b"version https://git-lfs.github.com/spec/v1\r\n")):
                 raise WorkbenchError("Git LFS pointers are not materialized by M1")
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("xb") as stream:
                 stream.write(content)
-            path.chmod(0o755 if member.mode & 0o111 else 0o644)
-            if member.mode & 0o111:
+            runnable = literal is None and member.mode & 0o111
+            path.chmod(0o755 if runnable else 0o644)
+            if runnable:
                 executable.append(output)
-    return executable, links
+    return executable, links, [{"path": name, "source_mode": "120000", "stored_as": "file"} for name in literal_links]

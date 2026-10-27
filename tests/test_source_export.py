@@ -40,8 +40,8 @@ class SourceLinkExportTests(unittest.TestCase):
             git(self.source, 'update-index', '--cacheinfo', f'120000,{oid},{name}')
         git(self.source, '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-m', 'fixture')
 
-    def create(self, **options):
-        result = create_workspace(self.source, self.root / 'workspaces', 'req-a', 'backend', **options)
+    def create(self, requirement='req-a', **options):
+        result = create_workspace(self.source, self.root / 'workspaces', requirement, 'backend', **options)
         return Path(result['workspace']) / 'repo'
 
     def assert_failed_cleanly(self, expression):
@@ -57,84 +57,116 @@ class SourceLinkExportTests(unittest.TestCase):
         self.commit({'.harness': 'AGENTS.md'})
         self.file('AGENTS.md', 'dirty local instructions\n')
         repo = self.create()
-        self.assertEqual((repo / '.harness').read_text(), 'committed instructions\n')
+        self.assertEqual((repo / '.harness').read_bytes(), git(self.source, 'show', 'HEAD:.harness'))
         self.assertFalse((repo / '.harness').is_symlink())
         self.assertIn(b'120000 blob', git(self.source, 'ls-tree', 'HEAD', '--', '.harness'))
         self.assertIn(b'100644', git(repo, 'ls-files', '--stage', '--', '.harness'))
         manifest = json.loads((repo.parent / 'workspace.json').read_text())
-        self.assertEqual(manifest['materialized_links'], [{'path': '.harness', 'target': 'AGENTS.md'}])
+        self.assertNotIn('materialized_links', manifest)
+        self.assertEqual(manifest['copied_link_files'], [{'path': '.harness', 'source_mode': '120000', 'stored_as': 'file'}])
         other = create_workspace(self.source, self.root / 'workspaces', 'req-b', 'backend')
         (repo / '.harness').write_text('private requirement edit\n')
-        self.assertEqual((Path(other['workspace']) / 'repo/.harness').read_text(), 'committed instructions\n')
+        self.assertEqual((Path(other['workspace']) / 'repo/.harness').read_text(), 'AGENTS.md')
         self.assertEqual((self.source / 'AGENTS.md').read_text(), 'dirty local instructions\n')
 
     def test_directory_link_preserves_binary_unicode_and_executable_bits(self):
         self.file('tools/agent config/使用.txt', b'\x00\xff\x01')
         self.file('tools/run.sh', '#!/bin/sh\nexit 0\n')
-        self.commit({'.harness': 'tools'}, executable=['tools/run.sh'])
+        self.commit({'source-link': 'tools'}, executable=['tools/run.sh'])
         repo = self.create()
-        self.assertEqual((repo / '.harness/agent config/使用.txt').read_bytes(), b'\x00\xff\x01')
-        self.assertIn(b'100755', git(repo, 'ls-files', '--stage', '--', '.harness/run.sh'))
-        self.assertFalse(any(path.is_symlink() for path in (repo / '.harness').rglob('*')))
+        self.assertEqual((repo / 'source-link/agent config/使用.txt').read_bytes(), b'\x00\xff\x01')
+        self.assertIn(b'100755', git(repo, 'ls-files', '--stage', '--', 'source-link/run.sh'))
+        self.assertFalse(any(path.is_symlink() for path in (repo / 'source-link').rglob('*')))
         self.assertEqual(snapshot(repo)['tree_digest'], json.loads((repo.parent / 'workspace.json').read_text())['source_baseline']['tree_digest'])
 
     def test_chained_and_nested_directory_links_are_expanded(self):
         self.file('tools/config.txt', 'instructions')
         self.file('shared/helper.txt', 'helper')
-        self.commit({'.harness': 'links/current', 'links/current': '../tools', 'tools/helper': '../shared'})
+        self.commit({'source-link': 'links/current', 'links/current': '../tools', 'tools/helper': '../shared'})
         repo = self.create()
-        self.assertEqual((repo / '.harness/config.txt').read_text(), 'instructions')
-        self.assertEqual((repo / '.harness/helper/helper.txt').read_text(), 'helper')
+        self.assertEqual((repo / 'source-link/config.txt').read_text(), 'instructions')
+        self.assertEqual((repo / 'source-link/helper/helper.txt').read_text(), 'helper')
 
     def test_parent_components_follow_intermediate_links_before_dot_dot(self):
         self.file('a/deep/keep.txt', 'keep')
         self.file('a/config.txt', 'correct')
         self.file('config.txt', 'wrong lexical target')
-        self.commit({'prefix': 'a/deep', '.harness': 'prefix/../config.txt'})
-        self.assertEqual((self.create() / '.harness').read_text(), 'correct')
+        self.commit({'prefix': 'a/deep', 'source-link': 'prefix/../config.txt'})
+        self.assertEqual((self.create() / 'source-link').read_text(), 'correct')
 
     def test_regular_harness_file_is_not_excluded(self):
         self.file('.harness', 'ordinary project file')
         self.commit()
         self.assertEqual((self.create() / '.harness').read_text(), 'ordinary project file')
 
+    def test_harness_missing_external_excluded_or_cyclic_targets_are_copied_without_resolution(self):
+        private = self.root / 'private.txt'; private.write_text('PRIVATE_TARGET_CONTENT')
+        for index, target in enumerate(('missing/config', '../private.txt', str(private), 'C:/absent/config', r'\\server\share', '.env', '.harness', '.')):
+            with self.subTest(target=target):
+                self.commit({'.harness': target})
+                repo = self.create(requirement=f'req-{index}')
+                self.assertEqual((repo / '.harness').read_bytes(), target.encode())
+                self.assertFalse((repo / '.harness').is_symlink())
+                self.assertNotIn(b'PRIVATE_TARGET_CONTENT', (repo / '.harness').read_bytes())
+                self.assertFalse((repo / '.env').exists())
+        self.assertEqual(private.read_text(), 'PRIVATE_TARGET_CONTENT')
+
+    def test_harness_link_preserves_blob_bytes_without_trimming_or_newline_conversion(self):
+        self.commit({'.harness': b'../configs/\xff\r\n  '})
+        repo = self.create()
+        self.assertEqual((repo / '.harness').read_bytes(), git(self.source, 'cat-file', 'blob', 'HEAD:.harness'))
+
+    def test_harness_directory_copies_files_and_nested_link_text_without_opening_targets(self):
+        self.file('.harness/config.json', b'{invalid config\r\n')
+        self.commit({'.harness/profile': '../../missing-configs', 'tools/.harness': '../.env'})
+        repo = self.create()
+        self.assertEqual((repo / '.harness/config.json').read_bytes(), git(self.source, 'show', 'HEAD:.harness/config.json'))
+        self.assertEqual((repo / '.harness/profile').read_text(), '../../missing-configs')
+        self.assertEqual((repo / 'tools/.harness').read_text(), '../.env')
+
+    def test_literal_harness_content_still_counts_toward_export_size_limit(self):
+        self.file('main.txt', b'')
+        self.commit({'.harness': 'x' * 20})
+        with patch('agent_workbench.source_export.LIMIT', 19):
+            self.assert_failed_cleanly('100 MiB')
+
     def test_directory_alias_does_not_bypass_runtime_and_credential_exclusions(self):
         self.file('tools/keep.txt', 'keep')
         self.file('tools/.env.local', 'PRIVATE_FIXTURE')
         self.file('tools/node_modules/pkg.js', 'ignored')
-        self.commit({'.harness': 'tools', 'tools/runtime-secrets/ignored': '../../outside'})
+        self.commit({'source-link': 'tools', 'tools/runtime-secrets/ignored': '../../outside'})
         repo = self.create()
-        self.assertTrue((repo / '.harness/keep.txt').exists())
-        self.assertFalse((repo / '.harness/.env.local').exists())
-        self.assertFalse((repo / '.harness/node_modules').exists())
-        self.assertFalse((repo / '.harness/runtime-secrets').exists())
+        self.assertTrue((repo / 'source-link/keep.txt').exists())
+        self.assertFalse((repo / 'source-link/.env.local').exists())
+        self.assertFalse((repo / 'source-link/node_modules').exists())
+        self.assertFalse((repo / 'source-link/runtime-secrets').exists())
         self.assertFalse((repo / '.env').exists())
 
     def test_external_absolute_link_is_rejected_without_copying_host_content(self):
         private = self.root / 'private.txt'; private.write_text('PRIVATE_FIXTURE')
-        self.commit({'.harness': str(private)})
+        self.commit({'source-link': str(private)})
         self.assert_failed_cleanly('仓库内相对路径')
         self.assertEqual(private.read_text(), 'PRIVATE_FIXTURE')
 
     def test_relative_escape_and_windows_absolute_targets_are_rejected(self):
         for target in ('../private.txt', 'C:/Users/example/private', r'\\server\share\private'):
             with self.subTest(target=target):
-                self.commit({'.harness': target})
+                self.commit({'source-link': target})
                 self.assert_failed_cleanly('仓库外|仓库内相对路径')
 
     def test_missing_or_untracked_target_is_not_read_from_checkout(self):
-        self.commit({'.harness': 'not-committed.txt'})
+        self.commit({'source-link': 'not-committed.txt'})
         self.file('not-committed.txt', 'host-only data')
         self.assert_failed_cleanly('未包含在已提交')
 
     def test_direct_link_to_excluded_credentials_is_rejected(self):
-        self.commit({'.harness': '.env'})
+        self.commit({'source-link': '.env'})
         self.assert_failed_cleanly('已排除')
 
     def test_export_ignored_target_cannot_be_reintroduced_via_alias(self):
         self.file('tools/hidden.txt', 'ignored instructions')
         self.file('.gitattributes', 'tools/hidden.txt export-ignore\n')
-        self.commit({'.harness': 'tools/hidden.txt'})
+        self.commit({'source-link': 'tools/hidden.txt'})
         self.assert_failed_cleanly('未包含在已提交')
 
     def test_local_export_ignore_can_omit_an_unneeded_external_tool_link_without_changing_source_head(self):
@@ -145,10 +177,10 @@ class SourceLinkExportTests(unittest.TestCase):
         self.assertEqual(git(self.source, 'rev-parse', 'HEAD'), head)
 
     def test_file_link_cycle_and_directory_ancestor_cycle_are_rejected(self):
-        self.commit({'.harness': 'other', 'other': '.harness'})
+        self.commit({'source-link': 'other', 'other': 'source-link'})
         self.assert_failed_cleanly('循环')
         (self.source / 'other').unlink()
-        self.commit({'.harness': '.'})
+        self.commit({'source-link': '.'})
         self.assert_failed_cleanly('循环')
 
     def test_long_link_chain_is_bounded(self):
@@ -158,23 +190,23 @@ class SourceLinkExportTests(unittest.TestCase):
         self.assert_failed_cleanly('超过 40 层')
 
     def test_link_through_a_regular_file_is_rejected(self):
-        self.commit({'.harness': 'main.txt/../.env'})
+        self.commit({'source-link': 'main.txt/../.env'})
         self.assert_failed_cleanly('非目录')
 
     def test_failed_copy_can_be_retried_after_committing_a_correct_link(self):
-        self.commit({'.harness': 'missing'})
+        self.commit({'source-link': 'missing'})
         self.assert_failed_cleanly('未包含在已提交')
-        self.commit({'.harness': 'main.txt'})
-        self.assertEqual((self.create() / '.harness').read_text(), 'original\n')
+        self.commit({'source-link': 'main.txt'})
+        self.assertEqual((self.create() / 'source-link').read_text(), 'original\n')
 
     def test_expanded_bytes_and_file_counts_are_bounded(self):
         self.file('tools/payload', b'x' * 100)
-        self.commit({'.harness': 'tools'})
+        self.commit({'source-link': 'tools'})
         with patch('agent_workbench.source_export.LIMIT', 150):
             self.assert_failed_cleanly('展开链接后的源码超过')
         for index in range(4):
             self.file(f'small/f{index}', b'')
-        self.commit({'.harness': 'small'})
+        self.commit({'source-link': 'small'})
         # The archive itself fits; expansion creates additional ordinary files.
         with patch('agent_workbench.source_export.MAX_ENTRIES', 9):
             with patch('agent_workbench.source_export.LIMIT', 1000):

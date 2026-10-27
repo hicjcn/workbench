@@ -186,7 +186,8 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
         # Git for Windows global autocrlf default must not rewrite source bytes.
         archive = git(source, "-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar", source_sha)
         from .source_export import export
-        executable_paths, materialized_links = export(archive, repo)
+        executable_paths, materialized_links, copied_link_files = export(archive, repo,
+            read_link_blob=lambda name: git(source, "cat-file", "blob", f"{source_sha}:{name}"))
         git(repo, "init", "-b", f"req/{requirement}")
         git(repo, "config", "core.autocrlf", "false")
         git(repo, "config", "core.eol", "lf")
@@ -219,6 +220,8 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
         }
         if materialized_links:
             manifest["materialized_links"] = materialized_links
+        if copied_link_files:
+            manifest["copied_link_files"] = copied_link_files
         write_json(temporary / "workspace.json", manifest)
         temporary.rename(destination)
         return {"workspace": str(destination), "source_commit": source_sha,
