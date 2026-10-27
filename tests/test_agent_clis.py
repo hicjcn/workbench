@@ -2,6 +2,7 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import threading
 from unittest.mock import Mock, patch
 
@@ -121,6 +122,27 @@ class AgentCliTests(ControlFixture):
         agent_clis.inherit(source, target)
         inherited = json.loads((target/"workspace.json").read_text())
         self.assertEqual(inherited["agent_cli"]["id"], selected["id"]); self.assertNotIn("runtime_profile", inherited)
+
+    def test_runtime_uses_manifest_cli_and_overrides_image_entrypoint(self):
+        selected = self.save(); req = self.prepared_with(selected); workspace = Path(req['workspace']['path'])
+        def docker(*args, **options):
+            if args[:2] == ('network','inspect'):
+                return subprocess.CompletedProcess([],1,'','missing')
+            return subprocess.CompletedProcess([],0,'127.0.0.1:4096\n' if args[0]=='port' else '','')
+        with patch('agent_workbench.runtime.docker',side_effect=docker) as calls:
+            runtime.start(workspace,'wrapper:fixture',opencode_model=self.settings.model)
+        args = next(call.args for call in calls.call_args_list if call.args[0]=='run')
+        self.assertEqual(args[args.index('--entrypoint')+1],'')
+        self.assertEqual(list(args[args.index('wrapper:fixture')+1:]),agent_clis.command(selected,'serve'))
+        self.assertEqual(json.loads((workspace/'runtime.json').read_text())['agent_cli']['id'],selected['id'])
+
+    def test_runtime_rejects_cli_conflicting_with_manifest_before_docker(self):
+        selected = self.save(); req = self.prepared_with(selected); workspace = Path(req['workspace']['path'])
+        other = self.save()
+        with patch('agent_workbench.runtime.docker') as docker:
+            with self.assertRaisesRegex(WorkbenchError,'固定版本不一致'):
+                runtime.start(workspace,'wrapper:fixture',agent_cli=other)
+            docker.assert_not_called()
 
     def test_task_uses_wrapper_command_redacts_custom_credential_and_records_source(self):
         selected = self.save(); req = self.prepared_with(selected); workspace = Path(req["workspace"]["path"])

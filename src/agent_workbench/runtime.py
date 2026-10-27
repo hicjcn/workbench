@@ -145,6 +145,11 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
           dependency_network: str | None = None, dependency_environment: dict | None = None, context_mounts: list | None = None, agent_cli: dict | None = None,
           volume_mounts: list | None = None, profile_environment: dict | None = None, port_mappings: list | None = None) -> dict:
     workspace, manifest = load_workspace(workspace)
+    fixed_cli = manifest.get("agent_cli")
+    if agent_cli is None:
+        agent_cli = fixed_cli
+    elif fixed_cli and (agent_cli.get("id"), agent_cli.get("content_digest")) != (fixed_cli.get("id"), fixed_cli.get("content_digest")):
+        raise WorkbenchError("运行时 Agent CLI 与工作区固定版本不一致")
     configuration = {"plugin": ["/opt/superpowers"], "permission": "allow"}
     provider_environment = {}
     if agent_cli:
@@ -204,6 +209,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     write_json(workspace / "runtime.json", state, private=True)
     command = [
         "run", "--detach", "--name", container,
+        "--entrypoint", "",
         "--label", "awb.managed=true", "--label", f"awb.workspace={suffix}",
         "--label", "awb.kind=agent",
         "--network", network, "--user", container_user(),

@@ -29,6 +29,14 @@ export function EnvironmentPanel({
             构建：{profile.content.build_command || "未配置"} · 验证：
             {profile.content.verification_command.trim() || "未配置"}
           </p>
+          <p className="hint">
+            Agent CLI：{detail.agent_cli?.name ?? "OpenCode（内置）"} · v
+            {detail.agent_cli?.number ?? 1}
+            {detail.agent_cli?.fixed
+              ? "（本需求已固定）"
+              : "（创建工作区时固定）"}
+            。预检使用该配置中的命令，镜像可仅提供对应的兼容封装程序。
+          </p>
           <div className="button-row">
             {Boolean(profile.content.dependencies?.length) && (
               <div className="dependency-status">
@@ -95,6 +103,32 @@ export function EnvironmentPanel({
                     : "环境预检未通过"}
               </strong>
               <p className="hint">模型：未调用 · 构建/业务测试：未执行</p>
+              {report.agent_cli ? (
+                <p className="hint">
+                  本次检查：{report.agent_cli.name} · v{report.agent_cli.number}
+                </p>
+              ) : null}
+              {report.commands ? (
+                <div className="repository-options">
+                  <p className="hint">
+                    服务命令：<code>{report.commands.serve.join(" ")}</code>
+                  </p>
+                  <p className="hint">
+                    版本命令：<code>{report.commands.version.join(" ")}</code>
+                  </p>
+                  <p className="hint">
+                    检测到的版本：
+                    {report.tools?.agent_cli?.value ||
+                      report.tools?.opencode?.value ||
+                      "尚未取得版本输出"}
+                  </p>
+                </div>
+              ) : null}
+              {report.error ? (
+                <p className="inline-error" role="alert">
+                  {report.error}
+                </p>
+              ) : null}
               <ul>
                 {report.checks.map((item) => (
                   <li key={item.name}>
@@ -103,6 +137,25 @@ export function EnvironmentPanel({
                   </li>
                 ))}
               </ul>
+              {report.diagnostics ? (
+                <details className="flow-reports">
+                  <summary>查看 CLI 启动诊断</summary>
+                  <p className="hint">
+                    容器状态：{report.diagnostics.container_status ?? "未取得"}{" "}
+                    · 退出码：{report.diagnostics.exit_code ?? "未取得"}
+                  </p>
+                  <pre>
+                    {[
+                      report.diagnostics.container_error,
+                      report.diagnostics.control_error,
+                      report.diagnostics.inspection_error,
+                      report.diagnostics.log_tail,
+                    ]
+                      .filter(Boolean)
+                      .join("\n") || "暂无更多诊断输出。"}
+                  </pre>
+                </details>
+              ) : null}
               <code className="path">{report.image_id}</code>
             </div>
           ) : (
@@ -120,6 +173,8 @@ export function EnvironmentPanel({
 const checkLabels: Record<string, string> = {
   image_id: "实际镜像一致",
   opencode_version: "Agent CLI 版本符合配置",
+  agent_cli_version: "所选 Agent CLI 版本符合配置",
+  agent_cli_service: "所选 Agent CLI 兼容控制服务可用",
   superpowers_revision: "Superpowers 版本匹配",
   superpowers_loaded: "Superpowers 技能已加载",
   node_and_git: "Node 与 Git 可用",

@@ -160,7 +160,7 @@ def main():
             result = restore(args.m5_backup, root / "restored-m5")
             assert result["workspace_count"] > 0
             checks["actual_m5_backup_restores_with_new_schema"] = "PASSED"
-        report["image_id"] = preflight["image_id"]; report["opencode"] = preflight["tools"]["opencode"]["value"]
+        report["image_id"] = preflight["image_id"]; report["opencode"] = preflight["tools"]["agent_cli"]["value"]
         report["status"] = "PASSED_M6_SAMPLE_ONBOARDING"
     finally:
         terminate()
