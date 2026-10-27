@@ -104,14 +104,18 @@ export function ProjectProfilePanel({ project }: { project: Project }) {
             个端口映射 ·{" "}
             {state.current.content.mounts.length +
               (state.current.content.volume_mounts?.length ?? 0)}{" "}
-            个挂载 · {state.current.actor}
+            个挂载{state.current.actor && ` · ${state.current.actor}`}
           </p>
           <details>
             <summary>配置历史（{state.history.length}）</summary>
             {state.history.map((item) => (
               <p className="hint" key={item.id}>
-                v{item.number} · {timeLabel(item.created_at)} · {item.actor} ·{" "}
-                {item.reason}
+                {[
+                  `v${item.number}`,
+                  timeLabel(item.created_at),
+                  item.actor,
+                  item.reason,
+                ].filter(Boolean).join(" · ")}
               </p>
             ))}
           </details>
@@ -600,17 +604,16 @@ function ProfileForm({
       <div className="profile-form-footer">
         <div className="config-pair profile-audit">
           <label>
-            登记人
+            登记人（可选）
             <input
               name="actor"
-              required
               maxLength={160}
               defaultValue={current?.actor ?? ""}
             />
           </label>
           <label>
-            配置原因
-            <textarea name="reason" rows={1} required maxLength={4000} />
+            配置原因（可选）
+            <textarea name="reason" rows={1} maxLength={4000} />
           </label>
         </div>
         {error && (
