@@ -1,13 +1,14 @@
 import { AgentCliPanel } from "./AgentCliPanel";
 import { DockerImagesPanel } from "./DockerImagesPanel";
 import { ContainersPanel } from "./ContainersPanel";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api, labels, timeLabel } from "./api";
 import type { Detail, Project, Requirement } from "./api";
 import { Modal, ProjectForm, RequirementForm } from "./Forms";
 import { DeliveryPanel } from "./DeliveryPanel";
 import { RequirementDetail } from "./RequirementDetail";
+import { RequirementEditForm } from "./RequirementEditForm";
 import { RuntimePanel } from "./RuntimePanel";
 import { ProjectProfilePanel } from "./ProjectProfilePanel";
 
@@ -33,6 +34,10 @@ export default function App() {
     "project" | "project-edit" | "requirement" | null
   >(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editingRequirementId, setEditingRequirementId] = useState<
+    string | null
+  >(null);
+  const [detailVersion, setDetailVersion] = useState(0);
   const [view, setView] = useState<
     | "requirements"
     | "projects"
@@ -44,6 +49,8 @@ export default function App() {
   >(() => (location.hash === "#agent-clis" ? "agents" : "requirements"));
   const [model, setModel] = useState("");
   const [defaultImage, setDefaultImage] = useState("agent-workbench-m1:local");
+  const reloadRequest = useRef(0);
+  const detailRequest = useRef(0);
   useEffect(() => {
     let live = true;
     api<{ authenticated: boolean; token_file: string }>("/session")
@@ -59,11 +66,13 @@ export default function App() {
     };
   }, []);
   const reload = useCallback(async () => {
+    const requested = ++reloadRequest.current;
     const [nextProjects, nextRequirements, configuration] = await Promise.all([
       api<Project[]>("/projects"),
       api<Requirement[]>("/requirements"),
       api<{ model: string; default_image?: string }>("/config"),
     ]);
+    if (requested !== reloadRequest.current) return;
     setProjects(nextProjects);
     setRequirements(nextRequirements);
     setModel(configuration.model);
@@ -80,32 +89,39 @@ export default function App() {
   }, [authenticated, reload]);
   useEffect(() => {
     if (!authenticated || !selected) {
+      detailRequest.current++;
       setDetail(null);
       return;
     }
     let live = true;
     setDetail(null);
-    const update = () =>
-      api<Detail>(`/requirements/${selected}`)
+    const update = () => {
+      const requested = ++detailRequest.current;
+      return api<Detail>(`/requirements/${selected}`)
         .then((value) => {
-          if (live) {
+          if (live && requested === detailRequest.current) {
             setDetail(value);
           }
         })
         .catch((failure) => {
-          if (live) setError(failure.message);
+          if (live && requested === detailRequest.current)
+            setError(failure.message);
         });
+    };
     void update();
     const timer = setInterval(() => void update(), 1500);
     return () => {
       live = false;
+      detailRequest.current++;
       clearInterval(timer);
     };
   }, [authenticated, selected]);
   const refreshDetail = useCallback(async () => {
     if (!selected) return;
+    const requested = ++detailRequest.current;
     const next = await api<Detail>(`/requirements/${selected}`);
-    setDetail((previous) => (previous?.id === next.id ? next : previous));
+    if (requested === detailRequest.current)
+      setDetail((previous) => (previous?.id === next.id ? next : previous));
     await reload();
   }, [selected, reload]);
   async function login(event: FormEvent) {
@@ -383,32 +399,42 @@ export default function App() {
             </div>
             {requirements.length ? (
               requirements.map((item) => (
-                <button
-                  key={item.id}
-                  className={`requirement-card ${selected === item.id ? "selected" : ""}`}
-                  onClick={() => {
-                    setSelected(item.id);
-                    setError("");
-                  }}
-                >
-                  <div className="card-meta">
-                    <span>
-                      {projects.find(
-                        (project) => project.id === item.project_id,
-                      )?.name ?? "项目"}
-                    </span>
-                    <Badge
-                      value={
-                        item.workspace.approval === "APPROVED"
-                          ? "APPROVED"
-                          : item.workspace.environment
-                      }
-                    />
-                  </div>
-                  <strong>{item.title}</strong>
-                  <p>{item.description || "尚未补充需求背景"}</p>
-                  <time>{timeLabel(item.created_at)}</time>
-                </button>
+                <div className="requirement-list-entry" key={item.id}>
+                  <button
+                    className={`requirement-card ${selected === item.id ? "selected" : ""}`}
+                    aria-pressed={selected === item.id}
+                    onClick={() => {
+                      setSelected(item.id);
+                      setError("");
+                    }}
+                  >
+                    <div className="card-meta">
+                      <span>
+                        {projects.find(
+                          (project) => project.id === item.project_id,
+                        )?.name ?? "项目"}
+                      </span>
+                      <Badge
+                        value={
+                          item.workspace.approval === "APPROVED"
+                            ? "APPROVED"
+                            : item.workspace.environment
+                        }
+                      />
+                    </div>
+                    <strong>{item.title}</strong>
+                    <p>{item.description || "尚未补充需求背景"}</p>
+                    <time>{timeLabel(item.created_at)}</time>
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button requirement-edit-button"
+                    aria-label={`修改需求 ${item.title}`}
+                    onClick={() => setEditingRequirementId(item.id)}
+                  >
+                    修改
+                  </button>
+                </div>
               ))
             ) : (
               <div className="list-empty">
@@ -423,7 +449,7 @@ export default function App() {
           </aside>
           {detail ? (
             <RequirementDetail
-              key={detail.id}
+              key={`${detail.id}-${detailVersion}`}
               detail={detail}
               onChanged={refreshDetail}
               configureProject={() => setView("projects")}
@@ -460,6 +486,31 @@ export default function App() {
         <span>WORKBENCH / M10</span>
         <span>源码独立 · 过程可追溯 · 结果由你确认</span>
       </footer>
+      {editingRequirementId && (
+        <Modal
+          title="修改需求"
+          wide
+          close={() => setEditingRequirementId(null)}
+        >
+          <RequirementEditForm
+            key={editingRequirementId}
+            requirementId={editingRequirementId}
+            onSaved={async () => {
+              const editedId = editingRequirementId;
+              setEditingRequirementId(null);
+              setView("requirements");
+              setSelected(editedId);
+              setDetailVersion((previous) => previous + 1);
+              try {
+                if (selected === editedId) await refreshDetail();
+                else await reload();
+              } catch (failure) {
+                setError((failure as Error).message);
+              }
+            }}
+          />
+        </Modal>
+      )}
       {modal ? (
         <Modal
           title={

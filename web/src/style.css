@@ -316,6 +316,22 @@ code {
   box-shadow: 0 0 0 2px #e1ebfd;
   background: #fcfdff;
 }
+.requirement-list-entry {
+  position: relative;
+  min-width: 0;
+  margin-bottom: 12px;
+}
+.requirement-list .requirement-list-entry .requirement-card {
+  margin-bottom: 0;
+  padding-bottom: 44px;
+}
+.requirement-edit-button {
+  position: absolute;
+  right: 10px;
+  bottom: 9px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
 .requirement-card > strong {
   font-size: 14px;
   line-height: 1.65;
@@ -1027,6 +1043,17 @@ code {
   min-height: 0;
   overflow-y: auto;
   padding-right: 6px;
+}
+.modal-wide .requirement-edit-form {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.requirement-edit-form .hint {
+  margin: 0;
+}
+.requirement-edit-form textarea {
+  min-height: 140px;
 }
 @media (max-width: 800px) {
   .modal-wide {
