@@ -10,6 +10,7 @@ from . import runtime
 from .execution import Canceled, Unknown
 from .profiles import command, inherit
 from .workspace import WorkbenchError, create_workspace, snapshot, write_json
+from . import logging_support as logs
 
 SUPERPOWERS = "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b"
 
@@ -64,7 +65,9 @@ def execute(executor, job, workspace, emit, canceled):
     if (workspace / "runtime.json").exists(): raise WorkbenchError("请先停止当前开发环境，再进行独立预检")
     fixed = json.loads((workspace / "workspace.json").read_text(encoding="utf-8")).get("runtime_profile")
     if not fixed or fixed["content_digest"] != profile["content_digest"]: raise WorkbenchError("运行配置尚未准备完成")
+    logs.progress(emit, "preflight.snapshot", "正在核对预检前的源码快照", detailed=True)
     original = snapshot(workspace / "repo")
+    logs.progress(emit, "preflight.copy", "正在创建独立只读预检副本")
     created = create_workspace(workspace / "repo", executor.settings.data_dir / "attempts" / job["id"],
         job["requirement_id"], job["project"]["id"], include_dirty=True, include_untracked=True)
     isolated = Path(created["workspace"]); inherit(workspace, isolated, executor.settings.data_dir)
@@ -79,7 +82,7 @@ def execute(executor, job, workspace, emit, canceled):
         "agent_cli": {key: agent_cli[key] for key in ("id", "name", "number", "content_digest")},
         "commands": executor.redact_payload({"serve": serve_argv, "version": version_argv}, isolated)}
     try:
-        emit("preflight", {"text": "创建独立只读预检环境；不调用模型，不执行项目测试"})
+        logs.progress(emit, "preflight.start", "只读副本已准备，正在启动固定 Agent CLI")
         emit("preflight", {"text": executor.redact(f"检查固定 Agent CLI：{cli_name}；服务：{shlex.join(serve_argv)}；版本：{shlex.join(version_argv)}", isolated)})
         ca = Path(os.environ["CODEX_PROXY_CERT"]) if os.environ.get("CODEX_PROXY_CERT") else None
         try:
@@ -95,6 +98,7 @@ def execute(executor, job, workspace, emit, canceled):
                     report["diagnostics"]["inspection_error"] = executor.redact(str(diagnostic_error), isolated)[:2000]
             raise
         deadline = time.monotonic() + 90
+        logs.progress(emit, "preflight.wait_ready", "容器已提交，正在等待 Agent CLI 控制服务就绪")
         inspected_at, control_error = 0, ""
         while True:
             if canceled.is_set(): raise Canceled("环境预检已取消")
@@ -118,6 +122,7 @@ def execute(executor, job, workspace, emit, canceled):
                 raise WorkbenchError(f"预检 Agent CLI「{cli_name}」服务未就绪；实际命令：{shlex.join(serve_argv)}。请核对镜像内的配置程序、Node 环境和兼容控制接口，并查看预检启动诊断")
             time.sleep(.5)
         state = json.loads((isolated / "runtime.json").read_text(encoding="utf-8"))
+        logs.progress(emit, "preflight.tools", "Agent CLI 服务已就绪，正在检查版本、开发工具与挂载")
         details = json.loads(runtime.docker("inspect", state["container"]).stdout)[0]
         labels = details["Config"].get("Labels") or {}
         config = {"commands": {"build": command(profile["content"]["build_command"]), "verify": command(profile["content"]["verification_command"])},
@@ -152,6 +157,8 @@ def execute(executor, job, workspace, emit, canceled):
             "source_unchanged": snapshot(workspace / "repo") == original and snapshot(isolated / "repo")["tree_digest"] == original["tree_digest"],
         }
         report["checks"] = [{"name": key, "passed": bool(value)} for key, value in checks.items()]
+        for name, passed in checks.items():
+            logs.progress(emit, "preflight.check." + name, "检查项：" + name + ("（通过）" if passed else "（未通过）"), detailed=True)
         report["status"] = "PASSED" if all(checks.values()) else "FAILED"
         if report["status"] != "PASSED": raise WorkbenchError("环境预检存在阻塞项，请查看预检记录；未调用模型或执行项目测试")
         emit("preflight", {"text": "工具环境预检通过；模型连通性、构建及业务测试尚未验证"})
@@ -162,7 +169,10 @@ def execute(executor, job, workspace, emit, canceled):
         raise
     finally:
         if (isolated / "runtime.json").exists():
-            try: runtime.stop(isolated)
+            logs.event("preflight", "preflight.cleanup", "正在停止并核实本次预检容器")
+            try:
+                runtime.stop(isolated)
+                logs.event("preflight", "preflight.cleaned", "本次预检容器已停止并核实")
             except Exception:
                 report["status"] = "UNKNOWN"
                 write_json(workspace / "preflight-report.json", report)

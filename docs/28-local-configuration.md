@@ -68,6 +68,7 @@ notepad workbench.toml
 | `workbench.api_url` | `AWB_API_URL` | Runner 连接地址；建议留空，自动跟随 port，仅允许本机回环 HTTP 根地址 |
 | `workbench.model` | `AWB_MODEL` | 开发/分析/材料模型；仍遵循现有免费模型规则 |
 | `workbench.web_dir` | `AWB_WEB_DIR` | 已构建的前端目录，默认 `web/dist` |
+| `workbench.log_mode` | `AWB_LOG_MODE` | `concise`（默认精简）或 `detailed`（详细）；重启后应用到启动器、API、Runner 和新增任务事件 |
 | `workbench.max_active_jobs` / `max_containers` | `AWB_MAX_ACTIVE_JOBS` / `AWB_MAX_CONTAINERS` | 全局任务与容器配额 |
 | `workbench.lease_seconds` | `AWB_LEASE_SECONDS` | 任务租约；心跳/过期核实机制继续生效 |
 | `workbench.task_timeout_seconds` | `AWB_TASK_TIMEOUT_SECONDS` | 内置 CLI 的任务超时；兼容旧 `AWB_TASK_TIMEOUT`，新名称优先 |
@@ -155,6 +156,8 @@ credential_env = ["TEAM_API_KEY"]
 停止先通知 Runner。普通任务进入现有取消/核实流程，只读 Docker 状态查询可以中止；镜像构建等不可直接取消的操作等待结束。随后 API 退出，再按配置执行离线受管资源停止。超出等待时间返回 `STOPPING`，并显示正在等待的服务，保留状态，稍后查询或再次 stop。不会强杀其他 Python 进程、全局清理 Docker 或删除数据。
 
 日志位于 `<logs_dir>/launcher.log` 和 `<logs_dir>/<instance>/api.log`、`runner.log`。配置旁的 `.workbench-run/<配置路径摘要>/instance.json` 保存自动生成的控制令牌、PID 和状态，不需要手改，也不要提交或共享。
+
+默认 `log_mode="concise"`，输出启动/停止、任务阶段和结果；设置 `log_mode="detailed"` 增加 HTTP 路由状态、逐仓库复制、Docker 操作耗时、等待续期和失败代码位置。详细模式保持命令参数、认证值和模型输出的现有保护，不把请求体、提示词、环境变量内容或构建输出写入进程日志。页面已有的 Agent 输出和验证结果仍保留。配置示例和 Windows 查看命令见[日志模式与执行进度](33-progress-logging.md)。
 
 启动器异常退出后状态显示 `STALE`；stop 会按原实例标记请求旧子进程退出，再取得排他维护锁核实资源。外部数据库配置若已经变化，需恢复原连接配置后核实；SQLite 按原数据目录处理。未核实的镜像任务仍需原有人工核实流程。状态为 `NEEDS_ATTENTION` 时先查看日志和页面记录，脚本不把该状态登记为成功。
 

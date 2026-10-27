@@ -3,6 +3,7 @@
 [workbench]
 data_dir = ".local-data/workbench"
 web_dir = "web/dist"
+log_mode = "concise" # concise: key progress; detailed: internal steps, timings and wait state.
 use_sqlite = true
 database_url = ""
 port = 8340

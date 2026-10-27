@@ -9,6 +9,7 @@ import threading
 import time
 
 from . import runtime
+from . import logging_support as logs
 from .platform_support import docker_argv, docker_environment
 from .execution import Canceled, Unknown
 from .workflow_reports import Analysis, Development, Review, parse_report
@@ -55,6 +56,7 @@ def execute_step(executor, job, workspace, emit, canceled):
 def readonly_agent(executor, job, workspace, emit, canceled, model, prompt, parse):
     payload = job["input"]
     root = executor.settings.data_dir / "attempts" / job["id"]
+    logs.progress(emit, "readonly.copy", "正在为分析、评审或材料生成准备独立只读副本")
     created = create_workspace(workspace / "repo", root, job["requirement_id"], job["project"]["id"],
                                include_dirty=True, include_untracked=True)
     isolated = Path(created["workspace"])
@@ -65,8 +67,10 @@ def readonly_agent(executor, job, workspace, emit, canceled, model, prompt, pars
     try:
         options = {"openrouter_model": model} if model.startswith("openrouter/") else {"opencode_model": model}
         ca = Path(os.environ["CODEX_PROXY_CERT"]) if os.environ.get("CODEX_PROXY_CERT") else None
+        logs.progress(emit, "readonly.start", "正在启动只读 Agent 环境")
         executor.start_runtime(isolated, job["project"]["image"], ca, read_only_source=True, **options)
         deadline = time.monotonic() + 90
+        logs.progress(emit, "readonly.wait_ready", "正在等待只读 Agent CLI 控制服务就绪")
         while True:
             if canceled.is_set():
                 raise Canceled("只读步骤已取消")
@@ -79,6 +83,7 @@ def readonly_agent(executor, job, workspace, emit, canceled, model, prompt, pars
                 raise WorkbenchError("只读模型服务启动超时")
             time.sleep(0.5)
         result = executor.task(job, isolated, emit, canceled, model=model, prompt=prompt, read_only=True, collect_text=True)
+        logs.progress(emit, "readonly.report", "正在校验只读任务的代码基线和结构化结果", detailed=True)
         if snapshot(isolated / "repo")["tree_digest"] != payload["bundle"]["code_digest"]:
             raise WorkbenchError("只读审查基线发生变化，报告不能生效")
         report = parse(result["agent_text"])
@@ -87,6 +92,7 @@ def readonly_agent(executor, job, workspace, emit, canceled, model, prompt, pars
     finally:
         if (isolated / "runtime.json").exists():
             try:
+                logs.event("workflow", "readonly.cleanup", "正在停止并核实只读任务容器")
                 runtime.stop(isolated)
             except (WorkbenchError, subprocess.TimeoutExpired):
                 raise Unknown("只读任务容器停止尚未核实，禁止继续流程") from None
@@ -120,6 +126,7 @@ def _verify_one(executor, job, workspace, emit, canceled, argv=None, repository=
         raise WorkbenchError("请先启动开发环境，再执行验证命令")
     state = json.loads(state_path.read_text(encoding="utf-8"))
     argv = argv if argv is not None else job["input"]["bundle"]["config"]["verification_argv"]
+    logs.progress(emit, "verification.run", "正在容器中执行项目构建或验证" + ("：" + repository if repository else ""))
     directory = ['--workdir', '/workspace/project/' + repository] if repository else []
     process = subprocess.Popen(docker_argv("exec", *directory, state["container"], *argv),
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=docker_environment())

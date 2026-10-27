@@ -1,0 +1,70 @@
+{
+  "status": "PASSED",
+  "model_inference": false,
+  "configuration": {
+    "default": "concise",
+    "modes": [
+      "concise",
+      "detailed"
+    ],
+    "environment_override": "AWB_LOG_MODE"
+  },
+  "regression": {
+    "total": 375,
+    "passed": 371,
+    "skipped_windows_only": 4,
+    "seconds": 139.759
+  },
+  "frontend": {
+    "tests_passed": 11,
+    "typescript_and_vite_build": "PASSED"
+  },
+  "lifecycle": {
+    "real_api_and_runner": true,
+    "modes_verified": [
+      "concise",
+      "detailed"
+    ],
+    "prepare_and_stop": "PASSED",
+    "stdout_json_preserved": true
+  },
+  "docker": {
+    "status": "PASSED",
+    "real_docker": true,
+    "model_inference": false,
+    "controlled_compatible_http_service": true,
+    "user_wrapper_verified": false,
+    "checks": [
+      "image_has_wrapper_only_path_and_custom_entrypoint_without_opencode_command",
+      "real_readonly_preflight_uses_pinned_wrapper_serve_and_stderr_version_commands",
+      "development_runtime_honors_wrapper_command_over_image_entrypoint",
+      "exited_wrapper_fails_promptly_with_cli_identity_command_exit_code_and_log_tail",
+      "missing_executable_reports_actual_program_container_path_and_home_before_service_starts",
+      "absolute_cli_path_outside_image_path_passes_preflight_without_opencode_fallback",
+      "browser_displays_selected_cli_commands_and_failure_diagnostics_on_desktop_and_mobile",
+      "browser_shows_missing_executable_path_and_startup_error_on_mobile",
+      "source_unchanged_and_no_browser_errors_or_model_calls"
+    ],
+    "completed_checks": 9
+  },
+  "browser": {
+    "status": "PASSED",
+    "real_api": true,
+    "controlled_job_events": true,
+    "model_inference": false,
+    "checks": [
+      "running_job_current_stage_visible",
+      "detailed_stage_label_visible",
+      "desktop_and_mobile_without_overflow",
+      "durable_event_replay_after_reload",
+      "no_browser_errors"
+    ]
+  },
+  "security_checks": [
+    "configured_secret_redaction",
+    "no_request_body_query_cookie_or_authorization_logging",
+    "no_model_output_in_host_progress_logs",
+    "thread_context_isolation",
+    "failure_locations_without_exception_values"
+  ]
+}

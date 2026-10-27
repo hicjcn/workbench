@@ -74,6 +74,8 @@ notepad workbench.toml
 
 `workbench.toml` 集中配置 SQLite 数据目录、端口、模型、资源配额、超时、代理/CA、工具镜像、日志目录和可选 Agent CLI 预置。`[environment]` 可提供模型/封装 CLI 的进程变量；现有环境变量优先于文件。相对路径以配置文件所在目录为基准。真实配置已被 Git 忽略，示例文件中不要填写密钥。
 
+日志默认使用精简模式。在已有 `[workbench]` 下设置 `log_mode = "detailed"`，重启后即可查看内部步骤、耗时和等待状态；`log_mode = "concise"` 保留关键进度和结果。也可使用环境变量 `AWB_LOG_MODE` 覆盖。日志包含时间、组件、步骤和任务/需求 ID，页面执行日志显示当前阶段。配置、文件位置与排查方法见[日志模式与执行进度](docs/33-progress-logging.md)。
+
 `setup.cmd` 安装虚拟环境依赖、构建页面和基础镜像；未复制配置时会创建默认文件，已有文件不会覆盖。`start.cmd` 在后台启动同一配置的 API 和 Runner，通过认证的就绪检查后打开浏览器。日常操作：
 
 ```powershell

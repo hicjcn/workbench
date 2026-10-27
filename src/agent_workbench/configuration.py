@@ -63,6 +63,7 @@ class Configuration:
     tool_image: str = "agent-workbench-m1:local"
     environment: dict = field(default_factory=dict, repr=False)
     agent_cli: dict = field(default_factory=dict, repr=False)
+    log_mode: str = "concise"
 
     @classmethod
     def load(cls, file=None):
@@ -81,7 +82,7 @@ class Configuration:
         if unknown:
             raise ConfigurationError("配置文件包含不支持的配置节")
         allowed_workbench = {"data_dir", "web_dir", "model", "database_url", "use_sqlite", "port", "api_url", "port_range_start", "port_range_end",
-            "max_active_jobs", "max_containers", "lease_seconds", "task_timeout_seconds", "proxy_ca", "docker_endpoint"}
+            "max_active_jobs", "max_containers", "lease_seconds", "task_timeout_seconds", "proxy_ca", "docker_endpoint", "log_mode"}
         allowed_launcher = {"venv_dir", "logs_dir", "tool_context", "tool_image", "startup_timeout_seconds",
             "stop_timeout_seconds", "graceful_timeout_seconds", "image_build_timeout_seconds", "open_browser", "require_docker", "stop_managed_environments"}
         for section, allowed in (("workbench", allowed_workbench), ("launcher", allowed_launcher)):
@@ -188,11 +189,14 @@ class Configuration:
         if not isinstance(names, list) or not all(isinstance(name, str) and re.fullmatch(r"[A-Z][A-Z0-9_]{1,63}", name) for name in names):
             raise ConfigurationError("agent_cli.credential_env 必须是变量名数组，不包含实际值")
         model = text("model", DEFAULT_MODEL)
+        log_mode = text("log_mode", "concise")
+        if log_mode not in ("concise", "detailed"):
+            raise ConfigurationError("log_mode 必须是 concise（精简）或 detailed（详细）")
         if not (re.fullmatch(r"opencode/(?:[A-Za-z0-9._-]+-free|big-pickle)", model) or re.fullmatch(r"openrouter/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+:free", model)):
             raise ConfigurationError("model 必须是当前已适配的显式免费模型标识")
         return cls(file=path, data_dir=location("data_dir", ".local-data/workbench"), web_dir=location("web_dir", PROJECT_ROOT / "web/dist"),
             venv_dir=location("venv_dir", ".venv"), logs_dir=location("logs_dir", ".local-data/logs"), tool_context=location("tool_context", PROJECT_ROOT / "poc/container"),
-            model=model, database_url=text("database_url"), use_sqlite=boolean("use_sqlite", False), port=port, api_url=api_url.rstrip("/"),
+            model=model, log_mode=log_mode, database_url=text("database_url"), use_sqlite=boolean("use_sqlite", False), port=port, api_url=api_url.rstrip("/"),
             port_range_start=port_range_start, port_range_end=port_range_end,
             max_active_jobs=number("max_active_jobs", 2, 1, 32), max_containers=number("max_containers", 4, 1, 32), lease_seconds=number("lease_seconds", 45, 10, 3600),
             task_timeout_seconds=number("task_timeout_seconds", 300, 0.001, 86400, integer=False), proxy_ca=proxy_path, docker_endpoint=endpoint,
@@ -205,7 +209,7 @@ class Configuration:
         """Entry points export resolved settings once; reading a file is side-effect free."""
         for name, value in self.environment.items():
             os.environ.setdefault(name, value)
-        for name in ("data_dir", "web_dir", "venv_dir", "logs_dir", "tool_context", "model", "database_url", "use_sqlite", "port", "port_range_start", "port_range_end", "api_url", "max_active_jobs", "max_containers",
+        for name in ("data_dir", "web_dir", "venv_dir", "logs_dir", "tool_context", "model", "log_mode", "database_url", "use_sqlite", "port", "port_range_start", "port_range_end", "api_url", "max_active_jobs", "max_containers",
             "lease_seconds", "task_timeout_seconds", "docker_endpoint", "startup_timeout_seconds", "stop_timeout_seconds", "graceful_timeout_seconds", "image_build_timeout_seconds", "open_browser", "require_docker", "stop_managed_environments", "tool_image"):
             value = getattr(self, name)
             os.environ["AWB_" + name.upper()] = str(value).lower() if isinstance(value, bool) else str(value)
@@ -218,7 +222,7 @@ class Configuration:
 
     def public(self):
         return {"config_file": str(self.file) if self.file else None, "data_dir": str(self.data_dir), "web_dir": str(self.web_dir), "venv_dir": str(self.venv_dir),
-            "logs_dir": str(self.logs_dir), "model": self.model, "port": self.port, "port_range_start": self.port_range_start,
+            "logs_dir": str(self.logs_dir), "model": self.model, "log_mode": self.log_mode, "port": self.port, "port_range_start": self.port_range_start,
             "port_range_end": self.port_range_end, "api_url": self.api_url, "require_docker": self.require_docker,
             "stop_managed_environments": self.stop_managed_environments, "docker_endpoint": checked_docker_endpoint(self.docker_endpoint),
             "tool_context": str(self.tool_context), "tool_image": self.tool_image}

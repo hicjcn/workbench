@@ -185,6 +185,8 @@ def create(source, root, requirement, project, *, repositories, shared_files, in
             'repo': str(destination / 'repo'), 'source_history': 'independent_snapshot_exports', 'repositories': [],
             'include_dirty': include_dirty, 'include_untracked': include_untracked}
         for index, name in enumerate(repositories):
+            from . import logging_support as logs
+            logs.event("workspace", "source.repository", "正在复制子仓库", detailed=True, repository=name, count=index+1, total=len(repositories))
             try:
                 copied = create_workspace(safe_path(source, name), Path(staging.name), requirement, f'repository_{index}',
                     include_dirty=include_dirty, include_untracked=include_untracked, _single_repository=True)
@@ -201,6 +203,7 @@ def create(source, root, requirement, project, *, repositories, shared_files, in
             value['repositories'].append({'path': name, 'source_commit': manifest['source_commit'], 'baseline': manifest['source_baseline'],
                 **({'materialized_links': manifest['materialized_links']} if manifest.get('materialized_links') else {}),
                 **({'copied_link_files': manifest['copied_link_files']} if manifest.get('copied_link_files') else {})})
+            logs.event("workspace", "source.repository_ready", "子仓库副本已完成", detailed=True, repository=name, count=index+1, total=len(repositories))
         shared_base = temporary / 'shared-base'; shared_base.mkdir()
         for name in shared_files:
             origin = safe_path(source, name)
