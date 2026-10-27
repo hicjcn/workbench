@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api, labels, timeLabel } from "./api";
 import type { Detail, Job } from "./api";
 import { Modal } from "./Forms";
+import { workflowPhase } from "./requirementSteps";
 
 type Finding = {
   severity: string;
@@ -22,7 +23,7 @@ type Revision = {
   reason: string;
   content: { title: string; description: string; acceptance: string };
 };
-type Node = {
+export type WorkflowNode = {
   key: string;
   label: string;
   model: string | null;
@@ -31,12 +32,12 @@ type Node = {
   output: Output | null;
   job_id: string | null;
 };
-type Flow = {
+export type Flow = {
   id: string;
   state: string;
   basis_digest: string;
   next_step: string | null;
-  nodes: Node[];
+  nodes: WorkflowNode[];
   config: {
     review_models: string[];
     verification_argv: string[];
@@ -50,7 +51,7 @@ type Flow = {
     created_at: number;
   }[];
 };
-type State = {
+export type WorkflowState = {
   revision: Revision;
   revisions: Revision[];
   current: Flow | null;
@@ -71,16 +72,21 @@ export function WorkflowPanel({
   detail,
   disabled,
   onJob,
-  onEnabled,
+  phase,
+  onState,
+  onLoadError,
   onChanged,
 }: {
   detail: Detail;
   disabled: boolean;
   onJob: (job: Job) => void;
-  onEnabled: (enabled: boolean) => void;
+  phase: "analysis" | "development" | "review";
+  onState: (state: WorkflowState) => void;
+  onLoadError: (message: string) => void;
   onChanged: () => Promise<void>;
 }) {
-  const [state, setState] = useState<State | null>(null);
+  const [state, setState] = useState<WorkflowState | null>(null);
+  const sequence = useRef(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -98,32 +104,42 @@ export function WorkflowPanel({
     Boolean(detail.profile?.content.repository_commands?.length),
   );
   const refresh = useCallback(async () => {
-    const next = await api<State>(endpoint + "/workflow");
+    const requested = ++sequence.current;
+    const next = await api<WorkflowState>(endpoint + "/workflow");
+    if (requested !== sequence.current) return;
     setState(next);
-    onEnabled(Boolean(next.current));
-  }, [endpoint, onEnabled]);
+    onState(next);
+    onLoadError("");
+  }, [endpoint, onState, onLoadError]);
   useEffect(() => {
     let live = true;
     const update = async () => {
+      const requested = ++sequence.current;
       try {
-        const next = await api<State>(endpoint + "/workflow");
-        if (live) {
+        const next = await api<WorkflowState>(endpoint + "/workflow");
+        if (live && requested === sequence.current) {
           setState(next);
-          onEnabled(Boolean(next.current));
+          onState(next);
+          onLoadError("");
         }
       } catch (failure) {
-        if (live) setError((failure as Error).message);
+        if (live && requested === sequence.current)
+          onLoadError((failure as Error).message);
       }
     };
     void update();
     const timer = setInterval(() => void update(), 2000);
     return () => {
       live = false;
+      sequence.current++;
       clearInterval(timer);
     };
-  }, [endpoint, onEnabled]);
+  }, [endpoint, onState, onLoadError]);
   const flow = state?.current;
   const node = flow?.nodes.find((item) => item.key === flow.next_step);
+  const visibleNodes =
+    flow?.nodes.filter((item) => workflowPhase(item.key) === phase) ?? [];
+  const currentNode = node && workflowPhase(node.key) === phase ? node : null;
   const gate =
     node && ["scope", "resolution", "self_review"].includes(node.key);
   const blocked = disabled || busy;
@@ -193,7 +209,15 @@ export function WorkflowPanel({
   return (
     <section className="panel workflow-panel">
       <div className="section-title">
-        <h2>开发流程</h2>
+        <h2>
+          {
+            {
+              analysis: "分析与方案",
+              development: "开发与验证",
+              review: "评审与自审",
+            }[phase]
+          }
+        </h2>
         <span className="small-label">
           需求 v{state?.revision.number ?? "…"} ·{" "}
           {flow ? flowLabels[flow.state] : "尚未开启"}
@@ -208,18 +232,22 @@ export function WorkflowPanel({
         </p>
       ) : null}
       <div className="button-row">
-        <button
-          className="secondary"
-          disabled={blocked || !detail.workspace.snapshot}
-          onClick={() => {
-            if (!starting) {
-              setUseRepositoryCommands(Boolean(detail.profile?.content.repository_commands?.length));
-            }
-            setStarting((value) => !value);
-          }}
-        >
-          {flow ? "新建流程轮次" : "开启默认流程"}
-        </button>
+        {phase === "analysis" ? (
+          <button
+            className="secondary"
+            disabled={blocked || !detail.workspace.snapshot}
+            onClick={() => {
+              if (!starting) {
+                setUseRepositoryCommands(
+                  Boolean(detail.profile?.content.repository_commands?.length),
+                );
+              }
+              setStarting((value) => !value);
+            }}
+          >
+            {flow ? "新建流程轮次" : "开启默认流程"}
+          </button>
+        ) : null}
         <button
           className="text-button"
           disabled={blocked || !state}
@@ -228,7 +256,7 @@ export function WorkflowPanel({
           修订需求
         </button>
       </div>
-      {starting ? (
+      {starting && phase === "analysis" ? (
         <form onSubmit={start} className="form-stack flow-start">
           <label>
             评审模型 1
@@ -287,7 +315,7 @@ export function WorkflowPanel({
       {flow ? (
         <>
           <ol className="flow-timeline" aria-label="默认开发步骤">
-            {flow.nodes.map((item, index) => (
+            {visibleNodes.map((item, index) => (
               <li
                 key={item.key}
                 className={flow.next_step === item.key ? "current" : ""}
@@ -307,23 +335,42 @@ export function WorkflowPanel({
               </li>
             ))}
           </ol>
-          <div className="hint">
-            本轮代码 <code>{flow.basis_digest.slice(0, 12)}</code> · 验证命令{" "}
-            {flow.config.repository_verification?.length ? (
-              <ul>
-                {flow.config.repository_verification.map((item) => (
-                  <li key={item.path}>
-                    <code>
-                      {item.path}: {item.argv.join(" ")}
-                    </code>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <code>{flow.config.verification_argv.join(" ")}</code>
-            )}
-          </div>
-          {findings.length ? (
+          <details className="flow-reports">
+            <summary>本轮代码与验证配置</summary>
+            <div className="hint">
+              本轮代码 <code>{flow.basis_digest.slice(0, 12)}</code> · 验证命令{" "}
+              {flow.config.repository_verification?.length ? (
+                <ul>
+                  {flow.config.repository_verification.map((item) => (
+                    <li key={item.path}>
+                      <code>
+                        {item.path}: {item.argv.join(" ")}
+                      </code>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <code>{flow.config.verification_argv.join(" ")}</code>
+              )}
+            </div>
+          </details>
+          {visibleNodes
+            .filter((item) => item.output)
+            .map((item) => (
+              <article className="step-result" key={item.key}>
+                <h3>{item.label} · 已完成</h3>
+                <p>{item.output?.summary ?? "已保存本步确认与执行结果。"}</p>
+                {item.key === "analysis" &&
+                typeof item.output?.plan === "string" ? (
+                  <p>{item.output.plan}</p>
+                ) : null}
+                <details className="flow-reports">
+                  <summary>查看完整结果</summary>
+                  <pre>{JSON.stringify(item.output, null, 2)}</pre>
+                </details>
+              </article>
+            ))}
+          {findings.length && phase === "review" ? (
             <div className="finding-list">
               <h3>评审发现 · {findings.length}</h3>
               {findings.map((finding) => (
@@ -380,12 +427,12 @@ export function WorkflowPanel({
               ))}
             </div>
           ) : null}
-          {node ? (
+          {currentNode ? (
             <div className="flow-next">
-              <h3>下一步：{node.label}</h3>
-              {node.error ? (
+              <h3>下一步：{currentNode.label}</h3>
+              {currentNode.error ? (
                 <p className="inline-error" role="alert">
-                  {node.error}
+                  {currentNode.error}
                 </p>
               ) : null}
               {gate ? (
@@ -435,16 +482,18 @@ export function WorkflowPanel({
                     disabled={blocked}
                     onClick={() => void run()}
                   >
-                    运行：{node.label}
+                    运行：{currentNode.label}
                   </button>
                 </>
               )}
             </div>
           ) : (
             <p className="operation-note">
-              {flow.state === "COMPLETE"
-                ? "本轮分析到自审已完成，可进入后续概要设计阶段。"
-                : "本轮结论已结束或失效，历史记录保留；继续开发请新建流程轮次。"}
+              {node
+                ? "本阶段已完成，请返回当前步骤继续。"
+                : flow.state === "COMPLETE"
+                  ? "本轮分析到自审已完成，可进入后续概要设计阶段。"
+                  : "本轮结论已结束或失效，历史记录保留；继续开发请新建流程轮次。"}
             </p>
           )}
           <details className="flow-reports">

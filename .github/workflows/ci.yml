@@ -50,6 +50,7 @@ jobs:
         run: |
           npm ci --prefix web --no-audit --no-fund
           npm run --prefix web build
+          npm test --prefix web
       - name: Native Windows CMD and PowerShell lifecycle in a fresh venv
         if: runner.os == 'Windows'
         run: python poc/verify_windows_launcher.py

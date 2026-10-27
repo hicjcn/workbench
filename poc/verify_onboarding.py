@@ -98,6 +98,7 @@ def main():
             page.get_by_role("button", name="需求工作区", exact=False).click()
             expect(page.locator(".requirement-card").filter(has_text="M6 样例接入需求")).to_be_visible(timeout=10000)
             page.locator(".requirement-card").filter(has_text="M6 样例接入需求").click()
+            page.get_by_text("环境与手动工具", exact=True).click()
             def click_action(name, panel=None):
                 target = panel or page
                 expect(target.get_by_role("button", name=name, exact=True)).to_be_enabled(timeout=10000)

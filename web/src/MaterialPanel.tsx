@@ -27,11 +27,15 @@ export function MaterialPanel({
   disabled,
   onJob,
   onChanged,
+  onState,
+  onLoadError,
 }: {
   detail: Detail;
   disabled: boolean;
   onJob: (job: Job) => void;
   onChanged: () => Promise<void>;
+  onState: (state: MaterialState) => void;
+  onLoadError: (message: string) => void;
 }) {
   const endpoint = `/requirements/${detail.id}/materials`;
   const [data, setData] = useState<MaterialState | null>(null);
@@ -50,17 +54,26 @@ export function MaterialPanel({
   const refresh = useCallback(async () => {
     const requested = ++sequence.current;
     const next = await api<MaterialState>(endpoint);
-    if (requested === sequence.current) setData(next);
-  }, [endpoint]);
+    if (requested === sequence.current) {
+      setData(next);
+      onState(next);
+      onLoadError("");
+    }
+  }, [endpoint, onState, onLoadError]);
   useEffect(() => {
     let live = true;
     const update = async () => {
       const requested = ++sequence.current;
       try {
         const next = await api<MaterialState>(endpoint);
-        if (live && requested === sequence.current) setData(next);
+        if (live && requested === sequence.current) {
+          setData(next);
+          onState(next);
+          onLoadError("");
+        }
       } catch (failure) {
-        if (live) setError((failure as Error).message);
+        if (live && requested === sequence.current)
+          onLoadError((failure as Error).message);
       }
     };
     void update();
@@ -70,7 +83,7 @@ export function MaterialPanel({
       sequence.current++;
       clearInterval(timer);
     };
-  }, [endpoint]);
+  }, [endpoint, onState, onLoadError]);
   const state = data?.current;
   const waitingForPending = Boolean(
     pendingJobId &&
