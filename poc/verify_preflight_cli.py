@@ -41,6 +41,8 @@ def main():
     image = 'awb-user/preflight-cli:' + uuid.uuid4().hex[:12]
     context = root/'context'; binary = context/'rootfs/opt/awb-preflight-bin'; binary.mkdir(parents=True)
     shutil.copyfile(repo/'poc/preflight-wrapper-fixture.cjs',binary/'team-code')
+    hidden = context/'rootfs/opt/awb-hidden-cli'; hidden.mkdir(parents=True)
+    shutil.copyfile(repo/'poc/preflight-wrapper-fixture.cjs',hidden/'team-code')
     for name, target in [('node','/usr/local/bin/node'),('git','/usr/bin/git'),('sh','/bin/sh')]:
         (binary/name).write_text('#!/bin/sh\nexec '+target+' "$@"\n')
     (context/'Dockerfile').write_text('FROM agent-workbench-m1:local\nCOPY --chmod=755 rootfs/ /\n'
@@ -68,10 +70,10 @@ def main():
     def launch(module):
         handle=(root/(module.rsplit('.',1)[-1]+'.log')).open('a'); handles.append(handle)
         processes.append(subprocess.Popen([sys.executable,'-m',module,'--config',str(config)],env=environment,cwd=repo,stdout=handle,stderr=subprocess.STDOUT))
-    def save_cli(name,verb='serve'):
+    def save_cli(name,verb='serve',executable='team-code'):
         return post('/agent-clis',dict(name=name,actor='Fixture',reason='Controlled preflight, no model inference',set_default=True,
-            content=AgentContent(serve_command=f'team-code {verb} --hostname {{host}} --port {{port}}',
-                run_command='team-code run --attach {endpoint} --model {model} --format json',version_command='team-code --version',expected_version='team-preflight-fixture/1.0').model_dump()))
+            content=AgentContent(serve_command=f'{executable} {verb} --hostname {{host}} --port {{port}}',
+                run_command=f'{executable} run --attach {{endpoint}} --model {{model}} --format json',version_command=f'{executable} --version',expected_version='team-preflight-fixture/1.0').model_dump()))
     try:
         runtime.docker('build','--tag',image,str(context),timeout=180)
         missing=runtime.docker('run','--rm','--network','none','--entrypoint','/bin/sh',image,'-c','command -v opencode',check=False)
@@ -103,7 +105,7 @@ def main():
         workspace=Path(get(endpoint)['workspace']['path'])
         state=json.loads((workspace/'runtime.json').read_text())
         inspected=json.loads(runtime.docker('inspect',state['container']).stdout)[0]
-        assert not inspected['Config']['Entrypoint'] and inspected['Config']['Cmd'][0]=='team-code'
+        assert inspected['Config']['Entrypoint']==['team-code'] and inspected['Config']['Cmd'][0]=='serve'
         assert runtime.probe(workspace)['health']['healthy']
         wait(post(endpoint+'/actions',{'action':'stop'})['id'])
         check('development_runtime_honors_wrapper_command_over_image_entrypoint')
@@ -121,6 +123,27 @@ def main():
         assert diagnostic['diagnostics']['exit_code']==7
         assert 'CONTROLLED_WRAPPER_STARTUP_FAILED' in diagnostic['diagnostics']['log_tail']
         check('exited_wrapper_fails_promptly_with_cli_identity_command_exit_code_and_log_tail')
+        missing=save_cli('找不到程序的封装 CLI',executable='missing-wrapper-fixture')
+        missing_req=post('/requirements',dict(project_id=project['id'],title='封装 CLI 程序路径诊断'))
+        missing_endpoint='/requirements/'+missing_req['id']
+        wait(post(missing_endpoint+'/actions',{'action':'prepare'})['id'])
+        missing_job=wait(post(missing_endpoint+'/actions',{'action':'preflight'})['id'],expected='FAILED')
+        missing_report=get(missing_endpoint)['preflight']
+        assert missing_report['agent_cli']['id']==missing['id']
+        assert 'executable file not found' in missing_job['error'] and 'missing-wrapper-fixture' in missing_job['error']
+        assert missing_report['diagnostics']['container_path']=='/opt/awb-preflight-bin'
+        assert missing_report['diagnostics']['executable']=='missing-wrapper-fixture'
+        assert missing_report['diagnostics']['container_home']=='/home/node'
+        assert missing_report['checks']==[{'name':'agent_cli_service','passed':False}]
+        check('missing_executable_reports_actual_program_container_path_and_home_before_service_starts')
+        absolute=save_cli('绝对路径封装 CLI',executable='/opt/awb-hidden-cli/team-code')
+        absolute_req=post('/requirements',dict(project_id=project['id'],title='镜像 PATH 外的绝对路径 CLI'))
+        absolute_endpoint='/requirements/'+absolute_req['id']
+        for action in ('prepare','preflight'):wait(post(absolute_endpoint+'/actions',{'action':action})['id'])
+        absolute_report=get(absolute_endpoint)['preflight']
+        assert absolute_report['agent_cli']['id']==absolute['id'] and absolute_report['status']=='PASSED'
+        assert absolute_report['commands']['serve'][0]=='/opt/awb-hidden-cli/team-code'
+        check('absolute_cli_path_outside_image_path_passes_preflight_without_opencode_fallback')
         with sync_playwright() as playwright:
             browser=playwright.chromium.launch(executable_path=args.chromium,headless=True,args=['--no-sandbox'])
             page=browser.new_page(viewport={'width':1440,'height':1100}); errors=[]
@@ -138,6 +161,15 @@ def main():
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             page.screenshot(path=str(root/'failed-mobile.png'),full_page=True)
             check('browser_displays_selected_cli_commands_and_failure_diagnostics_on_desktop_and_mobile')
+            page.locator('.requirement-card').filter(has_text='封装 CLI 程序路径诊断').click()
+            page.get_by_text('环境与手动工具',exact=True).click()
+            panel.get_by_text('查看 CLI 启动诊断',exact=True).click()
+            expect(panel.get_by_text('容器 PATH：/opt/awb-preflight-bin',exact=True)).to_be_visible()
+            expect(panel.get_by_text('实际入口程序：missing-wrapper-fixture',exact=True)).to_be_visible()
+            expect(panel.locator('pre')).to_contain_text('executable file not found')
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+            page.screenshot(path=str(root/'missing-mobile.png'),full_page=True)
+            check('browser_shows_missing_executable_path_and_startup_error_on_mobile')
             page.locator('.requirement-card').filter(has_text='封装 CLI 预检成功').click()
             page.get_by_text('环境与手动工具',exact=True).click()
             expect(panel.get_by_text('环境预检通过',exact=True)).to_be_visible()

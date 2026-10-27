@@ -29,17 +29,20 @@ class PreflightTests(ControlFixture):
         self.original = snapshot(self.workspace / 'repo')
         self.isolated = None
 
-    def run_preflight(self, *, version='team/1.0', probe_failure=False, exited=False):
+    def run_preflight(self, *, version='team/1.0', probe_failure=False, exited=False, start_failure=False, inspection_failure=False):
         def start(isolated, image, *_args, **options):
             self.isolated = isolated
             manifest = json.loads((isolated / 'workspace.json').read_text())
             self.assertEqual(manifest['agent_cli']['id'], self.cli['id'])
             self.assertTrue(options['read_only_source'])
             write_json(isolated / 'runtime.json', {'container':'fixture-container', 'phase':'STARTED'})
+            if start_failure: raise WorkbenchError('exec: "team-code": executable file not found in $PATH TEAM-PRIVATE-MARKER')
         def docker(*args, **_options):
             if args[0] == 'inspect':
+                if inspection_failure: raise WorkbenchError('inspection failed TEAM-PRIVATE-MARKER')
                 return SimpleNamespace(returncode=0, stderr='', stdout=json.dumps([{'Image':'sha256:wrapper',
-                    'Config':{'Labels':{'org.agent-workbench.superpowers-commit':preflight.SUPERPOWERS},'Env':[]},
+                    'Path':'team-code','Config':{'Labels':{'org.agent-workbench.superpowers-commit':preflight.SUPERPOWERS},
+                        'Env':['PATH=/opt/team/bin:/usr/bin','HOME=/home/node','TEAM_API_KEY=TEAM-PRIVATE-MARKER','UNRELATED=DO-NOT-COPY-THIS'], 'User':'1000:1000'},
                     'NetworkSettings':{'Networks':{}}, 'State':{'Status':'exited' if exited else 'running','ExitCode':2 if exited else 0}}]))
             if args[0] == 'logs':
                 return SimpleNamespace(stdout='wrapper startup fixture TEAM-PRIVATE-MARKER',stderr='')
@@ -100,6 +103,27 @@ class PreflightTests(ControlFixture):
         self.assertIn('团队封装 CLI', detail['preflight']['error'])
         self.assertIn('team-code serve', detail['preflight']['error'])
         self.assertEqual(detail['preflight']['diagnostics']['control_error'],'control not ready')
+
+    def test_missing_executable_has_diagnostics_even_when_runtime_never_starts(self):
+        detail = self.run_preflight(start_failure=True)
+        self.assertEqual(detail['jobs'][0]['status'],'FAILED')
+        report = detail['preflight']; diagnostic = report['diagnostics']
+        self.assertEqual(report['checks'],[{'name':'agent_cli_service','passed':False}])
+        self.assertEqual(diagnostic['container_path'],'/opt/team/bin:/usr/bin')
+        self.assertEqual(diagnostic['container_home'],'/home/node')
+        self.assertEqual(diagnostic['container_user'],'1000:1000')
+        self.assertEqual(diagnostic['executable'],'team-code')
+        self.assertIn('executable file not found',diagnostic['launch_error'])
+        self.assertNotIn('TEAM-PRIVATE-MARKER',json.dumps(report))
+        self.assertNotIn('DO-NOT-COPY-THIS',json.dumps(report))
+
+    def test_diagnostic_error_does_not_replace_start_failure_or_prevent_cleanup(self):
+        detail = self.run_preflight(start_failure=True,inspection_failure=True)
+        report = detail['preflight']
+        self.assertEqual(detail['jobs'][0]['status'],'FAILED')
+        self.assertIn('executable file not found',report['error'])
+        self.assertIn('inspection failed',report['diagnostics']['inspection_error'])
+        self.assertNotIn('TEAM-PRIVATE-MARKER',json.dumps(report))
 
     def test_version_script_accepts_wrapper_stderr_and_does_not_fall_back_to_opencode(self):
         base = {'commands':{},'mounts':[]}

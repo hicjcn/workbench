@@ -238,7 +238,7 @@ docker build -t agent-workbench-node:local poc/onboarding
 3. 保存任务超时、可选的精确版本输出及所需凭据**变量名**，设为新工作区默认，或在「项目运行配置」选定具体版本。
 4. 创建新工作区并预检，再验证实际任务。管理页面只保存配置，不会自动安装 CLI。
 
-当前支持 OpenCode 兼容 HTTP API、认证、标准输入和 JSONL 事件格式。其他协议的 CLI 需要单独适配，详见 [Agent CLI 接入](docs/26-agent-cli.md)。
+当前支持 OpenCode 兼容 HTTP API、认证、标准输入和 JSONL 事件格式。其他协议的 CLI 需要单独适配，详见 [Agent CLI 接入](docs/26-agent-cli.md)。如报 `executable file not found in $PATH`，请查看预检启动诊断中的容器 PATH，并核对程序的容器内路径；处理步骤见[封装 CLI 镜像预检](docs/32-wrapper-cli-preflight.md#镜像找不到-cli-时如何处理)。
 
 ### 模型配置
 

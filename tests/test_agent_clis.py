@@ -132,9 +132,36 @@ class AgentCliTests(ControlFixture):
         with patch('agent_workbench.runtime.docker',side_effect=docker) as calls:
             runtime.start(workspace,'wrapper:fixture',opencode_model=self.settings.model)
         args = next(call.args for call in calls.call_args_list if call.args[0]=='run')
-        self.assertEqual(args[args.index('--entrypoint')+1],'')
-        self.assertEqual(list(args[args.index('wrapper:fixture')+1:]),agent_clis.command(selected,'serve'))
+        self.assertIn('--entrypoint=team-code',args)
+        self.assertNotIn('',args)
+        self.assertNotIn('""',subprocess.list2cmdline(args))
+        self.assertEqual(list(args[args.index('wrapper:fixture')+1:]),agent_clis.command(selected,'serve')[1:])
         self.assertEqual(json.loads((workspace/'runtime.json').read_text())['agent_cli']['id'],selected['id'])
+
+    def test_runtime_absolute_cli_path_is_one_entrypoint_argument(self):
+        selected = self.save(content=Content(serve_command='/opt/team/bin/team-code serve --hostname {host} --port {port}').model_dump())
+        req = self.prepared_with(selected); workspace = Path(req['workspace']['path'])
+        def docker(*args, **options):
+            if args[:2] == ('network','inspect'): return subprocess.CompletedProcess([],1,'','missing')
+            return subprocess.CompletedProcess([],0,'127.0.0.1:4096\n' if args[0]=='port' else '','')
+        with patch('agent_workbench.runtime.docker',side_effect=docker) as calls:
+            runtime.start(workspace,'wrapper:fixture')
+        args = next(call.args for call in calls.call_args_list if call.args[0]=='run')
+        self.assertIn('--entrypoint=/opt/team/bin/team-code',args)
+        self.assertEqual(list(args[args.index('wrapper:fixture')+1:]),['serve','--hostname','0.0.0.0','--port','4096'])
+
+    def test_missing_cli_error_identifies_pinned_command_and_retains_runtime_journal(self):
+        selected = self.save(); req = self.prepared_with(selected); workspace = Path(req['workspace']['path'])
+        def docker(*args, **options):
+            if args[:2] == ('network','inspect'): return subprocess.CompletedProcess([],1,'','missing')
+            if args[0] == 'run': raise WorkbenchError('exec: "team-code": executable file not found in $PATH')
+            return subprocess.CompletedProcess([],0,'','')
+        with patch('agent_workbench.runtime.docker',side_effect=docker):
+            with self.assertRaises(WorkbenchError) as failure: runtime.start(workspace,'wrapper:fixture')
+        message = str(failure.exception)
+        for expected in ('团队封装','team-code serve','wrapper:fixture','绝对路径','/home/node','executable file not found'):
+            self.assertIn(expected,message)
+        self.assertEqual(json.loads((workspace/'runtime.json').read_text())['phase'],'NEEDS_RECONCILIATION')
 
     def test_runtime_rejects_cli_conflicting_with_manifest_before_docker(self):
         selected = self.save(); req = self.prepared_with(selected); workspace = Path(req['workspace']['path'])

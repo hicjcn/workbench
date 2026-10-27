@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import subprocess
 import time
 
@@ -209,7 +210,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     write_json(workspace / "runtime.json", state, private=True)
     command = [
         "run", "--detach", "--name", container,
-        "--entrypoint", "",
+        "--entrypoint=" + serve_argv[0],
         "--label", "awb.managed=true", "--label", f"awb.workspace={suffix}",
         "--label", "awb.kind=agent",
         "--network", network, "--user", container_user(),
@@ -243,9 +244,15 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
                     "--env", "NODE_EXTRA_CA_CERTS=/run/proxy-ca.pem",
                     "--env", "SSL_CERT_FILE=/run/proxy-ca.pem",
                     "--env", "GIT_SSL_CAINFO=/run/proxy-ca.pem"]
-    command += [image, *serve_argv]
+    command += [image, *serve_argv[1:]]
     try:
-        docker(*command, environment={**(profile_environment or {}), "OPENCODE_SERVER_PASSWORD": password, **provider_environment, **(dependency_environment or {})})
+        try:
+            docker(*command, environment={**(profile_environment or {}), "OPENCODE_SERVER_PASSWORD": password, **provider_environment, **(dependency_environment or {})})
+        except WorkbenchError as error:
+            hint = ""
+            if "executable file not found" in str(error) or "no such file or directory" in str(error):
+                hint = " 请检查程序是否安装在镜像 PATH 中，或将 CLI 命令改为容器内的绝对路径；命令不会展开 Shell 变量。镜像默认入口不会执行，/home/node 由独立 Agent HOME 覆盖，请将程序安装到 /opt 或 /usr/local/bin 等目录。"
+            raise WorkbenchError(f"Agent CLI「{agent_cli['name'] if agent_cli else 'OpenCode（内置）'}」启动失败；程序：{serve_argv[0]}；镜像：{image}；实际命令：{shlex.join(serve_argv)}。{error}{hint}") from None
         if dependency_network: docker("network", "connect", dependency_network, container)
         address = docker("port", container, "4096/tcp").stdout.strip()
         if not address.startswith("127.0.0.1:"):

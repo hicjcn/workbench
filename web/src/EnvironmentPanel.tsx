@@ -144,8 +144,29 @@ export function EnvironmentPanel({
                     容器状态：{report.diagnostics.container_status ?? "未取得"}{" "}
                     · 退出码：{report.diagnostics.exit_code ?? "未取得"}
                   </p>
+                  {report.diagnostics.executable ? (
+                    <p className="hint">
+                      实际入口程序：<code>{report.diagnostics.executable}</code>
+                    </p>
+                  ) : null}
+                  {report.diagnostics.container_path !== undefined ? (
+                    <p className="hint">
+                      容器 PATH：
+                      <code>
+                        {report.diagnostics.container_path || "未设置"}
+                      </code>
+                    </p>
+                  ) : null}
+                  {report.diagnostics.container_home ? (
+                    <p className="hint">
+                      容器 HOME：
+                      <code>{report.diagnostics.container_home}</code> · 用户：
+                      {report.diagnostics.container_user || "镜像默认"}
+                    </p>
+                  ) : null}
                   <pre>
                     {[
+                      report.diagnostics.launch_error,
                       report.diagnostics.container_error,
                       report.diagnostics.control_error,
                       report.diagnostics.inspection_error,
