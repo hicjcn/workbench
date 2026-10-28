@@ -152,6 +152,27 @@ def matches_model_config(actual, expected):
     return actual == expected
 
 
+def container_home(run_as_root: bool) -> str:
+    return "/root" if run_as_root else "/home/node"
+
+
+def root_state_mounts(workspace: Path, explicit_mounts: list | None = None) -> list[dict]:
+    """Persist OpenCode state without hiding the image's root HOME or credentials.
+
+    Explicit parent/directory mounts own their entire subtree. A narrower
+    credential file can overlay one file in an otherwise isolated state dir.
+    """
+    result = []
+    for relative in (".config/opencode", ".local/share/opencode", ".cache/opencode", ".local/state/opencode"):
+        target = "/root/" + relative
+        if any(target == mount["target"] or target.startswith(mount["target"] + "/") for mount in explicit_mounts or []):
+            continue
+        source = safe_path(workspace, "agent-home/" + relative)
+        source.mkdir(parents=True, exist_ok=True)
+        result.append({"source": source, "target": target})
+    return result
+
+
 @exclusive_workspace
 def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
           openrouter_model: str | None = None, opencode_model: str | None = None, read_only_source: bool = False, controller: str | None = None,
@@ -205,6 +226,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     config = safe_path(workspace, "agent-home/.config/opencode")
     config_file = safe_path(workspace, "agent-home/.config/opencode/opencode.json")
     staging = safe_path(workspace, "staging")
+    managed_root_mounts = root_state_mounts(workspace, volume_mounts) if run_as_root else []
     found = docker("network", "inspect", network, check=False)
     if found.returncode:
         docker("network", "create", "--label", "awb.managed=true", *(["--label", f"awb.controller={controller}"] if controller else []), network)
@@ -219,7 +241,8 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     staging.mkdir(exist_ok=True)
     password = secrets.token_urlsafe(32)
     state = {"container": container, "network": network, "password": password,
-             "phase": "PREPARING", "image": image, "run_as_root": run_as_root, "serve_argv": serve_argv}
+             "phase": "PREPARING", "image": image, "run_as_root": run_as_root,
+             "container_home": container_home(run_as_root), "serve_argv": serve_argv}
     if start_agent: state["agent_service"] = {"directory": "/tmp/awb-agent-" + secrets.token_hex(8)}
     if port_mappings: state["port_mappings"] = port_mappings
     if agent_cli: state["agent_cli"] = agent_cli
@@ -237,11 +260,11 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
         "--mount", bind_mount(workspace / "repo", "/workspace/project", readonly=read_only_source),
         "--mount", bind_mount(home, "/home/node"),
         "--mount", bind_mount(staging, "/workbench/out"),
-        "--env", "HOME=/home/node", "--env", "OPENCODE_SERVER_USERNAME=workbench",
+        "--env", "HOME=" + container_home(run_as_root), "--env", "OPENCODE_SERVER_USERNAME=workbench",
         "--env", "OPENCODE_SERVER_PASSWORD",
     ]
     if run_as_root:
-        command += ["--cap-add", "DAC_OVERRIDE"]
+        command += ["--cap-add", "DAC_OVERRIDE", "--env", "OPENCODE_CONFIG=/home/node/.config/opencode/opencode.json"]
         for key, value in git_safe_environment(workspace, context_mounts or []).items():
             command += ["--env", key + "=" + value]
     for name in provider_environment:
@@ -254,6 +277,8 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     if controller: command += ["--label", f"awb.controller={controller}"]
     for mount in config_mounts or []:
         command += ["--mount", bind_mount(mount["source"], mount["target"], readonly=True)]
+    for mount in managed_root_mounts:
+        command += ["--mount", bind_mount(mount["source"], mount["target"])]
     for mount in volume_mounts or []:
         command += ["--mount", bind_mount(mount["source"], mount["target"], readonly=read_only_source or mount.get("read_only", True))]
     for mount in context_mounts or []:
@@ -291,7 +316,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
                 raise WorkbenchError(f"排查容器启动失败；镜像：{image}。{error}") from None
             hint = ""
             if "executable file not found" in str(error) or "no such file or directory" in str(error):
-                hint = " 请检查镜像是否提供 /bin/bash、初始化文件是否可读，以及程序是否安装在初始化后的 PATH 中，或使用容器内绝对路径。/root/.nvm 等 root 安装需要启用 root 运行模式；命令参数不会展开 Shell 变量，独立 Agent HOME 仍位于 /home/node。"
+                hint = " 请检查镜像是否提供 /bin/bash、初始化文件是否可读，以及程序是否安装在初始化后的 PATH 中，或使用容器内绝对路径。/root/.nvm 等 root 安装需要启用 root 运行模式；命令参数不会展开 Shell 变量。root 模式 HOME=/root，普通用户 HOME=/home/node。"
             raise WorkbenchError(f"Agent CLI「{agent_cli['name'] if agent_cli else 'OpenCode（内置）'}」启动失败；程序：{serve_argv[0]}；镜像：{image}；实际命令：{shlex.join(serve_argv)}。{error}{hint}") from None
         state.update({"phase": "STARTED" if start_agent else "DEBUG_RUNNING", "base_url": f"http://{address}"})
         write_json(workspace / "runtime.json", state, private=True)
@@ -325,7 +350,10 @@ def describe_debug_runtime(workspace: Path) -> dict | None:
             if len(value) >= 4 and re.search(r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API_KEY|PRIVATE_KEY|CONNECTION|(?:^|_)(?:URL|URI)$", name, re.IGNORECASE))
         for value in values:
             if value: serve_argv = [part.replace(value, "[REDACTED]") for part in serve_argv]
-        return {"container": container, "shell_command": shlex.join(["docker", "exec", "-it", container, "/bin/bash"]), "serve_command": shlex.join(serve_argv)}
+        home = state.get("container_home", "/home/node")
+        if home not in ("/root", "/home/node"): return None
+        return {"container": container, "home": home,
+            "shell_command": shlex.join(["docker", "exec", "-it", container, "/bin/bash"]), "serve_command": shlex.join(serve_argv)}
     except (OSError, ValueError, TypeError, KeyError, AttributeError, WorkbenchError):
         return None
 

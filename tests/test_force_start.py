@@ -97,7 +97,7 @@ class ForceStartTests(ControlFixture):
         self.assertEqual(journal["phase"], "DEBUG_RUNNING")
         self.assertNotIn("agent_service", journal)
         hints = detail["debug_runtime"]
-        self.assertEqual(set(hints), {"container", "shell_command", "serve_command"})
+        self.assertEqual(set(hints), {"container", "home", "shell_command", "serve_command"})
         self.assertIn(journal["container"], hints["shell_command"])
         self.assertEqual(hints["serve_command"], "opencode serve --hostname 0.0.0.0 --port 4096")
         self.assertNotIn(journal["password"], json.dumps(detail))

@@ -70,6 +70,7 @@ export type Review = {
 export type Detail = Omit<Requirement, "workspace"> & {
   debug_runtime?: {
     container: string;
+    home?: string;
     shell_command: string;
     serve_command: string;
   } | null;

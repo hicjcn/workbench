@@ -116,7 +116,7 @@ class Content(Input):
         if len(set(paths)) != len(paths): raise ValueError("仓库命令不能重复")
         for name, value in self.environment.items():
             if (not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", name) or "\x00" in value or len(value) > 8000 or
-                name in ("HOME", "PATH", "PORT", "ENV", "BASH_ENV", "SHELLOPTS", "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM") or
+                name in ("HOME", "PATH", "PORT", "ENV", "BASH_ENV", "SHELLOPTS", "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "OPENCODE_CONFIG") or
                 name.startswith(("AWB_", "DOCKER_", "LD_", "DYLD_", "PYTHON", "OPENCODE_SERVER_", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))):
                 raise ValueError("环境变量名或值无效，或使用了工作台保留变量")
         targets = [item.target for item in [*self.mounts, *self.volume_mounts]]

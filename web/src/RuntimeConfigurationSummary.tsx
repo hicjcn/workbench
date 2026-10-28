@@ -17,8 +17,8 @@ export function RuntimeConfigurationSummary({ detail }: { detail: Detail }) {
         <span>运行用户与初始化</span>
         <code>
           {content?.run_as_root
-            ? "root · source /root/.bashrc"
-            : "普通用户 · HOME/.bashrc（可读时）"}
+            ? "root · Agent HOME=/root · source /root/.bashrc"
+            : "普通用户 · HOME=/home/node · HOME/.bashrc（可读时）"}
         </code>
       </div>
       <div>

@@ -11,6 +11,7 @@ export function ForceStartPanel({
 }) {
   const diagnostic = detail.workspace.environment === "DEBUG_RUNNING";
   const runtime = diagnostic ? detail.debug_runtime : null;
+  const home = runtime?.home ?? "/home/node";
   return (
     <div className="environment-sync">
       <div>
@@ -42,13 +43,18 @@ export function ForceStartPanel({
               <p className="hint">在 Runner 主机终端进入容器：</p>
               <code className="path">{runtime.shell_command}</code>
               <p className="hint">
-                工作台为 Agent 设置独立 HOME：<code>/home/node</code>。请按此目录核对凭据挂载位置。
+                当前容器 HOME：<code>{home}</code>。请按此目录核对 CLI 查找的凭据路径。
               </p>
               {detail.profile?.content.run_as_root ? (
                 <>
-                  <p className="hint">当前以 root 运行，先加载与工作台相同的初始化文件；该命令执行后 HOME 仍为 /home/node：</p>
+                  <p className="hint">当前以 root 运行，先加载与工作台相同的初始化文件；该命令执行后保留上述容器 HOME：</p>
                   <code className="path">HOME=/root source /root/.bashrc</code>
                 </>
+              ) : null}
+              {detail.profile?.content.run_as_root && home !== "/root" ? (
+                <p className="hint">
+                  这是旧版本创建的容器。停止后重新启动排障环境，root 模式将使用 HOME=/root；容器内修改不会自动更新已有容器配置。
+                </p>
               ) : null}
               <p className="hint">在容器内运行本需求固定的 CLI 服务命令：</p>
               <code className="path">{runtime.serve_command}</code>
