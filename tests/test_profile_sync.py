@@ -180,6 +180,38 @@ class ProfileSyncTests(ControlFixture):
         self.assertEqual(runtime_options(workspace, self.data)["image"], "sha256:retagged-image")
         self.assertFalse((workspace / profile_sync.JOURNAL).exists())
 
+    def test_deleted_container_can_be_stopped_before_syncing_rebuilt_image(self):
+        req, workspace, first = self.prepare_profile()
+        source = (workspace / "repo/main.txt").read_bytes()
+        self.write_passed_report(workspace, first)
+        write_json(workspace / "runtime.json", {"container": "deleted-runtime", "network": "deleted-network"})
+        with self.store.engine.begin() as connection:
+            connection.execute(update(workspaces).where(workspaces.c.requirement_id == req["id"]).values(environment="ERROR"))
+
+        self.assertEqual(self.action(req, "stop").status_code, 202)
+        def docker(*args, **options):
+            if args[0] == "inspect":
+                self.assertEqual(args, ("inspect", "--type", "container", "deleted-runtime"))
+                return SimpleNamespace(returncode=1, stdout="[]", stderr="Error: no such object: deleted-runtime\n")
+            self.assertEqual(args, ("network", "rm", "deleted-network"))
+            return SimpleNamespace(returncode=1, stdout="", stderr="No such network")
+
+        with patch("agent_workbench.resources.inventory", return_value=[]), \
+                patch("agent_workbench.runtime.docker", side_effect=docker):
+            self.assertTrue(self.runner.run_once())
+        stopped = self.detail(req)
+        self.assertEqual(stopped["jobs"][0]["status"], "SUCCEEDED", stopped["jobs"][0].get("error"))
+        self.assertEqual(stopped["workspace"]["environment"], "STOPPED")
+        self.assertFalse((workspace / "runtime.json").exists())
+        self.assertEqual(stopped["preflight"]["status"], "PASSED")
+
+        detail, job = self.run_sync(req, image="sha256:rebuilt-image")
+        profile_sync.resolve(workspace, job["id"])
+        self.assertEqual(detail["profile"]["id"], first["id"])
+        self.assertEqual(runtime_options(workspace, self.data)["image"], "sha256:rebuilt-image")
+        self.assertIsNone(detail["preflight"])
+        self.assertEqual((workspace / "repo/main.txt").read_bytes(), source)
+
     def test_unacknowledged_switch_can_restore_old_manifest_mounts_and_report(self):
         req, workspace, first = self.prepare_profile(self.save_profile(self.mounted_content()))
         before = json.loads((workspace / "workspace.json").read_text())

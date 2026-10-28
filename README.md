@@ -331,6 +331,8 @@ API 和 Runner 启动时均需设置同一个 `AWB_MODEL`。更换模型后重�
 | Windows 无法连接 Docker pipe | 启动 Docker Desktop，确认 WSL2 后端、Linux 容器及本机 `dockerDesktopLinuxEngine` 管道可用 |
 | 预检通过但模型调用失败 | 预检不发起推理；另查模型当前开放情况、Runner 凭据、代理、CA 和模型服务网络，运行 `acceptance doctor` 辅助诊断 |
 | 更新配置后旧需求仍用旧版本 | 停止环境并处理活动或待核实任务，在「项目环境与预检」或「容器管理」同步最新配置，再预检并启动 |
+| 手动删除容器、重建镜像后，同步提示先停止并核实 | 删除 Docker 资源不会清除工作台运行记录。先在工作台停止环境，状态不明时执行「停止并核实」；确认旧容器不存在后会清理运行记录，再同步以重新解析镜像标签对应的 ID。同名同标签也需要同步 |
+| 停止报 `Cannot verify runtime existence; retaining state` | 查看后附的 Docker 退出码和具体错误；连接、权限或 socket/pipe 错误不能当作容器已删除。检查 Runner 所在机器的 Docker 服务与 `AWB_DOCKER_ENDPOINT`，Windows 确认 Docker Desktop 的 Linux engine 已启动，再重试停止。不要手动删除运行记录或数据库数据卷 |
 | 任务为 UNKNOWN / 待核实 | 先检查现场，再使用「停止并核实」；跨项目操作核实全部成员。镜像维护使用单独的人工核实入口，不自动重试 |
 | 站点里点击启动没有真实容器 | Sites 站点是浏览器试用版，使用 localStorage，不运行 Python API、SQLite、Docker 或 Runner；真实开发按本文部署本机版 |
 

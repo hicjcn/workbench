@@ -430,15 +430,23 @@ def stop(workspace: Path) -> dict:
     workspace, _ = load_workspace(workspace)
     path = workspace / "runtime.json"
     state = json.loads(path.read_text(encoding="utf-8"))
-    inspected = docker("inspect", state["container"], check=False)
+    inspected = docker("inspect", "--type", "container", state["container"], check=False)
     if inspected.returncode == 0:
         details = json.loads(inspected.stdout)[0]
         expected = hashlib.sha256(str(workspace).encode()).hexdigest()[:10]
         if details["Config"]["Labels"].get("awb.workspace") != expected:
             raise WorkbenchError("Refusing to stop a container owned by a different workspace")
         docker("rm", "--force", state["container"])
-    elif "No such" not in inspected.stderr:
-        raise WorkbenchError("Cannot verify runtime existence; retaining state")
+    else:
+        # A missing daemon socket is not proof that this container is absent.
+        # Match the complete Docker response and the exact recorded identity.
+        missing = re.fullmatch(r"(?i:(?:Error(?: response from daemon)?:\s*)?No such (?:container|object):\s*)" +
+            re.escape(state["container"]), inspected.stderr.strip())
+        if not missing:
+            diagnostic = inspected.stderr.strip()[:1500] or "Docker returned no error details"
+            raise WorkbenchError(f"Cannot verify runtime existence; retaining state "
+                f"(Docker inspect exit {inspected.returncode}): {diagnostic}\n"
+                "请检查 Runner 所在机器的 Docker 服务及 AWB_DOCKER_ENDPOINT；Windows 请确认 Docker Desktop 的 Linux engine 已启动")
     # Removing a shared network fails harmlessly if another project still uses it.
     docker("network", "rm", state["network"], check=False)
     path.unlink()
