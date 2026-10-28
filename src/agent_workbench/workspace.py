@@ -188,7 +188,8 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
     if destination.exists():
         raise WorkbenchError("Workspace already exists; it will not be overwritten")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = Path(tempfile.mkdtemp(prefix=f".{project}-", dir=destination.parent))
+    temporary_root = tempfile.TemporaryDirectory(prefix=f".{project}-", dir=destination.parent, ignore_cleanup_errors=True)
+    temporary = Path(temporary_root.name)
     try:
         repo = temporary / "repo"
         repo.mkdir()
@@ -248,9 +249,10 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
         logs.event("workspace", "source.ready", "源码导出和独立 Git 快照已完成", detailed=True, count=len(initial['files']))
         return {"workspace": str(destination), "source_commit": source_sha,
                 "snapshot": verified}
-    except BaseException:
-        shutil.rmtree(temporary, ignore_errors=True)
-        raise
+    finally:
+        # TemporaryDirectory resets read-only Git object attributes on Windows.
+        # After a successful rename its old path is absent; the published copy stays.
+        temporary_root.cleanup()
 
 
 def load_workspace(path: Path) -> tuple[Path, dict]:

@@ -11,7 +11,7 @@
       "baseline": {
         "samples": [
           {
-            "seconds": 3.0830477939998673,
+            "seconds": 3.051112383000145,
             "inventory_calls": 66,
             "inventory_file_reads": 33132,
             "copy2_calls": 1506,
@@ -20,7 +20,7 @@
             "source_unchanged": true
           },
           {
-            "seconds": 3.1369818659986777,
+            "seconds": 3.1346089870003198,
             "inventory_calls": 66,
             "inventory_file_reads": 33132,
             "copy2_calls": 1506,
@@ -29,7 +29,7 @@
             "source_unchanged": true
           },
           {
-            "seconds": 3.055028708999089,
+            "seconds": 2.937961265000922,
             "inventory_calls": 66,
             "inventory_file_reads": 33132,
             "copy2_calls": 1506,
@@ -38,12 +38,12 @@
             "source_unchanged": true
           }
         ],
-        "median_seconds": 3.0830477939998673
+        "median_seconds": 3.051112383000145
       },
       "current": {
         "samples": [
           {
-            "seconds": 1.8269810380006675,
+            "seconds": 1.7691395789988746,
             "inventory_calls": 33,
             "inventory_file_reads": 16566,
             "copy2_calls": 6,
@@ -52,7 +52,7 @@
             "source_unchanged": true
           },
           {
-            "seconds": 1.9534852380002121,
+            "seconds": 1.7159370830013358,
             "inventory_calls": 33,
             "inventory_file_reads": 16566,
             "copy2_calls": 6,
@@ -61,7 +61,7 @@
             "source_unchanged": true
           },
           {
-            "seconds": 1.8587492539991217,
+            "seconds": 1.8203376829987974,
             "inventory_calls": 33,
             "inventory_file_reads": 16566,
             "copy2_calls": 6,
@@ -70,16 +70,16 @@
             "source_unchanged": true
           }
         ],
-        "median_seconds": 1.8587492539991217
+        "median_seconds": 1.7691395789988746
       }
     }
   },
-  "median_reduction_percent": 39.7,
+  "median_reduction_percent": 42.0,
   "validation": {
     "full_tests": 402,
     "passed": 398,
     "windows_only_skipped": 4,
-    "seconds": 124.139,
+    "seconds": 122.797,
     "new_copy_tests": 8,
     "frontend_tests_passed": 11,
     "frontend_build": "PASSED",
@@ -87,14 +87,16 @@
     "model_inference": false
   },
   "source_sha256": {
-    "src/agent_workbench/workspace.py": "3f9d94fc685d7891baf17f5e7a7e66212644c799378fa5f8e32757b7afe90602",
-    "src/agent_workbench/multi_repo.py": "180e4534bfd67feac69403ac73e55c25e52df526ded6b3ad1d4877ccea4348db",
+    "src/agent_workbench/workspace.py": "dc0923dae264fd580d617a8c12d6547225d47550c90fee94def7f54a9f3c6ec0",
+    "src/agent_workbench/multi_repo.py": "b155325aebd68abe27e4a4716ee35eb8ad5930eecd195479cd6561af4d95495f",
     "poc/benchmark_source_copy.py": "b69f3c3bc76762d97a16ba9dc45abed03b54f650d0e2e4e27005bf06702f41a6"
   },
   "windows_performance_measured": false,
   "review_validation": {
     "global_git_autocrlf": "true",
     "source_copy_tests_passed": 8,
-    "fixture_bytes_preserved": true
+    "fixture_bytes_preserved": true,
+    "full_regression_repeated": true,
+    "temporary_git_directory_cleanup": "TemporaryDirectory read-only cleanup"
   }
 }

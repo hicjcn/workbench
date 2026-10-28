@@ -108,7 +108,7 @@ class SourceCopyTests(unittest.TestCase):
                 w.create_workspace(parent,self.root/'attempts','readonly','backend',repository_paths=['first','second'])
         self.assertFalse((self.root/'attempts/readonly/backend').exists())
 
-    def test_windows_executable_modes_are_batched_with_nul_delimited_unicode_paths(self):
+    def test_batched_executable_modes_preserve_windows_unicode_paths(self):
         source=self.source();names=['tools/run space 中文 '+str(index)+'.sh' for index in range(30)]+['-leading.sh']
         for name in names:
             path=source/name;path.parent.mkdir(exist_ok=True);path.write_text('#!/bin/sh\nexit 0\n')
@@ -123,7 +123,7 @@ class SourceCopyTests(unittest.TestCase):
         modes=w.git(Path(created['workspace'])/'repo','ls-files','--stage','-z').decode().split('\0')
         self.assertEqual(sum(line.startswith('100755 ') for line in modes),len(names))
 
-    def test_windows_dirty_index_mode_change_is_preserved_in_readonly_copy(self):
+    def test_dirty_windows_index_mode_change_is_preserved_in_readonly_copy(self):
         source=self.source();w.index_executable(source,['same.txt'])
         with patch.object(w,'IS_WINDOWS',True):
             before=w.snapshot(source)

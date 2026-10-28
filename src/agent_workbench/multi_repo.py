@@ -187,7 +187,8 @@ def create(source, root, requirement, project, *, repositories, shared_files, in
     destination = safe_path(root, f'{requirement}/{project}')
     if destination.exists(): raise WorkbenchError("Workspace already exists; it will not be overwritten")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = Path(tempfile.mkdtemp(prefix=f'.{project}-', dir=destination.parent))
+    temporary_root = tempfile.TemporaryDirectory(prefix=f'.{project}-', dir=destination.parent, ignore_cleanup_errors=True)
+    temporary = Path(temporary_root.name)
     staging = None
     try:
         # Keep the inner Git export out of the deeply nested requirement path.
@@ -244,11 +245,11 @@ def create(source, root, requirement, project, *, repositories, shared_files, in
             raise WorkbenchError('来源仓库在准备期间切换了提交，请重试')
         temporary.rename(destination)
         return {'workspace': str(destination), 'source_commit': value['source_commit'], 'snapshot': observed}
-    except BaseException:
-        shutil.rmtree(temporary, ignore_errors=True)
-        raise
     finally:
-        if staging: staging.cleanup()
+        try:
+            if staging: staging.cleanup()
+        finally:
+            temporary_root.cleanup()
 
 
 def diff(workspace, *, repository=None):
