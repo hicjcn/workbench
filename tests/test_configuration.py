@@ -55,6 +55,20 @@ class ConfigurationTests(unittest.TestCase):
             with self.subTest(low=low, high=high), self.assertRaises(ConfigurationError):
                 self.write(f'[workbench]\nport_range_start={low}\nport_range_end={high}\n')
 
+    def test_log_mode_defaults_file_environment_export_and_validation(self):
+        self.assertEqual(self.write('[workbench]\n').log_mode,'concise')
+        configured=self.write('[workbench]\nlog_mode="detailed"\n')
+        self.assertEqual(configured.public()['log_mode'],'detailed')
+        self.assertEqual(Settings.load(config_file=self.file).log_mode,'detailed')
+        configured.apply();self.assertEqual(os.environ['AWB_LOG_MODE'],'detailed')
+        with patch.dict(os.environ,{'AWB_LOG_MODE':'concise'}):
+            self.assertEqual(Configuration.load(self.file).log_mode,'concise')
+            self.assertEqual(Settings.load(config_file=self.file).log_mode,'concise')
+        os.environ.pop('AWB_LOG_MODE')
+        for value in ('verbose','PRIVATE-INVALID-MODE'):
+            with self.assertRaises(ConfigurationError) as error:self.write(f'[workbench]\nlog_mode="{value}"\n')
+            self.assertNotIn(value,str(error.exception))
+
     def test_paths_are_relative_to_file_and_utf8_bom_is_accepted(self):
         self.file.write_text('[workbench]\ndata_dir="中文数据"\nweb_dir="页面"\nproxy_ca="cert.pem"\n[launcher]\nlogs_dir="logs"\nvenv_dir="venv"\n', encoding="utf-8-sig")
         result = Configuration.load(self.file)

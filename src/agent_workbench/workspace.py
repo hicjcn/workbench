@@ -184,10 +184,14 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
         repo.mkdir()
         # Git archive applies host checkout conversion too. In particular the
         # Git for Windows global autocrlf default must not rewrite source bytes.
+        from . import logging_support as logs
+        logs.event("workspace", "source.archive", "正在导出固定 Git 提交", detailed=True)
         archive = git(source, "-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar", source_sha)
         from .source_export import export
+        logs.event("workspace", "source.copy", "正在复制导出的源码文件", detailed=True)
         executable_paths, materialized_links, copied_link_files = export(archive, repo,
             read_link_blob=lambda name: git(source, "cat-file", "blob", f"{source_sha}:{name}"))
+        logs.event("workspace", "source.git_init", "正在建立独立 Git 快照", detailed=True)
         git(repo, "init", "-b", f"req/{requirement}")
         git(repo, "config", "core.autocrlf", "false")
         git(repo, "config", "core.eol", "lf")
@@ -224,6 +228,7 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
             manifest["copied_link_files"] = copied_link_files
         write_json(temporary / "workspace.json", manifest)
         temporary.rename(destination)
+        logs.event("workspace", "source.ready", "源码导出和独立 Git 快照已完成", detailed=True, count=len(initial['files']))
         return {"workspace": str(destination), "source_commit": source_sha,
                 "snapshot": snapshot(destination / "repo")}
     except BaseException:

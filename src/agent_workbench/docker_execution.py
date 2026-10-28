@@ -7,12 +7,14 @@ import subprocess
 import tarfile
 import tempfile
 import threading
+import time
 
 import httpx
 from . import locking
 from . import runtime
 from .platform_support import IS_WINDOWS, docker_argv, docker_environment
 from .workspace import WorkbenchError
+from . import logging_support as logs
 
 
 def image_info(ref):
@@ -30,6 +32,8 @@ def inventory():
 
 def command(args, lock, source=None):
     env = docker_environment()
+    started = time.monotonic()
+    logs.event("images", "image.command", "正在执行镜像操作，等待 Docker 返回", operation=args[0])
     # Build output may contain application data or credentials. Never persist or expose it.
     with tempfile.TemporaryFile() as output:
         try:
@@ -42,6 +46,8 @@ def command(args, lock, source=None):
         except (subprocess.TimeoutExpired, OSError):
             from .execution import Unknown
             raise Unknown("镜像操作超时或连接中断；请实际检查 Docker 后人工结束核实，禁止自动重试") from None
+        logs.event("images", "image.command_returned", "镜像命令已返回", detailed=True, exit_code=result.returncode,
+            duration_ms=round((time.monotonic()-started)*1000))
         if result.returncode: raise WorkbenchError(f"Docker 镜像操作失败（退出码 {result.returncode}）；请检查 Dockerfile、镜像引用和注册表访问；构建输出未写入工作台")
 
 
@@ -108,11 +114,25 @@ def run_once(runner):
     received = runner.post("/internal/docker/claim", {"owner": runner.owner})
     job = received["job"]
     if not job: return False
+    with logs.context(job_id=job['id'], action=job['kind']):
+        return run_job(runner, job)
+
+
+def run_job(runner, job):
+    started = time.monotonic()
+    logs.event("images", "image.claimed", "已领取镜像管理任务")
     base = {"owner": runner.owner, "epoch": job["epoch"]}
     stopped = threading.Event(); lost = threading.Event()
     def heartbeat():
+        reported = time.monotonic()
         while not stopped.wait(3):
-            try: runner.post(f"/internal/docker/{job['id']}/heartbeat", base)
+            try:
+                runner.post(f"/internal/docker/{job['id']}/heartbeat", base)
+                now = time.monotonic()
+                if now-reported >= 15:
+                    logs.event("images", "image.wait", "镜像操作仍在执行，租约已续期", detailed=True,
+                        job_id=job['id'], action=job['kind'], elapsed_ms=round((now-started)*1000))
+                    reported = now
             except httpx.HTTPError: lost.set(); return
     thread = threading.Thread(target=heartbeat, daemon=True); thread.start()
     status, result, error = "SUCCEEDED", {}, None
@@ -123,6 +143,10 @@ def run_once(runner):
         # Failure text is fixed by this module; do not forward Docker stdout/stderr or env.
         error = str(failure)[:1000] if isinstance(failure, WorkbenchError) else "镜像操作失败，请检查 Runner 和 Docker"
     finally: stopped.set(); thread.join(timeout=5)
-    if lost.is_set(): return True  # The original request is retained until its lease expires; never replay.
+    if lost.is_set():
+        logs.event("images", "image.lease_lost", "镜像任务租约丢失，结果需要人工核实", level=30)
+        return True  # The original request is retained until its lease expires; never replay.
     runner.post(f"/internal/docker/{job['id']}/finish", {**base, "status": status, "result": result, "error": error})
+    logs.event("images", "image.finished", "镜像管理任务已结束", level=20 if status=='SUCCEEDED' else 30,
+        status=status, duration_ms=round((time.monotonic()-started)*1000))
     return True

@@ -16,6 +16,7 @@ import subprocess
 import time
 
 from . import locking
+from . import logging_support as logs
 from .opencode import OpenCodeClient
 from .platform_support import bind_mount, container_user, docker_argv, docker_environment
 from .workspace import WorkbenchError, load_workspace, safe_path, write_json
@@ -70,11 +71,17 @@ def exclusive_workspace(function):
 def docker(*args: str, environment: dict | None = None, check: bool = True,
            timeout: float = 120) -> subprocess.CompletedProcess:
     env = docker_environment(environment)
+    started = time.monotonic()
+    operation = args[0] if args else "unknown"
+    if operation in ("network", "image", "volume") and len(args) > 1: operation += "." + args[1]
+    logs.event("docker", "docker.command", "正在执行 Docker 操作", detailed=True, operation=operation)
     stop_event = _inspection_stop.get()
     result = inspection_command(args, env, timeout, stop_event) if stop_event is not None else subprocess.run(
         docker_argv(*args),
         capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=timeout,
     )
+    logs.event("docker", "docker.result", "Docker 操作已返回", detailed=True, operation=operation,
+        exit_code=result.returncode, duration_ms=round((time.monotonic()-started)*1000))
     if check and result.returncode:
         # Do not include argv/env: credentials are passed by environment name.
         raise WorkbenchError(f"Docker operation failed (exit {result.returncode}): {result.stderr.strip()[:1500]}")

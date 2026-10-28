@@ -22,6 +22,7 @@ from .settings import Settings
 from .store import Conflict, Missing, Store, identifier
 from .workspace import WorkbenchError, git
 from .workflow import Workflow, current
+from . import logging_support as logs
 
 
 class Input(BaseModel):
@@ -156,6 +157,27 @@ def create_app(settings: Settings, store: Store | None = None):
     async def invalid_operation(_, error):
         return JSONResponse({"detail": str(error)}, status_code=422)
 
+    async def request_progress(request, call_next):
+        started = time.monotonic()
+        request_id = secrets.token_hex(8)
+        def identifiers():
+            return {key: value for key, value in request.path_params.items() if key in ("job_id", "requirement_id")
+                and isinstance(value, str) and re.fullmatch(r"(?:job|djob|req)_[a-f0-9]{32}", value)}
+        with logs.context(request_id=request_id):
+            try:
+                response = await call_next(request)
+            except Exception as error:
+                route = getattr(request.scope.get("route"), "path", "<unmatched>")
+                logs.event("api", "http.failed", "请求处理失败", level=40, method=request.method, route=route,
+                    duration_ms=round((time.monotonic()-started)*1000), error_type=type(error).__name__, **identifiers())
+                raise
+            route = getattr(request.scope.get("route"), "path", "<unmatched>")
+            logs.event("api", "http.complete", "请求处理完成", detailed=True,
+                level=40 if response.status_code >= 500 else 30 if response.status_code >= 400 else None,
+                method=request.method, route=route, http_status=response.status_code, duration_ms=round((time.monotonic()-started)*1000), **identifiers())
+            response.headers["X-Request-ID"] = request_id
+            return response
+
     @app.middleware("http")
     async def local_boundary(request, call_next):
         if request.method not in ("GET", "HEAD", "OPTIONS"):
@@ -170,6 +192,8 @@ def create_app(settings: Settings, store: Store | None = None):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    app.middleware("http")(request_progress)
 
     def signature(stamp):
         return hmac.new(settings.access_token.encode(), stamp.encode(), hashlib.sha256).hexdigest()
@@ -231,7 +255,7 @@ def create_app(settings: Settings, store: Store | None = None):
 
     @app.get("/api/v1/config", dependencies=[Depends(user)])
     def config():
-        return {"model": settings.model, "data_dir": str(settings.data_dir), "mode": "single-host", "default_image": settings.default_image}
+        return {"model": settings.model, "data_dir": str(settings.data_dir), "mode": "single-host", "default_image": settings.default_image, "log_mode": settings.log_mode}
 
     @app.get("/api/v1/projects", dependencies=[Depends(user)])
     def list_projects():
@@ -356,7 +380,9 @@ def create_app(settings: Settings, store: Store | None = None):
                 raise Conflict("此需求已开启流程，请从流程面板运行开发步骤")
             if value.action == "task" and not value.prompt.strip():
                 raise HTTPException(422, "请填写 Agent 任务")
-            return database.enqueue(requirement_id, value.action, {"prompt": value.prompt}, idempotency_key, connection=connection)
+            job = database.enqueue(requirement_id, value.action, {"prompt": value.prompt}, idempotency_key, connection=connection)
+        logs.event("api", "job.queued", "已接收操作，等待 Runner 领取", job_id=job['id'], requirement_id=requirement_id, action=value.action)
+        return job
 
     @app.post("/api/v1/requirements/{requirement_id}/reviews", status_code=202, dependencies=[Depends(user)])
     def review(requirement_id: str, value: ReviewInput, idempotency_key: str | None = Header(default=None, max_length=100)):

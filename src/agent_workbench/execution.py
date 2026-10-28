@@ -14,6 +14,7 @@ import threading
 import time
 
 from . import runtime
+from .logging_support import progress
 from .providers import openrouter_catalog_model
 from .workspace import WorkbenchError, create_workspace, git, load_workspace, safe_path, snapshot
 
@@ -173,15 +174,18 @@ class Executor:
         action = job["action"]
         if action == "prepare":
             if not workspace.exists():
-                emit("stage", {"text": "正在创建独立源码副本"})
+                progress(emit, "workspace.copy", "正在创建独立源码副本")
                 create_workspace(Path(job["project"]["source_path"]), workspace.parents[1],
                                  job["requirement_id"], job["project"]["id"],
                                  repository_paths=job["requirement"].get("repositories"), shared_files=job["project"].get("shared_files"))
             check()
             from .profiles import configure
+            progress(emit, "workspace.profile", "正在固定运行镜像、挂载和资源配置", detailed=True)
             configure(workspace, job.get("profile"), self.settings.data_dir)
             from .agent_clis import configure as configure_agent
+            progress(emit, "workspace.agent_cli", "正在固定本需求 Agent CLI 配置", detailed=True)
             configure_agent(workspace, job.get("agent_cli"))
+            progress(emit, "workspace.snapshot", "源码副本与配置已准备完成，正在收集快照")
             return self.observe(workspace, "STOPPED")
         if action == "reconcile" and not (workspace / "workspace.json").exists():
             self.cleanup_attempts(job["requirement_id"])
@@ -204,24 +208,25 @@ class Executor:
             from .preflight import require_passed
             require_passed(workspace, job["profile"])
         if action in ("stop", "reconcile"):
-            emit("stage", {"text": "正在停止并核实运行环境"})
+            progress(emit, "runtime.stop", "正在停止并核实运行环境")
             self.cleanup_attempts(job["requirement_id"])
             from .resources import stop_workspace
             stop_workspace(self.settings.data_dir, workspace)
             return self.observe(workspace, "STOPPED")
         if action == "start":
             if not (workspace / "runtime.json").exists():
-                emit("stage", {"text": "正在启动隔离环境和固定 Agent CLI"})
+                progress(emit, "runtime.start", "正在启动隔离环境和固定 Agent CLI")
                 options = {"openrouter_model": self.settings.model} if self.settings.model.startswith("openrouter/") else {"opencode_model": self.settings.model}
                 ca = Path(os.environ["CODEX_PROXY_CERT"]) if os.environ.get("CODEX_PROXY_CERT") else None
                 self.start_runtime(workspace, job["project"]["image"], ca, **options)
             deadline = time.monotonic() + 90
+            progress(emit, "runtime.wait_ready", "容器已提交，正在等待 Agent CLI 控制服务就绪")
             while time.monotonic() < deadline:
                 check()
                 try:
                     capabilities = runtime.probe(workspace)
                     if capabilities["health"].get("healthy"):
-                        emit("stage", {"text": "兼容 OpenCode 的 Agent 服务已就绪，技能配置已收集"})
+                        progress(emit, "runtime.ready", "兼容 OpenCode 的 Agent 服务已就绪，技能配置已收集")
                         return {**self.observe(workspace, "RUNNING"), "capabilities": capabilities}
                 except WorkbenchError:
                     time.sleep(0.5)
@@ -300,7 +305,7 @@ class Executor:
         cli_content = checked(selected)
         command = docker_argv("exec", "-i", state["container"], *agent_command(selected, "run", model=model))
         environment = docker_environment()
-        emit("stage", {"text": "正在提交一次 Agent 任务并收集输出", "model": model})
+        progress(emit, "agent.submit", "正在提交一次 Agent 任务并收集输出", model=model)
         try:
             timeout = float(os.environ.get("AWB_TASK_TIMEOUT", "300")) if selected["id"] == "builtin-opencode" else cli_content["timeout_seconds"]
             if not math.isfinite(timeout) or timeout <= 0:

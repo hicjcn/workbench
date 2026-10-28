@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from agent_workbench.configuration import Configuration, ConfigurationError, config_path, launcher_directory
 from agent_workbench.platform_support import retry_file_access
+from agent_workbench import logging_support as logs
 
 
 @contextmanager
@@ -62,11 +63,13 @@ def main():
         print("Created workbench.toml. Review it before starting.", flush=True)
     configuration = Configuration.load(args.config)
     configuration.apply()
+    logs.configure(configuration.log_mode)
     python = configuration.venv_dir / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     environment = {**os.environ, "PYTHONUTF8": "1"}
     environment["PYTHONPATH"] = str(ROOT / "src") + (os.pathsep + environment["PYTHONPATH"] if environment.get("PYTHONPATH") else "")
-    def run(argv):
-        result = subprocess.run(argv, cwd=ROOT, env=environment)
+    def run(argv, step="setup.command", message="执行安装步骤"):
+        with logs.operation("setup", step, message, detailed=False):
+            result = subprocess.run(argv, cwd=ROOT, env=environment)
         if result.returncode: raise SystemExit(result.returncode)
     if args.action == "config":
         print(json.dumps(configuration.public(), ensure_ascii=False)); return 0
@@ -84,11 +87,11 @@ def main():
             setup_locks.enter_context(exclusive(configuration.data_dir / "locks/controller.lock"))
             if configuration.venv_dir.exists() and any(configuration.venv_dir.iterdir()) and not (configuration.venv_dir / "pyvenv.cfg").is_file():
                 raise ConfigurationError("venv_dir is not a virtual environment; refusing to overwrite it.")
-            if not python.exists(): run([sys.executable, "-m", "venv", str(configuration.venv_dir)])
-            run([str(python), "-m", "pip", "install", "-e", ".[server]"])
+            if not python.exists(): run([sys.executable, "-m", "venv", str(configuration.venv_dir)], "setup.venv", "创建 Python 虚拟环境")
+            run([str(python), "-m", "pip", "install", "-e", ".[server]"], "setup.python", "安装 API 和 Runner 依赖")
             npm = "npm.cmd" if os.name == "nt" else "npm"
-            run([npm, "ci", "--prefix", "web", "--no-audit", "--no-fund"])
-            run([npm, "run", "--prefix", "web", "build"])
+            run([npm, "ci", "--prefix", "web", "--no-audit", "--no-fund"], "setup.web_dependencies", "安装页面依赖")
+            run([npm, "run", "--prefix", "web", "build"], "setup.web_build", "构建工作台页面")
         if not args.skip_image_build:
             run([str(python), "-m", "agent_workbench.launcher", "build-image", "--config", str(configuration.file) if configuration.file else "-", *(["--rebuild"] if args.rebuild_image else [])])
         print("Setup complete. Run start.cmd or scripts/start.ps1."); return 0

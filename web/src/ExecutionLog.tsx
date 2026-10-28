@@ -24,6 +24,9 @@ export function ExecutionLog({ job }: { job: Job | null }) {
   const [connected, setConnected] = useState(false);
   const jobId = job?.id;
   const status = job?.status;
+  const currentStage = [...events]
+    .reverse()
+    .find((event) => event.kind === "stage" && event.payload.text);
   const [verification, setVerification] = useState<{
     id: string;
     output: CommandOutput;
@@ -86,12 +89,20 @@ export function ExecutionLog({ job }: { job: Job | null }) {
         </span>
         <span>{connected ? "● 实时连接" : "持久记录 · 最近 500 条"}</span>
       </div>
+      {status === "RUNNING" && currentStage ? (
+        <p className="hint" role="status">
+          当前步骤：{currentStage.payload.text}
+        </p>
+      ) : null}
       <div className="log-output" aria-live="polite" aria-label="执行日志">
         {events.length ? (
           events.map((event) => (
             <div key={event.id} className="log-row">
               <time>{timeLabel(event.created_at)}</time>
-              <span>{readable(event)}</span>
+              <span>
+                {event.payload.level === "DEBUG" ? "[详细] " : ""}
+                {readable(event)}
+              </span>
             </div>
           ))
         ) : (

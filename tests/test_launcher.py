@@ -34,9 +34,9 @@ class LauncherTests(unittest.TestCase):
         self.write_config()
         self.addCleanup(self.cleanup)
 
-    def write_config(self, extra=""):
+    def write_config(self, extra="", *, log_mode="concise"):
         self.file.write_text('[workbench]\nport=' + str(self.port) + '\nuse_sqlite=true\nmodel="opencode/glm-5.3-flash-free"\ndata_dir="data"\nweb_dir=' + json.dumps(str(self.web)) +
-            '\n[launcher]\nlogs_dir="logs"\nopen_browser=false\nrequire_docker=false\nstop_managed_environments=false\nstartup_timeout_seconds=60\nstop_timeout_seconds=60\n' + extra, encoding="utf-8")
+            '\nlog_mode=' + json.dumps(log_mode) + '\n[launcher]\nlogs_dir="logs"\nopen_browser=false\nrequire_docker=false\nstop_managed_environments=false\nstartup_timeout_seconds=60\nstop_timeout_seconds=60\n' + extra, encoding="utf-8")
 
     def command(self, action, *, bootstrap=False, expect=0):
         argv = [sys.executable, str(ROOT / "scripts/control.py")] if bootstrap else [sys.executable, "-m", "agent_workbench.launcher"]
@@ -94,6 +94,44 @@ class LauncherTests(unittest.TestCase):
         observed = json.loads(self.command("status", bootstrap=True).stdout)
         self.assertEqual(observed["instance"], first["instance"])
         self.assertEqual(json.loads(self.command("stop", bootstrap=True).stdout)["phase"], "STOPPED")
+
+    def test_real_services_apply_both_log_modes_and_keep_machine_readable_stdout(self):
+        from agent_workbench.workspace import git
+        source=self.root/'logging-source';source.mkdir();(source/'main.txt').write_text('fixture\n')
+        for argv in [('init','-b','main'),('config','user.name','Fixture'),('config','user.email','fixture@example.invalid'),
+                ('add','--all'),('-c','commit.gpgsign=false','commit','-m','fixture')]:git(source,*argv)
+        for mode in ('concise','detailed'):
+            with self.subTest(mode=mode):
+                self.write_config('[environment]\nAGENT_LAUNCHER_TEST_TOKEN="fixture-launcher-private-value"\n',log_mode=mode)
+                running=json.loads(self.command('start').stdout)
+                self.assertEqual(running['log_mode'],mode)
+                token=(self.root/'data/access-token').read_text().strip()
+                runner_token=(self.root/'data/runner-token').read_text().strip()
+                with httpx.Client(base_url=running['api_url'],trust_env=False,headers={'Authorization':'Bearer '+token},timeout=15) as client:
+                    self.assertEqual(client.get('/api/v1/config').json()['log_mode'],mode)
+                    project=client.post('/api/v1/projects',json={'name':'logging '+mode,'source_path':str(source)});project.raise_for_status()
+                    req=client.post('/api/v1/requirements',json={'project_id':project.json()['id'],'title':'logging fixture','description':'PRIVATE-REQUIREMENT-BODY'});req.raise_for_status()
+                    submitted=client.post(f"/api/v1/requirements/{req.json()['id']}/actions",json={'action':'prepare'});submitted.raise_for_status()
+                    job_id=submitted.json()['id'];deadline=time.monotonic()+30
+                    while time.monotonic()<deadline:
+                        job=client.get('/api/v1/jobs/'+job_id).json()
+                        if job['status'] not in ('QUEUED','RUNNING'):break
+                        time.sleep(.1)
+                    self.assertEqual(job['status'],'SUCCEEDED',job.get('error'))
+                    events=client.get(f'/api/v1/jobs/{job_id}/events?token=PRIVATE-QUERY-MARKER').json()
+                    self.assertEqual(any(item['payload'].get('level')=='DEBUG' for item in events),mode=='detailed')
+                stopped=json.loads(self.command('stop',bootstrap=True).stdout);self.assertEqual(stopped['phase'],'STOPPED')
+                logs_dir=Path(running['logs_dir'])
+                api_log=(logs_dir/'api.log').read_text(encoding='utf-8')
+                runner_log=(logs_dir/'runner.log').read_text(encoding='utf-8')
+                launcher_log=(self.root/'logs/launcher.log').read_text(encoding='utf-8')
+                self.assertIn('database.migrate',api_log);self.assertIn('runner.ready',runner_log)
+                self.assertIn(job_id,runner_log);self.assertIn('job.finished',runner_log)
+                self.assertIn('instance.running',launcher_log);self.assertIn('instance.stopped',launcher_log)
+                self.assertEqual('DEBUG' in api_log,mode=='detailed')
+                self.assertEqual('source.archive' in runner_log,mode=='detailed')
+                for secret in (token,runner_token,'fixture-launcher-private-value','PRIVATE-REQUIREMENT-BODY','PRIVATE-QUERY-MARKER'):
+                    self.assertNotIn(secret,api_log+runner_log+launcher_log)
 
     def test_pid_reuse_does_not_signal_or_terminate_an_unrelated_process(self):
         foreign = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], env=self.environment)

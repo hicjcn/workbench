@@ -25,6 +25,7 @@ from .configuration import Configuration, ConfigurationError, config_path, launc
 from .platform_support import IS_WINDOWS, docker_environment, is_link, retry_file_access
 from .settings import Settings, storage_summary
 from .workspace import WorkbenchError, write_json
+from . import logging_support as logs
 
 TERMINAL = {"STOPPED", "FAILED", "NEEDS_ATTENTION"}
 
@@ -76,7 +77,7 @@ def descendant(pid, parent):
 
 def summary(state):
     if not state: return {"phase": "STOPPED", "managed": False}
-    return {key: state[key] for key in ("phase", "instance", "pid", "api_url", "data_dir", "logs_dir", "roles", "error", "warning", "containers_stopped", "stop_timeout_seconds", "stopping_role") if key in state}
+    return {key: state[key] for key in ("phase", "instance", "pid", "api_url", "data_dir", "logs_dir", "log_mode", "roles", "error", "warning", "containers_stopped", "stop_timeout_seconds", "stopping_role") if key in state}
 
 
 def rpc(state, method="GET", path="/status"):
@@ -134,6 +135,7 @@ def status(directory):
 
 
 def start(configuration, directory, no_browser=False):
+    logs.event("launcher", "instance.start", "正在检查本机实例并启动服务", mode=configuration.log_mode)
     state = read_state(directory)
     if state and owned_process(state, state["instance"]):
         result = rpc(state)
@@ -147,6 +149,7 @@ def start(configuration, directory, no_browser=False):
     with (configuration.logs_dir / "launcher.log").open("ab") as log:
         child = subprocess.Popen([sys.executable, "-m", "agent_workbench.launcher", "_supervise", "--config", str(configuration.file) if configuration.file else "-", "--instance", instance],
             cwd=Path(__file__).resolve().parents[2], stdout=log, stderr=log, creationflags=flags, start_new_session=not IS_WINDOWS)
+    logs.event("launcher", "instance.wait_ready", "启动器已提交，正在等待 API 和 Runner 就绪", pid=child.pid)
     deadline = time.monotonic() + configuration.startup_timeout_seconds
     while time.monotonic() < deadline:
         state = read_state(directory)
@@ -168,6 +171,7 @@ def start(configuration, directory, no_browser=False):
 
 
 def stop(configuration_file, directory):
+    logs.event("launcher", "instance.stop", "正在请求停止并核实本机实例")
     state = read_state(directory)
     if not state: return summary(state)
     if state["phase"] == "STOPPED":
@@ -205,18 +209,28 @@ def stop(configuration_file, directory):
 def supervise(configuration, directory, instance):
     configuration.apply()
     settings = Settings.load(config_file=configuration.file)
+    logs.configure(configuration.log_mode, secrets=(settings.access_token, settings.runner_token))
+    logs.event("launcher", "instance.supervise", "启动进程管理器", instance=instance, mode=configuration.log_mode, pid=os.getpid())
     environment = os.environ.copy()
     environment.update(AWB_CONFIG_FILE="-", AWB_LAUNCHER_INSTANCE=instance, PYTHONUTF8="1")
     quit_requested = threading.Event()
     state = {**process_info(os.getpid()), "phase": "STARTING", "instance": instance, "control_token": secrets.token_urlsafe(32), "roles": {},
         "python_executable": sys.executable,
+        "log_mode": configuration.log_mode,
         "api_url": configuration.api_url, "data_dir": str(settings.data_dir), "logs_dir": str(configuration.logs_dir / instance),
         "stop_timeout_seconds": configuration.stop_timeout_seconds, "stop_managed_environments": configuration.stop_managed_environments,
         "storage": storage_summary(settings.database_url)["backend"], "database_fingerprint": hashlib.sha256(settings.database_url.encode()).hexdigest(), "error": None}
-    children, logs = {}, []
+    children, log_handles = {}, []
     logs_dir = configuration.logs_dir / instance
     logs_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    def save(): write_json(directory / "instance.json", state)
+    last_phase = None
+    def save():
+        nonlocal last_phase
+        write_json(directory / "instance.json", state)
+        phase = (state["phase"], state.get("stopping_role"))
+        if phase != last_phase:
+            logs.event("launcher", "instance." + state["phase"].lower(), "实例状态已更新", status=state["phase"], role=state.get("stopping_role"), instance=instance)
+            last_phase = phase
     class Control(BaseHTTPRequestHandler):
         def log_message(self, *_): pass
         def respond(self):
@@ -239,19 +253,24 @@ def supervise(configuration, directory, instance):
         serving = threading.Thread(target=control.serve_forever, daemon=True); serving.start()
         try:
             from .resources import controller_lock
-            with controller_lock(settings.data_dir, exclusive=True): pass
+            with logs.operation("launcher", "startup.data_lock", "检查数据目录是否被其他实例使用"):
+                with controller_lock(settings.data_dir, exclusive=True): pass
             if not (configuration.web_dir / "index.html").is_file() or not (configuration.web_dir / "assets").is_dir(): raise WorkbenchError("前端尚未完整构建，请先运行 setup")
             if configuration.require_docker:
                 from .runtime import docker
-                if docker("info", "--format", "{{.OSType}}").stdout.strip() != "linux": raise WorkbenchError("请启动 Docker Desktop 的 Linux engine")
+                with logs.operation("launcher", "startup.docker", "检查本机 Docker Linux engine", detailed=False):
+                    if docker("info", "--format", "{{.OSType}}").stdout.strip() != "linux": raise WorkbenchError("请启动 Docker Desktop 的 Linux engine")
             def launch(role):
-                handle = (logs_dir / (role + ".log")).open("ab"); logs.append(handle)
+                logs.event("launcher", "service.start", "正在启动服务进程", role=role)
+                handle = (logs_dir / (role + ".log")).open("ab"); log_handles.append(handle)
                 process = subprocess.Popen([sys.executable, "-m", "agent_workbench.launcher", "_child", "--role", role, "--instance", instance,
                     "--stop-file", str(marker(directory, instance, role))], env=environment, cwd=Path(__file__).resolve().parents[2], stdout=handle, stderr=handle)
                 children[role] = process
                 state["roles"][role] = process_info(process.pid); save()
+                logs.event("launcher", "service.wait_ready", "服务进程已提交，等待就绪确认", role=role, pid=process.pid)
             launch("api")
             deadline = time.monotonic() + configuration.startup_timeout_seconds
+            reported_at = time.monotonic()
             with httpx.Client(base_url=configuration.api_url, headers={"Authorization": "Bearer " + settings.runner_token}, trust_env=False, timeout=2) as client:
                 ready = None
                 while not quit_requested.is_set():
@@ -270,12 +289,16 @@ def supervise(configuration, directory, instance):
                         if runner:
                             state["roles"]["runner"] = process_info(runner["pid"]); break
                     if time.monotonic() > deadline: raise WorkbenchError("API 或 Runner 未在限定时间内就绪；请查看本机日志")
+                    if time.monotonic() - reported_at >= 5:
+                        logs.event("launcher", "service.wait_ready", "仍在等待服务就绪确认", detailed=True, role="runner" if "runner" in children else "api")
+                        reported_at = time.monotonic()
                     ready = None; time.sleep(0.15)
             if not quit_requested.is_set(): state["phase"] = "RUNNING"; save()
             while not quit_requested.wait(0.3):
                 if any(child.poll() is not None for child in children.values()):
                     raise WorkbenchError("服务进程意外退出，已停止本实例其余服务，请核实执行记录")
         except Exception as error:
+            logs.event("launcher", "instance.failed", "启动或运行失败，正在停止本实例服务", level=40, error_type=type(error).__name__)
             state["error"] = str(error) if isinstance(error, WorkbenchError) else "启动或运行失败，请检查本机日志和配置；未输出凭据"
         finally:
             state["phase"] = "STOPPING"; save()
@@ -283,13 +306,19 @@ def supervise(configuration, directory, instance):
             # current operation and recorded its result. Image commands drain.
             for role in ("runner", "api"):
                 if role in children:
+                    logs.event("launcher", "service.stop", "正在请求服务退出并等待当前操作结束", role=role)
                     state["stopping_role"] = role; save()
                     write_json(marker(directory, instance, role), {"stop": True})
+                    reported_at = time.monotonic()
                     while children[role].poll() is None:
+                        if time.monotonic() - reported_at >= 15:
+                            logs.event("launcher", "service.wait_stopped", "仍在等待服务处理当前操作并退出", detailed=True, role=role)
+                            reported_at = time.monotonic()
                         time.sleep(0.2)
             try:
                 if configuration.stop_managed_environments and "runner" in children:
-                    offline_stop(settings)
+                    with logs.operation("launcher", "runtime.cleanup", "停止并核实受管容器", detailed=False):
+                        offline_stop(settings)
                     state["containers_stopped"] = True
                 else: state["containers_stopped"] = False
                 state["phase"] = "FAILED" if state["error"] else "STOPPED"
@@ -298,7 +327,7 @@ def supervise(configuration, directory, instance):
             state.pop("stopping_role", None)
             save()
             control.shutdown(); control.server_close(); serving.join(timeout=2)
-            for handle in logs: handle.close()
+            for handle in log_handles: handle.close()
 
 
 def child(role, stop_file):
@@ -336,7 +365,9 @@ def _build_image(configuration, rebuild):
         return {"image": configuration.tool_image, "already_exists": True}
     args = ["build", "--tag", configuration.tool_image]
     if configuration.proxy_ca: args += ["--secret", "id=proxy_ca,src=" + str(configuration.proxy_ca)]
-    try: docker(*args, str(configuration.tool_context), timeout=configuration.image_build_timeout_seconds)
+    try:
+        with logs.operation("launcher", "image.build", "构建基础工具镜像", detailed=False):
+            docker(*args, str(configuration.tool_context), timeout=configuration.image_build_timeout_seconds)
     except Exception: raise WorkbenchError("工具镜像构建失败，请检查 Dockerfile、代理及网络；构建输出未写入启动器日志") from None
     return {"image": configuration.tool_image, "built": True}
 
@@ -355,7 +386,14 @@ def main():
         if args.action == "_child": child(args.role, args.stop_file); return 0
         path = config_path(args.config)
         directory = control_dir(path); directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if args.action == "_supervise": supervise(Configuration.load(args.config), directory, args.instance); return 0
+        if args.action in ("stop", "status"):
+            state = read_state(directory)
+            mode = (state or {}).get("log_mode", "concise")
+        else: mode = Configuration.load(args.config).log_mode
+        logs.configure(mode)
+        if args.action == "_supervise":
+            with logs.context(instance=args.instance): supervise(Configuration.load(args.config), directory, args.instance)
+            return 0
         if args.action == "status": result = status(directory)
         else:
             with (directory / "operation.lock").open("a+b") as operation:

@@ -20,6 +20,7 @@ class Settings:
     default_image: str = "agent-workbench-m1:local"
     port_range_start: int = 20000
     port_range_end: int = 29999
+    log_mode: str = "concise"
 
     @classmethod
     def load(cls, data_dir: Path | None = None, *, sqlite: bool = False, config_file=None):
@@ -43,7 +44,7 @@ class Settings:
         local_database = f"sqlite:///{root / 'workbench.db'}"
         database_url = local_database if sqlite or configuration.use_sqlite else configuration.database_url or local_database
         return cls(root, database_url,
-                   *values, model=configuration.model, lease_seconds=configuration.lease_seconds, web_dir=configuration.web_dir,
+                   *values, log_mode=configuration.log_mode, model=configuration.model, lease_seconds=configuration.lease_seconds, web_dir=configuration.web_dir,
                    max_active_jobs=configuration.max_active_jobs, max_containers=configuration.max_containers, default_image=configuration.tool_image,
                    port_range_start=configuration.port_range_start, port_range_end=configuration.port_range_end)
 

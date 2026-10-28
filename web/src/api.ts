@@ -137,7 +137,7 @@ export type Detail = Omit<Requirement, "workspace"> & {
 export type ExecutionEvent = {
   id: number;
   kind: string;
-  payload: { text?: string };
+  payload: { text?: string; step?: string; level?: "INFO" | "DEBUG" };
   created_at: number;
 };
 export const active = (job: Job) =>

@@ -5,11 +5,13 @@ from .material_schemas import DOCUMENT_SCHEMAS, parse_document
 from .material_export import build
 from .workflow_execution import readonly_agent
 from .workspace import WorkbenchError
+from .logging_support import progress
 
 
 def execute(executor, job, workspace, emit, canceled):
     payload = job["input"]
     step = payload["step_key"]
+    progress(emit, "materials." + step, "正在处理材料生成、登记或导出步骤")
     observed = executor.observe(workspace)
     if step == "export":
         return {**observed, "material_output": build(executor.settings.data_dir, job, observed)}
