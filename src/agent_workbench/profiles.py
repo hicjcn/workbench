@@ -93,6 +93,7 @@ class RepositoryCommand(Input):
 
 class Content(Input):
     agent_cli_id: str | None = Field(default=None, max_length=40)
+    run_as_root: bool = False
     image: str = Field(default="agent-workbench-m1:local", max_length=240, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$")
     cpus: float = Field(default=1, ge=0.25, le=16, allow_inf_nan=False)
     memory_mib: int = Field(default=1536, ge=256, le=32768)
@@ -323,6 +324,6 @@ def runtime_options(workspace, data_dir):
     if digest(profile["content"]) != profile["content_digest"]: raise WorkbenchError("运行配置摘要不符")
     Content.model_validate(profile["content"])
     return {**agent_options, "image": profile["image_id"], "limits": {key: profile["content"][key] for key in ("cpus", "memory_mib", "pids_limit")},
-        "config_mounts": staged_mounts(workspace, profile, data_dir),
+        "config_mounts": staged_mounts(workspace, profile, data_dir), "run_as_root": profile["content"].get("run_as_root", False),
         "volume_mounts": [{**mount, "source": str(checked_volume_source(mount["source"], data_dir))} for mount in profile["content"].get("volume_mounts", [])],
         "profile_environment": profile["content"].get("environment", {}), "port_mappings": profile["content"].get("port_mappings", [])}

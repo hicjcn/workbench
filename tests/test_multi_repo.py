@@ -248,7 +248,7 @@ class MultiRepositoryTests(ControlFixture):
 
     def test_per_repository_execution_uses_cwd_and_retains_failure_records(self):
         req, workspace = self.prepared_multi()
-        write_json(workspace / 'runtime.json', {'container': 'fixture'})
+        write_json(workspace / 'runtime.json', {'container': 'fixture', 'run_as_root': True})
         self.addCleanup(lambda: (workspace / 'runtime.json').unlink(missing_ok=True))
         plans = [{'path': path, 'argv': ['fixture-test']} for path in self.names]
         calls = []
@@ -261,6 +261,8 @@ class MultiRepositoryTests(ControlFixture):
         records = failed.exception.command_output['repositories']
         self.assertEqual([item['exit_code'] for item in records], [0, 1])
         self.assertEqual([item[2] for item in calls], ['/workspace/project/' + path for path in self.names])
+        from agent_workbench.container_shell import shell_argv
+        self.assertTrue(all(list(item[4:]) == shell_argv(['fixture-test'], root=True) for item in calls))
         self.action(req, 'refresh')
         job = self.store.claim('verification-results')
         self.store.finish(job['id'], 'verification-results', job['epoch'], 'FAILED', {'command_output': failed.exception.command_output}, 'controlled failure')

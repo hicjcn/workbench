@@ -8,6 +8,7 @@ from . import locking
 from . import dependencies, runtime
 from .platform_support import bind_mount, container_ids, container_user, mount_matches
 from .profiles import Content, command, digest, runtime_options
+from .container_shell import shell_argv
 from .workspace import WorkbenchError, load_workspace, safe_path, snapshot, write_json
 
 JOURNAL = "application-runtime.json"
@@ -70,6 +71,8 @@ def checked_container(root, workspace):
         not mount_matches(source.get("Source"), workspace / "repo") or source.get("Type") != "bind" or source.get("RW") is not False or
         detail.get("Image") != profile["image_id"] or not bindings_match(detail.get("HostConfig", {}).get("PortBindings"), journal.get("port_mappings", []))):
         raise WorkbenchError("应用容器归属、镜像或挂载不符，拒绝接管或清理")
+    if profile["content"].get("run_as_root", False) and detail.get("Config", {}).get("User") != f"0:{container_ids()[1]}":
+        raise WorkbenchError("应用容器运行用户与固定的 root 模式不符，拒绝接管或清理")
     for expected in profile["content"].get("volume_mounts", []):
         actual = next((item for item in detail.get("Mounts", []) if item.get("Destination") == expected["target"]), {})
         if (actual.get("Type") != "bind" or not mount_matches(actual.get("Source"), expected["source"]) or
@@ -141,18 +144,21 @@ def start(executor, workspace, emit, canceled):
             environment.update(PGHOST="awb-postgres", PGPORT="5432", PGUSER="app", PGDATABASE="app", PGPASSWORD=private["password"])
         if canceled.is_set(): raise Canceled("应用启动已取消")
         baseline = code_digest(executor, workspace)
+        run_as_root = options.get("run_as_root", False)
         journal = {"schema": "workbench-application/v1", "phase": "STARTING", "container": name(workspace),
-            "code_digest": baseline, "checked_at": time.time(), "port_mappings": port_mappings}
+            "code_digest": baseline, "checked_at": time.time(), "port_mappings": port_mappings, "run_as_root": run_as_root}
         write_json(workspace / JOURNAL, journal)
         limits = options["limits"]
         uid, gid = container_ids()
+        if run_as_root: uid = 0
         args = ["run", "--detach", "--init", "--name", name(workspace), "--network", network,
-            "--user", container_user(), "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--read-only",
+            "--user", f"0:{gid}" if run_as_root else container_user(), "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--read-only",
             "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m", "--tmpfs", f"/home/node:rw,nosuid,nodev,size=64m,uid={uid},gid={gid}",
             "--cpus", str(limits["cpus"]), "--memory", str(limits["memory_mib"]) + "m", "--pids-limit", str(limits["pids_limit"]),
             "--log-driver", "local", "--log-opt", "max-size=1m", "--log-opt", "max-file=1", "--log-opt", "compress=false",
             "--workdir", "/workspace/project", "--mount", bind_mount(workspace / "repo", "/workspace/project", readonly=True),
             "--env", "HOME=/home/node", "--env", "PORT=" + str(configuration["port"])]
+        if run_as_root: args += ["--cap-add", "DAC_OVERRIDE"]
         for key, value in labels(root, workspace).items(): args += ["--label", key + "=" + value]
         for mount in options["config_mounts"]:
             args += ["--mount", bind_mount(mount["source"], mount["target"], readonly=True)]
@@ -161,8 +167,8 @@ def start(executor, workspace, emit, canceled):
         args += publish_args(port_mappings)
         for key in environment: args += ["--env", key]
         argv = command(configuration["start_command"])
-        # Override image entrypoint, with argv passed directly rather than through a shell.
-        args += ["--entrypoint", argv[0], options["image"], *argv[1:]]
+        # Only the fixed initialization script is shell syntax; application argv stays separate.
+        args += ["--entrypoint", "/bin/bash", options["image"], *shell_argv(argv, root=run_as_root)[1:]]
         try: runtime.docker(*args, environment=environment)
         except Exception:
             journal.update(phase="UNKNOWN"); write_json(workspace / JOURNAL, journal)
@@ -198,7 +204,8 @@ def check(executor, workspace):
     if baseline != journal.get("code_digest"): report["phase"] = "STALE"
     elif not detail["State"]["Running"]: report.update(phase="EXITED", exit_code=detail["State"].get("ExitCode"))
     else:
-        try: result = runtime.docker("exec", name(workspace), "node", "-e", HTTP_PROBE, json.dumps(configuration), check=False, timeout=5)
+        try: result = runtime.docker("exec", name(workspace),
+            *shell_argv(["node", "-e", HTTP_PROBE, json.dumps(configuration)], root=journal.get("run_as_root", False)), check=False, timeout=5)
         except Exception:
             journal.update(phase="UNKNOWN", checked_at=time.time()); write_json(workspace / JOURNAL, journal)
             raise Unknown("HTTP 检查的 Docker 执行状态未核实，请停止并核实当前需求") from None

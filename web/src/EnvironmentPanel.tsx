@@ -43,6 +43,11 @@ export function EnvironmentPanel({
               : "（创建工作区时固定）"}
             。预检使用该配置中的命令，镜像可仅提供对应的兼容封装程序。
           </p>
+          <p className="hint">
+            {profile.content.run_as_root
+              ? "容器命令以 root 执行，执行前加载 /root/.bashrc。"
+              : "容器命令沿用普通用户，执行前加载其可读的 HOME/.bashrc。"}
+          </p>
           <div className="button-row">
             {Boolean(profile.content.dependencies?.length) && (
               <div className="dependency-status">

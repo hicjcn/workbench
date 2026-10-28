@@ -105,7 +105,7 @@ def main():
         workspace=Path(get(endpoint)['workspace']['path'])
         state=json.loads((workspace/'runtime.json').read_text())
         inspected=json.loads(runtime.docker('inspect',state['container']).stdout)[0]
-        assert inspected['Config']['Entrypoint']==['team-code'] and inspected['Config']['Cmd'][0]=='serve'
+        assert inspected['Config']['Entrypoint']==['/bin/bash'] and inspected['Config']['Cmd'][-6:]==['team-code','serve','--hostname','0.0.0.0','--port','4096']
         assert runtime.probe(workspace)['health']['healthy']
         wait(post(endpoint+'/actions',{'action':'stop'})['id'])
         check('development_runtime_honors_wrapper_command_over_image_entrypoint')

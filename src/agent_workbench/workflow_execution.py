@@ -128,7 +128,9 @@ def _verify_one(executor, job, workspace, emit, canceled, argv=None, repository=
     argv = argv if argv is not None else job["input"]["bundle"]["config"]["verification_argv"]
     logs.progress(emit, "verification.run", "正在容器中执行项目构建或验证" + ("：" + repository if repository else ""))
     directory = ['--workdir', '/workspace/project/' + repository] if repository else []
-    process = subprocess.Popen(docker_argv("exec", *directory, state["container"], *argv),
+    from .container_shell import shell_argv
+    process = subprocess.Popen(docker_argv("exec", *directory, state["container"],
+        *shell_argv(argv, root=state.get("run_as_root", False))),
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=docker_environment())
     output = queue.Queue()
     def read():

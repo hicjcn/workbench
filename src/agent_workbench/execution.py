@@ -303,7 +303,9 @@ class Executor:
         if job.get("agent_cli") and (selected["id"] != job["agent_cli"]["id"] or selected["content_digest"] != job["agent_cli"]["content_digest"]):
             raise WorkbenchError("任务与运行环境的 Agent CLI 固定版本不一致，请停止并核实")
         cli_content = checked(selected)
-        command = docker_argv("exec", "-i", state["container"], *agent_command(selected, "run", model=model))
+        from .container_shell import shell_argv
+        command = docker_argv("exec", "-i", state["container"],
+            *shell_argv(agent_command(selected, "run", model=model), root=state.get("run_as_root", False)))
         environment = docker_environment()
         progress(emit, "agent.submit", "正在提交一次 Agent 任务并收集输出", model=model)
         try:

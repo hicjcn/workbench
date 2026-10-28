@@ -29,13 +29,15 @@ class PreflightTests(ControlFixture):
         self.original = snapshot(self.workspace / 'repo')
         self.isolated = None
 
-    def run_preflight(self, *, version='team/1.0', probe_failure=False, exited=False, start_failure=False, inspection_failure=False):
+    def run_preflight(self, *, version='team/1.0', probe_failure=False, exited=False, start_failure=False, inspection_failure=False,
+                      root_mode=False, implicit_database_credentials=False):
         def start(isolated, image, *_args, **options):
             self.isolated = isolated
             manifest = json.loads((isolated / 'workspace.json').read_text())
             self.assertEqual(manifest['agent_cli']['id'], self.cli['id'])
             self.assertTrue(options['read_only_source'])
-            write_json(isolated / 'runtime.json', {'container':'fixture-container', 'phase':'STARTED'})
+            write_json(isolated / 'runtime.json', {'container':'fixture-container', 'phase':'STARTED',
+                'run_as_root':root_mode, 'serve_argv':['team-code','serve']})
             if start_failure: raise WorkbenchError('exec: "team-code": executable file not found in $PATH TEAM-PRIVATE-MARKER')
         def docker(*args, **_options):
             if args[0] == 'inspect':
@@ -46,10 +48,13 @@ class PreflightTests(ControlFixture):
                     'NetworkSettings':{'Networks':{}}, 'State':{'Status':'exited' if exited else 'running','ExitCode':2 if exited else 0}}]))
             if args[0] == 'logs':
                 return SimpleNamespace(stdout='wrapper startup fixture TEAM-PRIVATE-MARKER',stderr='')
-            self.assertEqual(args[:4], ('exec','fixture-container','node','-e'))
+            self.assertEqual(args[:3], ('exec','fixture-container','/bin/bash'))
+            self.assertEqual(args[-4:-2], ('node','-e'))
             config = json.loads(args[-1])
             self.assertEqual(config['version_argv'], ['team-code','version'])
-            return SimpleNamespace(stdout=json.dumps({'node':{'ok':True},'git':{'ok':True},'agent_cli':{'ok':True,'value':version},'commands':[],'mounts':[]}))
+            from agent_workbench.container_shell import shell_argv
+            self.assertEqual(list(args[2:]), shell_argv(['node','-e',preflight.CHECK_SCRIPT,args[-1]], root=root_mode))
+            return SimpleNamespace(stdout=json.dumps({'node':{'ok':True},'git':{'ok':True},'agent_cli':{'ok':True,'value':version},'commands':[],'mounts':[], 'no_database_credentials':not implicit_database_credentials}))
         def stop(isolated):
             (isolated / 'runtime.json').unlink()
         capabilities = {'health':{'healthy':True},'superpowers_configured':True,'skill_names':['using-superpowers'],'runtime':{'source_read_only':True}}
@@ -81,6 +86,15 @@ class PreflightTests(ControlFixture):
         detail = self.run_preflight(version='wrong/2.0')
         self.assertEqual(detail['jobs'][0]['status'],'FAILED')
         self.assertFalse(next(item for item in detail['preflight']['checks'] if item['name']=='agent_cli_version')['passed'])
+
+    def test_root_preflight_reloads_bash_environment_for_its_node_probe(self):
+        detail = self.run_preflight(root_mode=True)
+        self.assertEqual(detail['jobs'][0]['status'],'SUCCEEDED')
+
+    def test_credentials_exported_by_startup_file_block_readonly_preflight(self):
+        detail = self.run_preflight(root_mode=True, implicit_database_credentials=True)
+        self.assertEqual(detail['jobs'][0]['status'],'FAILED')
+        self.assertFalse(next(item for item in detail['preflight']['checks'] if item['name']=='no_database_access')['passed'])
 
     def test_recovered_startup_does_not_leave_failure_diagnostics_in_passed_report(self):
         detail = self.run_preflight(probe_failure='retry')

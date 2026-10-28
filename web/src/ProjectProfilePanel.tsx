@@ -22,6 +22,7 @@ export type RuntimeProfile = {
   created_at: number;
   content: {
     agent_cli_id?: string | null;
+    run_as_root?: boolean;
     image: string;
     cpus: number;
     memory_mib: number;
@@ -242,6 +243,7 @@ function ProfileForm({
         reason: data.get("reason"),
         content: {
           agent_cli_id: data.get("agent_cli") || null,
+          run_as_root: data.get("run_as_root") === "on",
           image: data.get("image"),
           cpus: Number(data.get("cpus")),
           memory_mib: Number(data.get("memory")),
@@ -316,6 +318,19 @@ function ProfileForm({
           <p className="hint">
             选择兼容封装 CLI
             时，镜像必须已经包含相应程序。新工作区使用该选择；已有需求显式同步后生效。
+          </p>
+          <label className="checkbox-label">
+            <input
+              name="run_as_root"
+              type="checkbox"
+              defaultChecked={defaults?.run_as_root ?? true}
+            />
+            以 root 执行容器命令，并先加载 /root/.bashrc
+          </label>
+          <p className="hint">
+            适用于 CLI 安装在 /root/.nvm 等目录的镜像。初始化后保留独立工作区
+            HOME 和会话；已有需求需保存并同步最新配置，再重新预检。
+            取消勾选时沿用普通用户，加载其可读的 HOME/.bashrc。
           </p>
           <div className="profile-resources">
             <label>

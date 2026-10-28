@@ -193,6 +193,27 @@ class WorkspaceTests(unittest.TestCase):
         run = next(call for call in calls.call_args_list if call.args[0] == "run")
         self.assertIn("readonly", next(value for value in run.args if "dst=/mnt/data" in value))
 
+    def test_root_runtime_initializes_bash_without_relaxing_readonly_mounts(self):
+        from agent_workbench.container_shell import shell_argv
+        from agent_workbench.platform_support import container_ids
+        workspace = self.create().parent
+        def docker(*args, **kwargs):
+            if args[:2] == ("network", "inspect"):
+                return subprocess.CompletedProcess([], 1, "", "missing")
+            return subprocess.CompletedProcess([], 0, "127.0.0.1:4096\n" if args[0] == "port" else "", "")
+        with patch.object(runtime, "docker", side_effect=docker) as calls:
+            runtime.start(workspace, "fixture-image", run_as_root=True, read_only_source=True,
+                opencode_model="opencode/glm-5.3-flash-free")
+        args = next(call.args for call in calls.call_args_list if call.args[0] == "run")
+        self.assertEqual(args[args.index("--user") + 1], f"0:{container_ids()[1]}")
+        self.assertEqual(args[args.index("--cap-drop") + 1], "ALL")
+        self.assertEqual(args[args.index("--cap-add") + 1], "DAC_OVERRIDE")
+        self.assertIn("--read-only", args)
+        self.assertIn("readonly", next(value for value in args if "dst=/workspace/project" in value))
+        self.assertEqual(list(args[args.index("fixture-image") + 1:]),
+            shell_argv(["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"], root=True)[1:])
+        self.assertTrue(json.loads((workspace / "runtime.json").read_text())["run_as_root"])
+
     def test_opencode_free_model_overwrites_persisted_config_without_forwarding_credentials(self):
         workspace = self.create().parent
         model = "opencode/glm-5.3-flash-free"

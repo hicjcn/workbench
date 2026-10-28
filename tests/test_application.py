@@ -61,7 +61,7 @@ class ApplicationTests(ControlFixture):
 
     def test_application_start_uses_profile_environment_mapped_ports_and_writable_mount(self):
         directory = self.root / "application-data"; directory.mkdir()
-        content = Content(application={"start_command": "node server.cjs"}, environment={"APP_TOKEN": "application-private"},
+        content = Content(application={"start_command": "node server.cjs"}, run_as_root=True, environment={"APP_TOKEN": "application-private"},
             volume_mounts=[{"source": str(directory), "target": "/mnt/data", "read_only": False}],
             port_mappings=[{"container_port": 3000, "service": "application"}, {"container_port": 8080, "host_port": 20000}]).model_dump()
         self.prepare_app(content=content)
@@ -78,8 +78,24 @@ class ApplicationTests(ControlFixture):
         self.assertIn("APP_TOKEN", run.args)
         self.assertNotIn("application-private", " ".join(run.args))
         self.assertEqual(run.kwargs["environment"]["APP_TOKEN"], "application-private")
+        self.assertEqual(run.args[run.args.index("--user") + 1], f"0:{application.container_ids()[1]}")
+        self.assertEqual(run.args[run.args.index("--cap-add") + 1], "DAC_OVERRIDE")
+        self.assertEqual(run.args[run.args.index("--entrypoint") + 1], "/bin/bash")
         self.assertNotIn("readonly", next(value for value in run.args if "dst=/mnt/data" in value))
         self.assertEqual(application.status(self.workspace)["port_mappings"][0]["host_port"], 20001)
+        self.assertTrue(application.read(self.workspace, application.JOURNAL)["run_as_root"])
+
+    def test_root_application_probe_reloads_its_startup_environment(self):
+        from agent_workbench.container_shell import shell_argv
+        self.prepare_app(content=Content(application={"start_command": "node server.cjs"}, run_as_root=True).model_dump())
+        write_json(self.workspace / application.JOURNAL, {"phase": "READY", "code_digest": self.baseline, "run_as_root": True})
+        with patch("agent_workbench.application.checked_container", return_value={"State": {"Running": True}}), \
+            patch("agent_workbench.runtime.docker", return_value=SimpleNamespace(returncode=0, stdout='{"status":200}')) as docker:
+            report = application.check(self.runner.executor, self.workspace)
+        self.assertTrue(report["passed"])
+        self.assertEqual(docker.call_args.args[:2], ("exec", application.name(self.workspace)))
+        self.assertEqual(list(docker.call_args.args[2:]), shell_argv(["node", "-e", application.HTTP_PROBE,
+            json.dumps(application.spec(self.workspace))], root=True))
 
     def test_application_container_accepts_only_recorded_loopback_port_bindings(self):
         self.prepare_app()

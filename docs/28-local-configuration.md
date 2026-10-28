@@ -109,6 +109,7 @@ $env:AWB_MODEL = "opencode/big-pickle"
 
 | 运行配置字段 | 行为 |
 | --- | --- |
+| `run_as_root` | `true` 时以 root 执行业务容器命令，并先加载 `/root/.bashrc`；配置界面新建或未设置时默认勾选。旧版本缺少该字段时按 `false` 保持普通用户行为，加载其可读 `HOME/.bashrc`。更改后保存新版本，停止并同步已有需求，再重新预检 |
 | `environment` | 变量名到字符串值的字典，传入开发和应用容器。与本机 TOML 的 `[environment]` 分开保存；不接受 `PATH`、`HOME`、`PORT` 等工作台保留变量 |
 | `port_mappings` | 每项包含 `container_port`、`host_port`、`protocol`（`tcp` / `udp`）和 `service`（`agent` / `application`）。`host_port` 留空或为 `null` 时自动分配，指定时必须在上述端口范围内；启动时检查端口占用，只发布到 `127.0.0.1` |
 | `volume_mounts` | 每项包含本机绝对路径 `source`、容器绝对路径 `target` 和 `read_only`，支持现存文件或目录。默认只读；设为 `false` 后，容器修改会写回宿主机 |
