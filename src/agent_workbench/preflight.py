@@ -59,6 +59,13 @@ def startup_diagnostics(executor, workspace, *, logs=False):
     if logs:
         output = runtime.docker("logs", "--tail", "40", state["container"], check=False, timeout=10)
         diagnostic["log_tail"] = (output.stdout + "\n" + output.stderr)[-8000:]
+    service = runtime.service_status(state, details=details, logs=logs)
+    if service:
+        diagnostic["container_exit_code"] = diagnostic["exit_code"]
+        if logs: diagnostic["container_log_tail"] = diagnostic.get("log_tail", "")
+        diagnostic.update(service)
+        if service.get("agent_exit_code") is not None:
+            diagnostic["exit_code"] = service["agent_exit_code"]
     return executor.redact_payload(diagnostic, workspace)
 
 
@@ -117,7 +124,8 @@ def execute(executor, job, workspace, emit, canceled):
                 diagnostic = startup_diagnostics(executor, isolated)
                 report["diagnostics"] = {**diagnostic, "control_error": control_error}
                 inspected_at = now + 2
-                if diagnostic.get("container_status") in ("exited", "dead"):
+                if (diagnostic.get("container_status") in ("exited", "dead") or
+                    diagnostic.get("agent_status") in ("exited", "unavailable")):
                     report["diagnostics"].update(startup_diagnostics(executor, isolated, logs=True))
                     raise WorkbenchError(f"预检 Agent CLI「{cli_name}」服务已退出（退出码 {diagnostic.get('exit_code')}）；实际命令：{shlex.join(serve_argv)}。请查看预检启动诊断，核对镜像中的封装 CLI 和兼容控制接口")
             if now >= deadline:

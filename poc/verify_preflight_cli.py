@@ -1,4 +1,4 @@
-"""Real Docker/API/browser preflight with a controlled wrapper-only PATH and ENTRYPOINT.
+"""Real Docker/API/browser preflight alongside a retained non-Agent ENTRYPOINT.
 
 No model calls. The HTTP service is a protocol fixture, not the user's wrapper.
 """
@@ -43,10 +43,12 @@ def main():
     shutil.copyfile(repo/'poc/preflight-wrapper-fixture.cjs',binary/'team-code')
     hidden = context/'rootfs/opt/awb-hidden-cli'; hidden.mkdir(parents=True)
     shutil.copyfile(repo/'poc/preflight-wrapper-fixture.cjs',hidden/'team-code')
+    (context/'rootfs/opt/code-server-fixture.cjs').write_text(
+        "console.log('CONTROLLED_DEFAULT_SERVICE_STARTED');\nsetInterval(() => {}, 1000);\n")
     for name, target in [('node','/usr/local/bin/node'),('git','/usr/bin/git'),('sh','/bin/sh')]:
         (binary/name).write_text('#!/bin/sh\nexec '+target+' "$@"\n')
     (context/'Dockerfile').write_text('FROM agent-workbench-m1:local\nCOPY --chmod=755 rootfs/ /\n'
-        'ENV PATH=/opt/awb-preflight-bin\nENTRYPOINT ["team-code"]\nCMD ["serve","--hostname","0.0.0.0","--port","4096"]\n')
+        'ENV PATH=/opt/awb-preflight-bin\nENTRYPOINT ["/usr/local/bin/node"]\nCMD ["/opt/code-server-fixture.cjs"]\n')
     base = f'http://127.0.0.1:{port}'
     environment = {key:value for key,value in os.environ.items() if not key.startswith('AWB_')}
     environment.update(PYTHONUTF8='1',PYTHONPATH=str(repo/'src'))
@@ -78,7 +80,7 @@ def main():
         runtime.docker('build','--tag',image,str(context),timeout=180)
         missing=runtime.docker('run','--rm','--network','none','--entrypoint','/bin/sh',image,'-c','command -v opencode',check=False)
         assert missing.returncode!=0
-        check('image_has_wrapper_only_path_and_custom_entrypoint_without_opencode_command')
+        check('image_has_wrapper_only_path_and_nonagent_default_service_without_opencode_command')
         launch('agent_workbench.server')
         for _ in range(100):
             try:
@@ -105,10 +107,16 @@ def main():
         workspace=Path(get(endpoint)['workspace']['path'])
         state=json.loads((workspace/'runtime.json').read_text())
         inspected=json.loads(runtime.docker('inspect',state['container']).stdout)[0]
-        assert inspected['Config']['Entrypoint']==['/bin/bash'] and inspected['Config']['Cmd'][-6:]==['team-code','serve','--hostname','0.0.0.0','--port','4096']
+        assert inspected['Config']['Entrypoint']==['/usr/local/bin/node']
+        assert inspected['Config']['Cmd']==['/opt/code-server-fixture.cjs']
+        assert inspected['State']['Running'] is True
+        assert state['serve_argv']==['team-code','serve','--hostname','0.0.0.0','--port','4096']
+        assert runtime.service_status(state, details=inspected)['agent_status']=='running'
+        default_logs=runtime.docker('logs',state['container']).stdout
+        assert 'CONTROLLED_DEFAULT_SERVICE_STARTED' in default_logs
         assert runtime.probe(workspace)['health']['healthy']
         wait(post(endpoint+'/actions',{'action':'stop'})['id'])
-        check('development_runtime_honors_wrapper_command_over_image_entrypoint')
+        check('development_runtime_retains_image_entrypoint_and_cmd_and_executes_pinned_wrapper_separately')
         broken=save_cli('启动失败的封装 CLI','fail-serve')
         failed_req=post('/requirements',dict(project_id=project['id'],title='封装 CLI 启动失败诊断'))
         failed_endpoint='/requirements/'+failed_req['id']
@@ -120,9 +128,11 @@ def main():
         assert elapsed<25,elapsed
         assert diagnostic['agent_cli']['id']==broken['id']
         assert 'team-code fail-serve' in failed['error']
+        assert diagnostic['diagnostics']['container_status']=='running'
+        assert diagnostic['diagnostics']['agent_status']=='exited'
         assert diagnostic['diagnostics']['exit_code']==7
         assert 'CONTROLLED_WRAPPER_STARTUP_FAILED' in diagnostic['diagnostics']['log_tail']
-        check('exited_wrapper_fails_promptly_with_cli_identity_command_exit_code_and_log_tail')
+        check('exited_exec_wrapper_fails_promptly_while_default_service_keeps_running_with_agent_exit_code_and_logs')
         missing=save_cli('找不到程序的封装 CLI',executable='missing-wrapper-fixture')
         missing_req=post('/requirements',dict(project_id=project['id'],title='封装 CLI 程序路径诊断'))
         missing_endpoint='/requirements/'+missing_req['id']
@@ -130,8 +140,8 @@ def main():
         missing_job=wait(post(missing_endpoint+'/actions',{'action':'preflight'})['id'],expected='FAILED')
         missing_report=get(missing_endpoint)['preflight']
         assert missing_report['agent_cli']['id']==missing['id']
-        # Bash initialization can exit before Docker publishes the control port;
-        # the underlying missing-program error is preserved in startup diagnostics.
+        # The independently launched CLI can exit while the default service stays
+        # running; retain its missing-program error and exit code in diagnostics.
         missing_text=missing_job['error']+'\n'+json.dumps(missing_report['diagnostics'])
         assert 'not found' in missing_text and 'missing-wrapper-fixture' in missing_text
         assert missing_report['diagnostics']['exit_code']==127

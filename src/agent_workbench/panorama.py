@@ -147,6 +147,7 @@ def execute(executor, job, emit, canceled):
             if canceled.is_set(): raise Canceled("全景分析已取消")
             try:
                 if runtime.probe(primary)["health"].get("healthy"): break
+            except runtime.AgentServiceStopped: raise
             except WorkbenchError: pass
             if time.monotonic() >= deadline: raise WorkbenchError("全景分析服务未就绪")
             time.sleep(.5)

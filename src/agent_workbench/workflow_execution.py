@@ -77,6 +77,8 @@ def readonly_agent(executor, job, workspace, emit, canceled, model, prompt, pars
             try:
                 if runtime.probe(isolated)["health"].get("healthy"):
                     break
+            except runtime.AgentServiceStopped:
+                raise
             except WorkbenchError:
                 pass
             if time.monotonic() > deadline:

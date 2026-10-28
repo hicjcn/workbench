@@ -26,5 +26,7 @@ LABEL org.agent-workbench.opencode-version="${OPENCODE_VERSION}" \
 USER node
 WORKDIR /workspace/project
 EXPOSE 4096
-CMD ["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"]
+# Workbench starts the pinned Agent CLI with docker exec after container startup.
+# Project images may replace this keepalive with code-server or another dev service.
+CMD ["sleep", "infinity"]
 

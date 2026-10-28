@@ -77,7 +77,9 @@ def main():
         assert detail["agent_cli"]["id"]==saved["id"] and detail["agent_cli"]["fixed"]
         assert detail["preflight"]["tools"]["agent_cli"]["value"]=="awb-opencode-fixture/1.0.0"
         state=json.loads((workspace/"runtime.json").read_text()); inspected=json.loads(runtime.docker("inspect",state["container"]).stdout)[0]
-        assert inspected["Config"]["Cmd"][0]=="awb-opencode"
+        assert inspected["Config"]["Cmd"]==["sleep","infinity"]
+        assert state["serve_argv"][0]=="awb-opencode"
+        assert runtime.service_status(state, details=inspected)["agent_status"]=="running"
         check("prepare_pin_and_preflight_really_use_wrapper_version_and_serve_command")
         assert runtime.probe(workspace)["health"]["healthy"]
         check("wrapper_exposes_real_opencode_authenticated_health_config_skills_and_session_api")

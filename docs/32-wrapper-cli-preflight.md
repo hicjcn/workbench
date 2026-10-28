@@ -16,11 +16,22 @@
 
 需求详情显示封装名称，说明已选择该配置。预检在独立只读副本继承同一版本；后续修改默认值或创建 CLI 配置新版，不会静默替换已准备需求的绑定。准备前在项目运行配置选择对应 CLI，或设为新工作区默认。已有需求可停止环境后同步最新配置，再重新预检。
 
-运行时使用 `/bin/bash` 包装器覆盖镜像默认入口，先加载初始化文件，再执行配置中的实际程序。原命令及参数独立传递，不把它们拼接成 Shell 字符串。预检报告仍显示真实的 CLI 服务、任务和版本命令；Docker inspect 中的入口则会显示 Bash。镜像自带的其他 ENTRYPOINT 初始化不会自动执行，必要时将入口脚本写进完整服务命令，例如：
+工作台保留镜像的原有 `ENTRYPOINT` 和 `CMD`，先按 Dockerfile 启动容器，再通过 `docker exec` 动态启动需求已固定的 Agent CLI。Dockerfile 可以只启动 code-server，所选 CLI 无需写进镜像启动命令，也不需要随着 CLI 配置变更重建镜像；程序仍须预先安装在镜像中。镜像的默认服务需要持续运行，且不要同时启动另一个占用 `4096/tcp` 的 Agent 服务。
+
+CLI 的 exec 命令使用 `/bin/bash` 包装器加载初始化文件。原命令及参数独立传递，不拼接为 Shell 字符串。预检报告显示实际 CLI 服务、任务和版本命令；Docker inspect 中的容器入口继续显示镜像自己的入口，例如 code-server。入口脚本仅导出的环境变量不会自动传给后续 exec；CLI 所需 PATH 应通过 Dockerfile 的 `ENV`、Bash 初始化文件或绝对路径配置。若 CLI 本身需要单独初始化，可使用镜像内的脚本作为服务命令，例如：
 
 ```text
 /usr/local/bin/agent-entry.sh team-code serve --hostname {host} --port {port}
 ```
+
+内置工具镜像 `poc/container/Dockerfile` 仅安装工具，默认使用 `sleep infinity` 保持容器运行，Agent 服务由工作台启动。旧版 `agent-workbench-m1:local` 的默认命令直接启动 OpenCode，升级后需重建一次基础镜像和基于它的项目镜像，再停止已有环境、同步最新配置并重新预检：
+
+```bash
+docker build -t agent-workbench-m1:local poc/container
+docker build -t agent-workbench-node:local poc/onboarding
+```
+
+已有只启动 code-server 的项目镜像可以继续使用原入口。容器仍使用运行配置中的用户、独立 HOME、只读根文件系统和固定挂载；镜像的默认服务也需要兼容这些设置。
 
 ### root 安装的 CLI 与 Bash 初始化
 
@@ -41,14 +52,15 @@ Git 仅信任当前导出的工作区和已选子仓库、全景上下文仓库�
 
 在需求详情展开“环境与手动工具”→“项目环境与预检”，查看本次检查的 CLI 名称、服务命令、版本命令与实际版本。旧报告的 `opencode_version` 继续兼容显示，新报告使用中性的 `agent_cli_service` 与 `agent_cli_version`。
 
-- 服务容器已退出：及时失败，显示所选 CLI、实际命令、退出码与启动日志，无需等满 90 秒。
+- Agent 服务已退出：及时失败，显示所选 CLI、实际命令、独立退出码与启动日志，无需等满 90 秒；code-server 等默认服务可以仍在运行。
+- 容器默认服务已退出：单独显示容器状态、退出码与容器启动日志。检查 Dockerfile 的原有入口是否能在当前用户、HOME 与挂载设置下持续运行。
 - 控制接口尚未就绪：最多等待 90 秒，之后显示实际 CLI 和启动诊断。检查封装的监听参数、必要配置和兼容接口。
 - 版本检查失败：检查配置中的版本程序和参数，确认镜像包含对应程序；封装无需叫 `opencode`。
 - 初始化失败：检查镜像是否有 `/bin/bash`；root 模式还需存在可读的 `/root/.bashrc`。CLI 安装在 `/root` 时确认已启用 root 模式，并将新配置同步到当前需求。
-- 程序未能启动：`executable file not found in $PATH` 或初始化后的“找不到命令”表示尚未进入 CLI 服务检查。预检会保存配置中的实际程序、PATH、HOME、容器用户与启动错误；Docker inspect 的入口可能是 Bash，不能据此认为实际 CLI 配置已更换。诊断读取失败时保留原始启动错误。
+- 程序未能启动：`executable file not found in $PATH` 或初始化后的“找不到命令”表示尚未进入 CLI 服务检查。预检会保存配置中的实际程序、PATH、HOME、容器用户与启动错误；Docker inspect 的入口是镜像默认服务，不能据此判断实际 CLI 配置。诊断读取失败时保留原始启动错误。
 - 启动后恢复正常：通过的报告不会继续显示启动初期的连接失败。
 
-启动日志按实际配置的凭据值脱敏，只读取本次预检记录的受管容器。预检结束会停止该容器；清理无法核实时仍按原规则显示 UNKNOWN，先停止并核实再继续。
+Agent 服务的状态、退出码和日志独立记录，不依赖 `docker logs` 判断 exec 进程是否仍在运行；容器日志用于诊断默认服务。启动日志按实际配置的凭据值脱敏，只读取本次预检记录的受管容器。预检结束会停止该容器；清理无法核实时仍按原规则显示 UNKNOWN，先停止并核实再继续。
 
 可先从本机进入镜像内的 root Bash，不需要发送密钥：
 
@@ -86,7 +98,15 @@ ENV PATH="/opt/team/bin:${PATH}"
 
 ## 验证边界
 
-`poc/verify_preflight_cli.py` 使用本地测试镜像，PATH 中不提供 `opencode`，只提供 `team-code`、Node、Git 和 Shell，并设置 CLI 默认 ENTRYPOINT。通过真实 API、Runner、Docker 和浏览器验证预检、正常启动、服务退出、启动前缺失程序的诊断，以及 PATH 外的绝对路径 CLI。
+不依赖浏览器的动态服务验证：
+
+```bash
+.venv/bin/python poc/verify_agent_service.py --root /tmp/awb-agent-service-new
+```
+
+该脚本用同一个镜像保留默认 HTTP 服务，分别按配置启动两个 Agent CLI，并验证独立退出码、缺失程序、停止清理和源码保留；不调用模型。默认 HTTP 服务是受控 fixture，不是真实 code-server，结果见[动态服务验收记录](evidence/agent-service-report.json)。
+
+`poc/verify_preflight_cli.py` 使用本地测试镜像，PATH 中不提供 `opencode`，只提供 `team-code`、Node、Git 和 Shell。镜像的默认入口运行一个常驻的非 Agent fixture，验证原有入口和命令保留、CLI 通过 exec 启动，以及默认服务仍在运行时 CLI 退出能及时报错。通过真实 API、Runner、Docker 和浏览器检查预检、正常启动、缺失程序诊断，以及 PATH 外的绝对路径 CLI。
 
 该服务是受控的兼容 HTTP fixture，不执行模型推理，不代表用户私有封装镜像已现场验证。结果见[预检验收记录](evidence/preflight-wrapper-report.json)。
 

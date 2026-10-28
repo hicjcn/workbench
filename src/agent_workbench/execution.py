@@ -228,6 +228,8 @@ class Executor:
                     if capabilities["health"].get("healthy"):
                         progress(emit, "runtime.ready", "兼容 OpenCode 的 Agent 服务已就绪，技能配置已收集")
                         return {**self.observe(workspace, "RUNNING"), "capabilities": capabilities}
+                except runtime.AgentServiceStopped:
+                    raise
                 except WorkbenchError:
                     time.sleep(0.5)
             raise WorkbenchError("环境未在 90 秒内就绪，请检查镜像和运行配置")

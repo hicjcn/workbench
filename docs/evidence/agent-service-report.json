@@ -1,0 +1,14 @@
+{
+  "status": "PASSED",
+  "real_docker": true,
+  "model_inference": false,
+  "actual_code_server_verified": false,
+  "checks": [
+    "built_single_image_with_editor_entrypoint_and_two_unstarted_agent_clis",
+    "team-code_starts_from_pinned_configuration_beside_preserved_editor",
+    "other-code_starts_from_pinned_configuration_beside_preserved_editor",
+    "agent_exit_7_is_reported_with_log_while_editor_remains_running",
+    "missing_configured_agent_fails_without_falling_back_to_editor_or_another_cli",
+    "stop_removes_container_and_preserves_original_source"
+  ]
+}

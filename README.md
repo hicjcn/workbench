@@ -245,6 +245,8 @@ docker build -t agent-workbench-node:local poc/onboarding
 3. 保存任务超时、可选的精确版本输出及所需凭据**变量名**，设为新工作区默认，或在「项目运行配置」选定具体版本。
 4. 创建新工作区，或停止已有环境后同步最新配置，再执行预检并验证实际任务。管理页面只保存配置，不会自动安装 CLI。
 
+启动环境时保留镜像自己的 `ENTRYPOINT` 和 `CMD`；Dockerfile 可以只启动 code-server。容器启动后，工作台通过 `docker exec` 启动需求固定的 CLI 服务，并独立记录服务状态、退出码与日志，再等待 OpenCode 兼容接口就绪。镜像默认服务需要持续运行，不要另行启动占用 `4096/tcp` 的 Agent 服务。旧版内置工具镜像默认启动 OpenCode，升级后需重建 `poc/container` 及其派生镜像，再停止、同步已有需求并重新预检；新的内置镜像默认只保持容器运行。
+
 运行镜像需要包含 `/bin/bash`。root 模式在每次业务命令前加载 `/root/.bashrc`，初始化期间使用 `HOME=/root`，执行命令时恢复该需求的独立 `HOME=/home/node`；镜像中的 `/root` 和 NVM 程序不会被 Agent HOME 挂载遮住。CLI 服务与任务、构建/验证、Node 预检和应用检查均使用同一初始化机制，初始化输出不混入业务输出；受控 PostgreSQL 命令保持独立。root 模式下 `/root/.bashrc` 缺失或不可读会明确报错。更改运行用户后需保存新配置版本，并停止、同步已有需求后生效。
 
 当前支持 OpenCode 兼容 HTTP API、认证、标准输入和 JSONL 事件格式。其他协议的 CLI 需要单独适配，详见 [Agent CLI 接入](docs/26-agent-cli.md)。如报 `executable file not found in $PATH`，请查看预检启动诊断中的容器 PATH，并核对程序的容器内路径；处理步骤见[封装 CLI 镜像预检](docs/32-wrapper-cli-preflight.md#镜像找不到-cli-时如何处理)。

@@ -30,14 +30,17 @@ class PreflightTests(ControlFixture):
         self.isolated = None
 
     def run_preflight(self, *, version='team/1.0', probe_failure=False, exited=False, start_failure=False, inspection_failure=False,
-                      root_mode=False, implicit_database_credentials=False):
+                      root_mode=False, implicit_database_credentials=False, agent_exited=False):
         def start(isolated, image, *_args, **options):
             self.isolated = isolated
             manifest = json.loads((isolated / 'workspace.json').read_text())
             self.assertEqual(manifest['agent_cli']['id'], self.cli['id'])
             self.assertTrue(options['read_only_source'])
-            write_json(isolated / 'runtime.json', {'container':'fixture-container', 'phase':'STARTED',
-                'run_as_root':root_mode, 'serve_argv':['team-code','serve']})
+            state = {'container':'fixture-container', 'phase':'STARTED',
+                'run_as_root':root_mode, 'serve_argv':['team-code','serve']}
+            if agent_exited:
+                state['agent_service'] = {'directory': '/tmp/awb-agent-0123456789abcdef'}
+            write_json(isolated / 'runtime.json', state)
             if start_failure: raise WorkbenchError('exec: "team-code": executable file not found in $PATH TEAM-PRIVATE-MARKER')
         def docker(*args, **_options):
             if args[0] == 'inspect':
@@ -49,6 +52,12 @@ class PreflightTests(ControlFixture):
             if args[0] == 'logs':
                 return SimpleNamespace(stdout='wrapper startup fixture TEAM-PRIVATE-MARKER',stderr='')
             self.assertEqual(args[:3], ('exec','fixture-container','/bin/bash'))
+            if agent_exited and args[-1] in ('status', 'logs'):
+                from agent_workbench.agent_service import status_argv
+                with_logs = args[-1] == 'logs'
+                self.assertEqual(list(args[2:]), status_argv('/tmp/awb-agent-0123456789abcdef', logs=with_logs))
+                return SimpleNamespace(returncode=0, stderr='', stdout='exited:7\n' + (
+                    'agent wrapper startup failed TEAM-PRIVATE-MARKER' if with_logs else ''))
             self.assertEqual(args[-4:-2], ('node','-e'))
             config = json.loads(args[-1])
             self.assertEqual(config['version_argv'], ['team-code','version'])
@@ -59,7 +68,7 @@ class PreflightTests(ControlFixture):
             (isolated / 'runtime.json').unlink()
         capabilities = {'health':{'healthy':True},'superpowers_configured':True,'skill_names':['using-superpowers'],'runtime':{'source_read_only':True}}
         self.action(self.req,'preflight')
-        fake_time = SimpleNamespace(time=lambda:123.0, monotonic=Mock(side_effect=[0,1] if probe_failure=='retry' else [0,100]), sleep=Mock())
+        fake_time = SimpleNamespace(time=lambda:123.0, monotonic=Mock(side_effect=[0,1] if probe_failure=='retry' or agent_exited else [0,100]), sleep=Mock())
         probe_effect = [WorkbenchError('control not ready'),capabilities] if probe_failure=='retry' else WorkbenchError('control not ready') if probe_failure else None
         with patch.dict('os.environ', {'TEAM_API_KEY':'TEAM-PRIVATE-MARKER'}), patch.object(self.runner.executor,'start_runtime',side_effect=start), \
              patch('agent_workbench.runtime.probe',side_effect=probe_effect, return_value=capabilities), \
@@ -109,6 +118,20 @@ class PreflightTests(ControlFixture):
         report = detail['preflight']
         self.assertEqual(report['diagnostics']['exit_code'],2)
         self.assertIn('[REDACTED]', report['diagnostics']['log_tail'])
+        self.assertNotIn('TEAM-PRIVATE-MARKER', json.dumps(report))
+
+    def test_exited_agent_is_diagnosed_while_code_server_container_keeps_running(self):
+        detail = self.run_preflight(probe_failure=True, agent_exited=True)
+        self.assertEqual(detail['jobs'][0]['status'], 'FAILED')
+        self.assertIn('服务已退出', detail['jobs'][0]['error'])
+        report = detail['preflight']; diagnostic = report['diagnostics']
+        self.assertEqual(diagnostic['container_status'], 'running')
+        self.assertEqual(diagnostic['container_exit_code'], 0)
+        self.assertEqual(diagnostic['agent_status'], 'exited')
+        self.assertEqual(diagnostic['agent_exit_code'], 7)
+        self.assertEqual(diagnostic['exit_code'], 7)
+        self.assertIn('agent wrapper startup failed [REDACTED]', diagnostic['log_tail'])
+        self.assertIn('wrapper startup fixture [REDACTED]', diagnostic['container_log_tail'])
         self.assertNotIn('TEAM-PRIVATE-MARKER', json.dumps(report))
 
     def test_unready_wrapper_records_configured_commands_and_timeout_diagnostics(self):
