@@ -61,7 +61,7 @@ class Executor:
             configured["port_mappings"] = allocate([item for item in mappings if item.get("service", "agent") == "agent"], self.settings, reserved=reserved) if use_dependencies else []
             if options.get("read_only_source"):
                 configured["profile_environment"] = {}
-            if options.get("openrouter_model") and not os.environ.get("OPENROUTER_API_KEY", "").strip():
+            if options.get("start_agent", True) and options.get("openrouter_model") and not os.environ.get("OPENROUTER_API_KEY", "").strip():
                 raise WorkbenchError("Configure the existing OPENROUTER_API_KEY secret before starting OpenRouter")
             if use_dependencies: configured.update(dependencies.ensure(self.settings.data_dir, workspace))
             return runtime.start(workspace, image, proxy_ca, controller=resources.controller_id(self.settings.data_dir), **configured, **options)
@@ -198,12 +198,16 @@ class Executor:
         if action == "sync_profile":
             from .profile_sync import execute as sync_profile
             return sync_profile(self, job, workspace, emit, canceled)
-        if action in ("start", "task", "workflow", "materials", "preflight"):
+        if action in ("start", "force_start", "task", "workflow", "materials", "preflight"):
             from .agent_clis import verify_workspace
             verify_workspace(workspace, job.get("agent_cli"))
         if action == "preflight":
             from .preflight import execute
             return execute(self, job, workspace, emit, canceled)
+        if action in ("start", "task", "workflow", "materials", "build", "verify", "app_start", "app_check"):
+            state_path = workspace / "runtime.json"
+            if state_path.exists() and json.loads(state_path.read_text(encoding="utf-8")).get("phase") == "DEBUG_RUNNING":
+                raise WorkbenchError("当前为强制启动的排查环境，请先停止容器，重新预检并正常启动后再执行任务")
         if action in ("start", "task", "workflow", "materials", "build", "verify", "app_start", "app_check") and job.get("profile"):
             from .preflight import require_passed
             require_passed(workspace, job["profile"])
@@ -213,6 +217,16 @@ class Executor:
             from .resources import stop_workspace
             stop_workspace(self.settings.data_dir, workspace)
             return self.observe(workspace, "STOPPED")
+        if action == "force_start":
+            if (workspace / "runtime.json").exists():
+                raise WorkbenchError("已有容器运行记录，请先停止环境；状态不明时请停止并核实，再强制启动")
+            progress(emit, "runtime.force_start", "正在强制启动排查容器，跳过预检且不启动 Agent CLI")
+            ca = Path(os.environ["CODEX_PROXY_CERT"]) if os.environ.get("CODEX_PROXY_CERT") else None
+            options = {"openrouter_model": self.settings.model} if self.settings.model.startswith("openrouter/") else {"opencode_model": self.settings.model}
+            self.start_runtime(workspace, job["project"]["image"], ca, start_agent=False, **options)
+            check()
+            progress(emit, "runtime.debug_ready", "排查容器已启动，可进入容器检查凭据挂载并手动运行 Agent CLI")
+            return {**self.observe(workspace, "DEBUG_RUNNING"), "debug_runtime": self.redact_payload(runtime.describe_debug_runtime(workspace), workspace)}
         if action == "start":
             if not (workspace / "runtime.json").exists():
                 progress(emit, "runtime.start", "正在启动隔离环境和固定 Agent CLI")

@@ -50,7 +50,7 @@ export function ApplicationPanel({
         </button>
         <button
           className="secondary"
-          disabled={disabled || !exists}
+          disabled={disabled || !exists || detail.workspace.environment === "DEBUG_RUNNING"}
           onClick={() => void action("app_check")}
         >
           检查 HTTP 响应

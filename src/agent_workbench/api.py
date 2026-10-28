@@ -61,7 +61,7 @@ class RequirementInput(Input):
 
 
 class ActionInput(Input):
-    action: Literal["prepare", "start", "stop", "refresh", "task", "reconcile", "preflight", "sync_profile", "build", "verify", "app_start", "app_stop", "app_check", "app_logs"]
+    action: Literal["prepare", "start", "force_start", "stop", "refresh", "task", "reconcile", "preflight", "sync_profile", "build", "verify", "app_start", "app_stop", "app_check", "app_logs"]
     prompt: str = Field(default="", max_length=32000)
 
 
@@ -352,7 +352,7 @@ def create_app(settings: Settings, store: Store | None = None):
         from .preflight import read_report
         from .dependencies import status as dependency_status
         from .application import status as application_status
-        from .runtime import published_ports
+        from .runtime import describe_debug_runtime, published_ports
         from .profile_sync import describe as describe_sync
         with database.engine.connect() as connection:
             profile = binding(connection, requirement_id)
@@ -362,6 +362,7 @@ def create_app(settings: Settings, store: Store | None = None):
         workspace = database.get(tables.workspaces, requirement_id)
         return {**requirement, "project": database.get(tables.projects, requirement["project_id"]), "profile": profile, "agent_cli": agent_cli,
             "port_mappings": published_ports(Path(workspace["path"])),
+            "debug_runtime": describe_debug_runtime(Path(workspace["path"])),
             "profile_sync": sync_state,
             "preflight": read_report(Path(workspace["path"])),
             "dependency": dependency_status(Path(workspace["path"])),

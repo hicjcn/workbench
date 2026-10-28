@@ -10,7 +10,7 @@ export function RuntimeProfileSync({
   action: () => void;
 }) {
   const sync = detail.profile_sync;
-  const running = detail.workspace.environment === "RUNNING";
+  const running = ["RUNNING", "DEBUG_RUNNING"].includes(detail.workspace.environment);
   return (
     <div className="environment-sync">
       <div>

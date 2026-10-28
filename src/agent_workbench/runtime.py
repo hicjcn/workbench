@@ -158,7 +158,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
           limits: dict | None = None, config_mounts: list | None = None,
           dependency_network: str | None = None, dependency_environment: dict | None = None, context_mounts: list | None = None, agent_cli: dict | None = None,
           volume_mounts: list | None = None, profile_environment: dict | None = None, port_mappings: list | None = None,
-          run_as_root: bool = False) -> dict:
+          run_as_root: bool = False, start_agent: bool = True) -> dict:
     workspace, manifest = load_workspace(workspace)
     fixed_cli = manifest.get("agent_cli")
     if agent_cli is None:
@@ -183,10 +183,12 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
         configuration = opencode_free_config(opencode_model)
     if openrouter_model is not None:
         configuration = openrouter_config(openrouter_model)
-        if not os.environ.get("OPENROUTER_API_KEY", "").strip():
+        if start_agent and not os.environ.get("OPENROUTER_API_KEY", "").strip():
             raise WorkbenchError("Configure the existing OPENROUTER_API_KEY secret before starting OpenRouter")
-        provider_environment["OPENROUTER_API_KEY"] = os.environ["OPENROUTER_API_KEY"]
+        if os.environ.get("OPENROUTER_API_KEY", "").strip():
+            provider_environment["OPENROUTER_API_KEY"] = os.environ["OPENROUTER_API_KEY"]
     if read_only_source:
+        if not start_agent: raise WorkbenchError("强制启动仅适用于开发工作区")
         if not (openrouter_model or opencode_model):
             raise WorkbenchError("Read-only roles require an explicit model")
         configuration = model_config(openrouter_model or opencode_model, True, [item["target"] for item in context_mounts or []])
@@ -217,8 +219,8 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     staging.mkdir(exist_ok=True)
     password = secrets.token_urlsafe(32)
     state = {"container": container, "network": network, "password": password,
-             "phase": "PREPARING", "image": image, "run_as_root": run_as_root, "serve_argv": serve_argv,
-             "agent_service": {"directory": "/tmp/awb-agent-" + secrets.token_hex(8)}}
+             "phase": "PREPARING", "image": image, "run_as_root": run_as_root, "serve_argv": serve_argv}
+    if start_agent: state["agent_service"] = {"directory": "/tmp/awb-agent-" + secrets.token_hex(8)}
     if port_mappings: state["port_mappings"] = port_mappings
     if agent_cli: state["agent_cli"] = agent_cli
     if context_mounts: state["context_paths"] = [item["target"] for item in context_mounts]
@@ -277,14 +279,21 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
                 raise WorkbenchError("Agent 控制端口 4096/tcp 未发布到宿主回环地址；"
                     f"容器状态 {observed.get('Status', 'unknown')}；退出码 {observed.get('ExitCode', 'unknown')}。"
                     "请检查镜像默认入口是否保持运行及容器启动日志。")
-            docker("exec", "--detach", container,
-                *agent_service.launch_argv(serve_argv, directory=state["agent_service"]["directory"], root=run_as_root))
+            if start_agent:
+                docker("exec", "--detach", container,
+                    *agent_service.launch_argv(serve_argv, directory=state["agent_service"]["directory"], root=run_as_root))
+            else:
+                observed = json.loads(docker("inspect", container).stdout)[0].get("State", {})
+                if not observed.get("Running"):
+                    raise WorkbenchError(f"强制启动的容器未保持运行（状态 {observed.get('Status', 'unknown')}；退出码 {observed.get('ExitCode', 'unknown')}），请检查镜像默认入口")
         except WorkbenchError as error:
+            if not start_agent:
+                raise WorkbenchError(f"排查容器启动失败；镜像：{image}。{error}") from None
             hint = ""
             if "executable file not found" in str(error) or "no such file or directory" in str(error):
                 hint = " 请检查镜像是否提供 /bin/bash、初始化文件是否可读，以及程序是否安装在初始化后的 PATH 中，或使用容器内绝对路径。/root/.nvm 等 root 安装需要启用 root 运行模式；命令参数不会展开 Shell 变量，独立 Agent HOME 仍位于 /home/node。"
             raise WorkbenchError(f"Agent CLI「{agent_cli['name'] if agent_cli else 'OpenCode（内置）'}」启动失败；程序：{serve_argv[0]}；镜像：{image}；实际命令：{shlex.join(serve_argv)}。{error}{hint}") from None
-        state.update({"phase": "STARTED", "base_url": f"http://{address}"})
+        state.update({"phase": "STARTED" if start_agent else "DEBUG_RUNNING", "base_url": f"http://{address}"})
         write_json(workspace / "runtime.json", state, private=True)
         return {**{key: state[key] for key in ("container", "network", "phase", "base_url", "image")}, "port_mappings": state.get("port_mappings", [])}
     except BaseException:
@@ -292,6 +301,33 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
         state["phase"] = "NEEDS_RECONCILIATION"
         write_json(workspace / "runtime.json", state, private=True)
         raise
+
+
+def describe_debug_runtime(workspace: Path) -> dict | None:
+    """Public connection hints; never expose the private journal or run Docker."""
+    path = workspace / "runtime.json"
+    try:
+        from .platform_support import is_link
+        if is_link(path) or path.stat().st_size > 128 * 1024: return None
+        state = json.loads(path.read_text(encoding="utf-8"))
+        if state.get("phase") != "DEBUG_RUNNING": return None
+        workspace, manifest = load_workspace(workspace)
+        suffix = hashlib.sha256(str(workspace).encode()).hexdigest()[:10]
+        container = f"awb-{manifest['requirement'][:20]}-{manifest['project'][:20]}-{suffix}"
+        if state.get("container") != container: return None
+        from .agent_clis import builtin, checked, command
+        selected = manifest.get("agent_cli") or builtin()
+        cli = checked(selected)
+        serve_argv = command(selected, "serve")
+        # Match the existing credential redaction boundary without reading files.
+        values = [os.environ.get(name, "") for name in cli["credential_env"]]
+        values.extend(value for name, value in manifest.get("runtime_profile", {}).get("content", {}).get("environment", {}).items()
+            if len(value) >= 4 and re.search(r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API_KEY|PRIVATE_KEY|CONNECTION|(?:^|_)(?:URL|URI)$", name, re.IGNORECASE))
+        for value in values:
+            if value: serve_argv = [part.replace(value, "[REDACTED]") for part in serve_argv]
+        return {"container": container, "shell_command": shlex.join(["docker", "exec", "-it", container, "/bin/bash"]), "serve_command": shlex.join(serve_argv)}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, WorkbenchError):
+        return None
 
 
 def service_status(state, *, details=None, logs=False):

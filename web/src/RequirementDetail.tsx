@@ -8,6 +8,7 @@ import { MaterialPanel } from "./MaterialPanel";
 import type { MaterialState } from "./materialTypes";
 import { materialLabels } from "./materialTypes";
 import { EnvironmentPanel } from "./EnvironmentPanel";
+import { ForceStartPanel } from "./ForceStartPanel";
 import { ApplicationPanel } from "./ApplicationPanel";
 import { AcceptancePanel } from "./AcceptancePanel";
 import {
@@ -107,6 +108,7 @@ export function RequirementDetail({
       : current;
   const loaded = Boolean(workflow && materials);
   const blocked = disabled;
+  const diagnostic = detail.workspace.environment === "DEBUG_RUNNING";
   const nextPreparation = preparationAction(detail);
   const phase =
     viewed === 2 ? "development" : viewed === 3 ? "review" : "analysis";
@@ -339,14 +341,16 @@ export function RequirementDetail({
         <section className="panel recovery-notice">
           <h3>先启动开发环境</h3>
           <p>
-            开发与验证需要运行中的环境。启动后继续本步，已完成的分析与确认会保留。
+            {diagnostic
+              ? "请先停止排障容器，再预检并正常启动开发环境。已完成的分析与确认会保留。"
+              : "开发与验证需要运行中的环境。启动后继续本步，已完成的分析与确认会保留。"}
           </p>
           <button
             className="primary"
             disabled={blocked}
-            onClick={() => void action("start")}
+            onClick={() => void action(diagnostic ? "stop" : "start")}
           >
-            启动环境并继续
+            {diagnostic ? "停止排障环境" : "启动环境并继续"}
           </button>
         </section>
       ) : null}
@@ -356,7 +360,7 @@ export function RequirementDetail({
       >
         <WorkflowPanel
           detail={detail}
-          disabled={blocked || (viewed === 2 && needsEnvironment)}
+          disabled={blocked || diagnostic || (viewed === 2 && needsEnvironment)}
           phase={phase}
           onState={setWorkflow}
           onLoadError={setWorkflowError}
@@ -367,7 +371,7 @@ export function RequirementDetail({
       <div className="step-content" hidden={!loaded || viewed !== 4}>
         <MaterialPanel
           detail={detail}
-          disabled={blocked}
+          disabled={blocked || diagnostic}
           onState={setMaterials}
           onLoadError={setMaterialError}
           onJob={(job) => setLogId(job.id)}
@@ -571,7 +575,8 @@ export function RequirementDetail({
               disabled={
                 disabled ||
                 detail.workspace.environment === "NOT_CREATED" ||
-                detail.workspace.environment === "RUNNING"
+                detail.workspace.environment === "RUNNING" ||
+                diagnostic
               }
               onClick={() => void action("start")}
             >
@@ -603,6 +608,11 @@ export function RequirementDetail({
           <p className="hint">
             停止环境会保留代码与 Agent 数据。执行状态不明时，先停止并核实。
           </p>
+          <ForceStartPanel
+            detail={detail}
+            disabled={disabled}
+            action={() => void action("force_start")}
+          />
         </section>
 
         <EnvironmentPanel detail={detail} disabled={disabled} action={action} />

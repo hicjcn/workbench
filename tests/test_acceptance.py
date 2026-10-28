@@ -188,6 +188,16 @@ class PlannerTests(unittest.TestCase):
         self.assertTrue(plan(*self.inputs("development"))["model_call"])
         self.assertFalse(plan(*self.inputs("verification"))["model_call"])
 
+    def test_debug_container_is_stopped_before_resuming_acceptance(self):
+        for preflight in (None, {"status": "FAILED"}, {"status": "PASSED", "profile_digest": "fixed"}):
+            with self.subTest(preflight=preflight):
+                values = self.inputs("development")
+                values[1]["workspace"]["environment"] = "DEBUG_RUNNING"
+                values[1]["preflight"] = preflight
+                selected = plan(*values)
+                self.assertEqual(selected["body"], {"action": "stop"})
+                self.assertFalse(selected["model_call"])
+
     def test_expected_negative_control_does_not_hide_other_failures(self):
         values = self.inputs(); values[1]["jobs"] = [{"id": "negative", "status": "FAILED"}, {"id": "other", "status": "FAILED"}]
         self.assertEqual(plan(*values)["jobs"], ["other"])

@@ -116,6 +116,9 @@ class Runner:
             else:
                 try:
                     environment = None if job["action"].startswith("app_") and status == "FAILED" else "STOPPED" if status == "CANCELED" else "ERROR"
+                    if status == "FAILED":
+                        from .runtime import describe_debug_runtime
+                        if describe_debug_runtime(workspace): environment = "DEBUG_RUNNING"
                     result = self.executor.observe(workspace, environment)
                 except Exception:
                     result = {"environment": "UNKNOWN" if status == "UNKNOWN" else "ERROR"}

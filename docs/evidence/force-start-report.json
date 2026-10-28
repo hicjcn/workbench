@@ -1,0 +1,16 @@
+{
+  "status": "PASSED",
+  "real_docker": true,
+  "real_api_and_runner": true,
+  "model_inference": false,
+  "real_user_credentials": false,
+  "checks": [
+    "built_login_required_cli_with_independent_default_container_process",
+    "real_preflight_detects_cli_login_failure_and_cleans_its_temporary_container",
+    "force_start_keeps_default_process_fixed_image_resources_user_mounts_environment_and_ports_without_starting_cli",
+    "force_start_preserves_failed_preflight_and_does_not_require_model_readiness_or_expose_runtime_password",
+    "normal_start_model_tasks_build_verification_and_preflight_stay_blocked_while_debug_container_is_active",
+    "manual_cli_reproduces_login_error_without_stopping_debug_container",
+    "stop_removes_container_preserves_agent_state_source_and_failed_preflight_and_normal_start_still_requires_preflight"
+  ]
+}
