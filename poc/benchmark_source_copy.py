@@ -20,6 +20,7 @@ def worker(args):
     for name in names:
         repo=source/name;repo.mkdir(parents=True)
         w.git(repo,'init','-b','main');w.git(repo,'config','user.name','Fixture');w.git(repo,'config','user.email','fixture@example.invalid')
+        w.git(repo,'config','core.autocrlf','false');w.git(repo,'config','core.eol','lf')
         for index in range(args.files):
             target=repo/f'src/group-{index % 20}/file-{index:05d}.txt';target.parent.mkdir(parents=True,exist_ok=True)
             target.write_text('synthetic independent source\n'*4)

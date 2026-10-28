@@ -18,6 +18,9 @@ class SourceCopyTests(unittest.TestCase):
     def source(self, name='source'):
         source=self.root/name;source.mkdir(parents=True)
         w.git(source,'init','-b','main');w.git(source,'config','user.name','Fixture');w.git(source,'config','user.email','fixture@example.invalid')
+        # Preserve fixture bytes before the first commit, including on hosts
+        # whose global Git configuration normalizes CRLF to LF on git add.
+        w.git(source,'config','core.autocrlf','false');w.git(source,'config','core.eol','lf')
         for name,content in [('same.txt','same'),('dirty.txt','aaaa'),('deleted.txt','delete'),('.harness','../opaque-missing-target\r\n'),('.env','PRIVATE-CONTENT')]:
             (source/name).write_bytes(content.encode())
         w.git(source,'add','--all');w.git(source,'-c','commit.gpgsign=false','commit','-m','fixture')
