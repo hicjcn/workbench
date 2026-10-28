@@ -1,0 +1,102 @@
+{
+  "status": "PASSED",
+  "benchmark": {
+    "repositories": 3,
+    "files_per_repository": 500,
+    "model_inference": false,
+    "baseline_ref": "e5fba8b7a43c0e17e08cad60179cbc56269047f2",
+    "platform": "linux",
+    "actual_windows_host": false,
+    "variants": {
+      "baseline": {
+        "samples": [
+          {
+            "seconds": 3.051112383000145,
+            "inventory_calls": 66,
+            "inventory_file_reads": 33132,
+            "copy2_calls": 1506,
+            "git_calls": 141,
+            "snapshot_matches": true,
+            "source_unchanged": true
+          },
+          {
+            "seconds": 3.1346089870003198,
+            "inventory_calls": 66,
+            "inventory_file_reads": 33132,
+            "copy2_calls": 1506,
+            "git_calls": 141,
+            "snapshot_matches": true,
+            "source_unchanged": true
+          },
+          {
+            "seconds": 2.937961265000922,
+            "inventory_calls": 66,
+            "inventory_file_reads": 33132,
+            "copy2_calls": 1506,
+            "git_calls": 141,
+            "snapshot_matches": true,
+            "source_unchanged": true
+          }
+        ],
+        "median_seconds": 3.051112383000145
+      },
+      "current": {
+        "samples": [
+          {
+            "seconds": 1.7691395789988746,
+            "inventory_calls": 33,
+            "inventory_file_reads": 16566,
+            "copy2_calls": 6,
+            "git_calls": 99,
+            "snapshot_matches": true,
+            "source_unchanged": true
+          },
+          {
+            "seconds": 1.7159370830013358,
+            "inventory_calls": 33,
+            "inventory_file_reads": 16566,
+            "copy2_calls": 6,
+            "git_calls": 99,
+            "snapshot_matches": true,
+            "source_unchanged": true
+          },
+          {
+            "seconds": 1.8203376829987974,
+            "inventory_calls": 33,
+            "inventory_file_reads": 16566,
+            "copy2_calls": 6,
+            "git_calls": 99,
+            "snapshot_matches": true,
+            "source_unchanged": true
+          }
+        ],
+        "median_seconds": 1.7691395789988746
+      }
+    }
+  },
+  "median_reduction_percent": 42.0,
+  "validation": {
+    "full_tests": 402,
+    "passed": 398,
+    "windows_only_skipped": 4,
+    "seconds": 122.797,
+    "new_copy_tests": 8,
+    "frontend_tests_passed": 11,
+    "frontend_build": "PASSED",
+    "real_docker_preflight_checks": 9,
+    "model_inference": false
+  },
+  "source_sha256": {
+    "src/agent_workbench/workspace.py": "dc0923dae264fd580d617a8c12d6547225d47550c90fee94def7f54a9f3c6ec0",
+    "src/agent_workbench/multi_repo.py": "b155325aebd68abe27e4a4716ee35eb8ad5930eecd195479cd6561af4d95495f",
+    "poc/benchmark_source_copy.py": "b69f3c3bc76762d97a16ba9dc45abed03b54f650d0e2e4e27005bf06702f41a6"
+  },
+  "windows_performance_measured": false,
+  "review_validation": {
+    "global_git_autocrlf": "true",
+    "source_copy_tests_passed": 8,
+    "fixture_bytes_preserved": true,
+    "full_regression_repeated": true,
+    "temporary_git_directory_cleanup": "TemporaryDirectory read-only cleanup"
+  }
+}
