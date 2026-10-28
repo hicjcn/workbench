@@ -34,6 +34,7 @@ def plan(state, detail, workflow, material, group, negative_verified):
     def action(kind, assign=None): return {"status": "READY", "path": base + "/actions", "body": {"action": kind}, "assign": assign, "model_call": False}
     workspace = detail["workspace"]
     if not workspace.get("snapshot"): return action("prepare")
+    if workspace["environment"] == "DEBUG_RUNNING": return action("stop")
     preflight = detail.get("preflight")
     if not preflight or preflight["status"] != "PASSED" or preflight.get("profile_digest") != detail["profile"]["content_digest"]:
         return action("stop") if workspace["environment"] == "RUNNING" else action("preflight")

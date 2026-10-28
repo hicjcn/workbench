@@ -51,6 +51,7 @@ export function currentRequirementStep(
   if (!detail.workspace.snapshot) return 0;
   const flow = workflow?.current;
   if (!flow) {
+    if (detail.workspace.environment === "DEBUG_RUNNING") return 0;
     if (detail.profile && detail.preflight?.status !== "PASSED") return 0;
     if (
       detail.workspace.environment !== "RUNNING" &&
@@ -82,6 +83,12 @@ export function preparationAction(detail: Detail): {
       action: "prepare",
       label: "创建工作区，开始准备",
       description: "从已登记项目复制代码，为本需求创建独立工作区。",
+    };
+  if (detail.workspace.environment === "DEBUG_RUNNING")
+    return {
+      action: "stop",
+      label: "停止排障环境，继续准备",
+      description: "排障检查完成后停止容器，再执行预检并启动 Agent 环境。代码与记录会保留。",
     };
   if (detail.profile && detail.preflight?.status !== "PASSED") {
     if (detail.workspace.environment === "RUNNING")

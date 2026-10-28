@@ -12,6 +12,7 @@ export function EnvironmentPanel({
   const profile = detail.profile;
   const report = detail.preflight;
   const running = detail.workspace.environment === "RUNNING";
+  const diagnostic = detail.workspace.environment === "DEBUG_RUNNING";
   return (
     <section className="panel environment-panel">
       <div className="section-title">
@@ -81,7 +82,7 @@ export function EnvironmentPanel({
             )}
             <button
               className="secondary"
-              disabled={disabled || !detail.workspace.snapshot || running}
+              disabled={disabled || !detail.workspace.snapshot || running || diagnostic}
               onClick={() => void action("preflight")}
             >
               环境预检

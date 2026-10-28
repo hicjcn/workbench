@@ -68,6 +68,11 @@ export type Review = {
   created_at: number;
 };
 export type Detail = Omit<Requirement, "workspace"> & {
+  debug_runtime?: {
+    container: string;
+    shell_command: string;
+    serve_command: string;
+  } | null;
   profile_sync?: {
     latest_profile_id: string | null;
     latest_profile_number: number | null;
@@ -146,6 +151,7 @@ export const labels: Record<string, string> = {
   NOT_CREATED: "未创建",
   STOPPED: "已停止",
   RUNNING: "运行中",
+  DEBUG_RUNNING: "排障容器运行中",
   ERROR: "需要处理",
   UNKNOWN: "待核实",
   QUEUED: "排队中",
@@ -158,6 +164,7 @@ export const labels: Record<string, string> = {
   REJECTED: "已退回",
   prepare: "创建工作区",
   start: "启动环境",
+  force_start: "强制启动环境（排障）",
   stop: "停止环境",
   refresh: "刷新代码差异",
   task: "Agent 任务",

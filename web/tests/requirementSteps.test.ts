@@ -76,6 +76,19 @@ test("stopping a previously prepared environment does not lose progress", () => 
   assert.equal(currentRequirementStep(detail(), null, null), 0);
   assert.equal(currentRequirementStep(prepared(), null, null), 1);
 });
+test("a diagnostic container requires stopping before normal preparation and never counts as an Agent runtime", () => {
+  for (const preflight of [null, { status: "FAILED" }, { status: "PASSED" }]) {
+    const value = {
+      ...prepared(),
+      profile: {} as Detail["profile"],
+      preflight: preflight as Detail["preflight"],
+      workspace: { environment: "DEBUG_RUNNING", snapshot: {} } as Detail["workspace"],
+      jobs: [{ action: "force_start", status: "SUCCEEDED" } as Detail["jobs"][number]],
+    };
+    assert.equal(currentRequirementStep(value, null, null), 0);
+    assert.equal(preparationAction(value).action, "stop");
+  }
+});
 test("analysis and human scope confirmation stay in one stage", () => {
   for (const key of ["analysis", "scope"])
     assert.equal(
