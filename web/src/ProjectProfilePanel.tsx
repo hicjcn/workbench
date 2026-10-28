@@ -328,9 +328,10 @@ function ProfileForm({
             以 root 执行容器命令，并先加载 /root/.bashrc
           </label>
           <p className="hint">
-            适用于 CLI 安装在 /root/.nvm 等目录的镜像。初始化后保留独立工作区
-            HOME 和会话；已有需求需保存并同步最新配置，再重新预检。
-            取消勾选时沿用普通用户，加载其可读的 HOME/.bashrc。
+            root 模式的 Agent 环境使用 HOME=/root，可读取挂载在 /root 下的凭据及镜像中的
+            CLI、Node/NVM。工作台配置和会话按需求单独保存。取消勾选时使用普通用户和
+            HOME=/home/node，加载其可读的 HOME/.bashrc。更改后保存配置，
+            停止已有容器并同步最新配置，再重新预检和启动。
           </p>
           <div className="profile-resources">
             <label>

@@ -53,7 +53,7 @@ def main():
     (context / 'team-code').write_text(
         '#!/bin/bash\n'
         'if [[ "$1" == --version ]]; then printf "controlled-login/1\\n"; exit 0; fi\n'
-        'printf "attempted\\n" >> "$HOME/cli-attempts"\n'
+        'printf "attempted\\n" >> /home/node/cli-attempts\n'
         'printf "CONTROLLED_LOGIN_REQUIRED\\n" >&2\n'
         'exit 23\n', encoding='utf-8')
     (context / 'Dockerfile').write_text(
@@ -138,6 +138,7 @@ def main():
         state = json.loads((workspace / 'runtime.json').read_text(encoding='utf-8'))
         container = state['container']
         assert debug['container'] == container
+        assert debug['home'] == '/root'
         assert debug['shell_command'] == f'docker exec -it {container} /bin/bash'
         assert debug['serve_command'] == 'team-code serve --hostname 0.0.0.0 --port 4096'
         assert 'password' not in debug and state['password'] not in json.dumps(detail)
@@ -156,7 +157,7 @@ def main():
         assert any(row['Destination'] == '/root/.team-login' and not row['RW'] for row in inspected['Mounts'])
         assert inspected['NetworkSettings']['Ports']['8080/tcp'][0]['HostIp'] == '127.0.0.1'
         runtime.docker('exec', container, '/bin/bash', '-c',
-            'test "$HOME" = /home/node && test "$TEAM_CONFIG_FILE" = /root/.team-login/auth.json '
+            'test "$HOME" = /root && test "$TEAM_CONFIG_FILE" = /root/.team-login/auth.json '
             '&& test -r "$TEAM_CONFIG_FILE" && test -r /run/workbench-config/auth.json')
         check('force_start_keeps_default_process_fixed_image_resources_user_mounts_environment_and_ports_without_starting_cli')
         check('force_start_preserves_failed_preflight_and_does_not_require_model_readiness_or_expose_runtime_password')

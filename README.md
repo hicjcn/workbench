@@ -18,7 +18,7 @@
 | 跨项目交付 | 组织候选项目联合分析、确认整体范围、登记联调结果、导出交付包与归档 |
 | 资源与恢复 | 查看 Runner、资源配额、SQLite 路径及离线维护说明 |
 
-每个需求有独立代码副本和 Agent HOME，可以同时推进多个需求。同一需求的写操作串行，默认最多同时执行 2 个任务、运行 4 个受管容器；只读分析和评审副本也占用容器名额。
+每个需求有独立代码副本和 Agent 状态目录，可以同时推进多个需求。同一需求的写操作串行，默认最多同时执行 2 个任务、运行 4 个受管容器；只读分析和评审副本也占用容器名额。
 
 `.harness` 按 Git 中的原始内容直接复制，不解析配置或展开链接目标；Git 链接保存的目标文本会复制为普通文件，目标缺失或无效也可创建工作区，兼容 Windows。其他已提交的仓库内部相对链接仍可展开为独立文件/目录。多仓库父目录无需初始化 Git；排查及复制规则见[源码链接与导出](docs/31-source-links.md)。
 
@@ -218,7 +218,7 @@ docker build -t agent-workbench-node:local poc/onboarding
 
 「项目运行配置」采用宽屏分栏弹窗，还可配置：
 
-- `run_as_root`：勾选“以 root 执行容器命令，并先加载 /root/.bashrc”后，以 root 执行业务命令，适用于 CLI 或 Node/NVM 安装在镜像 `/root` 下的情况。配置界面新建或未设置时默认勾选；未修订的旧配置缺少此字段时仍按普通用户运行。取消勾选则使用原容器用户并加载其可读的 `HOME/.bashrc`。
+- `run_as_root`：勾选“以 root 执行容器命令，并先加载 /root/.bashrc”后，Agent 环境以 root 和 `HOME=/root` 执行 CLI 与工具命令，可读取挂载在 `/root` 下的凭据，适用于 CLI 或 Node/NVM 安装在镜像 `/root` 下的情况。配置界面新建或未设置时默认勾选；未修订的旧配置缺少此字段时仍按普通用户运行。取消勾选则使用原容器用户和 `HOME=/home/node`，加载其可读的 `HOME/.bashrc`。
 - `environment`：如 `{"APP_ENV": "development"}`，传入开发和应用容器，变量值随配置保存。模型/CLI 凭据继续使用本机私有配置或已有进程环境。
 - `port_mappings`：如 `[{"container_port": 3000, "host_port": null, "protocol": "tcp", "service": "agent"}]`。宿主端口留空时自动分配，也可指定；均限制在 `workbench.port_range_start` 至 `port_range_end`（默认 `20000–29999`）内，只绑定本机 `127.0.0.1`。`service` 可选开发容器 `agent` 或已启用的应用服务 `application`。
 - `volume_mounts`：如 `[{"source": "D:\\data\\uploads", "target": "/mnt/uploads", "read_only": false}]`，直接挂载现存文件或目录。默认只读，读写挂载会将修改写回宿主机。原有 `mounts` 仍将普通配置文件复制并固定摘要，以只读方式挂载到 `/run/workbench-config/`。
@@ -249,7 +249,7 @@ docker build -t agent-workbench-node:local poc/onboarding
 
 启动环境时保留镜像自己的 `ENTRYPOINT` 和 `CMD`；Dockerfile 可以只启动 code-server。容器启动后，工作台通过 `docker exec` 启动需求固定的 CLI 服务，并独立记录服务状态、退出码与日志，再等待 OpenCode 兼容接口就绪。镜像默认服务需要持续运行，不要另行启动占用 `4096/tcp` 的 Agent 服务。旧版内置工具镜像默认启动 OpenCode，升级后需重建 `poc/container` 及其派生镜像，再停止、同步已有需求并重新预检；新的内置镜像默认只保持容器运行。
 
-运行镜像需要包含 `/bin/bash`。root 模式在每次业务命令前加载 `/root/.bashrc`，初始化期间使用 `HOME=/root`，执行命令时恢复该需求的独立 `HOME=/home/node`；镜像中的 `/root` 和 NVM 程序不会被 Agent HOME 挂载遮住。CLI 服务与任务、构建/验证、Node 预检和应用检查均使用同一初始化机制，初始化输出不混入业务输出；受控 PostgreSQL 命令保持独立。root 模式下 `/root/.bashrc` 缺失或不可读会明确报错。更改运行用户后需保存新配置版本，并停止、同步已有需求后生效。
+运行镜像需要包含 `/bin/bash`。root 模式的 Agent 环境从容器启动到 CLI 服务、任务和工具执行都使用 `HOME=/root`，每次业务命令前加载 `/root/.bashrc`，可按原路径读取挂载在 `/root` 下的凭据；保留镜像中的 `.bashrc` 和 NVM。普通用户模式继续使用独立 `HOME=/home/node`。工作台的固定 OpenCode 配置通过 `OPENCODE_CONFIG` 指向需求状态目录，OpenCode 配置、会话、缓存及状态采用窄目录挂载，避免覆盖整个 `/root`；显式凭据目录挂载优先。CLI 服务与任务、构建/验证、Node 预检和应用检查均使用同一初始化机制，初始化输出不混入业务输出；独立应用容器继续使用可写的临时 `HOME=/home/node`，受控 PostgreSQL 命令保持独立。root 模式下 `/root/.bashrc` 缺失或不可读会明确报错。更新后须停止并重建旧容器，再重新预检和启动；只重启工作台不会修改已有容器的 HOME。更改运行用户时还需保存并同步最新配置。
 
 当前支持 OpenCode 兼容 HTTP API、认证、标准输入和 JSONL 事件格式。其他协议的 CLI 需要单独适配，详见 [Agent CLI 接入](docs/26-agent-cli.md)。如报 `executable file not found in $PATH`，请查看预检启动诊断中的容器 PATH，并核对程序的容器内路径；处理步骤见[封装 CLI 镜像预检](docs/32-wrapper-cli-preflight.md#镜像找不到-cli-时如何处理)。
 
