@@ -19,16 +19,24 @@ class WorkbenchError(Exception):
     pass
 
 
-def git(directory: Path, *args: str) -> bytes:
+def git(directory: Path, *args: str, input_bytes: bytes | None = None) -> bytes:
     result = subprocess.run(
         ["git", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false",
          *(["-c", "core.longpaths=true"] if IS_WINDOWS else []), "-C", str(directory), *args],
         capture_output=True,
+        input=input_bytes,
         timeout=120,
     )
     if result.returncode:
         raise WorkbenchError(f"Git operation failed: {result.stderr.decode(errors='replace').strip()}")
     return result.stdout
+
+
+def index_executable(repo, names, *, enabled=True):
+    """One Git process even for thousands of Windows executable entries."""
+    if names:
+        git(repo, "update-index", "--chmod=" + ("+x" if enabled else "-x"), "-z", "--stdin",
+            input_bytes=b"".join(name.encode("utf-8") + b"\0" for name in sorted(names)))
 
 
 def excluded(name: str) -> bool:
@@ -173,7 +181,9 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
             declared_size += int(size)
     if declared_size > 100 * 1024 * 1024:
         raise WorkbenchError("M1 source export exceeds the 100 MiB limit")
-    source_before = inventory(source, untracked=include_untracked) if include_dirty else None
+    from . import logging_support as logs
+    with logs.operation("workspace", "source.input_snapshot", "读取副本来源的文件清单"):
+        source_before = inventory(source, untracked=include_untracked) if include_dirty else None
     destination = safe_path(root, f"{requirement}/{project}")
     if destination.exists():
         raise WorkbenchError("Workspace already exists; it will not be overwritten")
@@ -184,38 +194,43 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
         repo.mkdir()
         # Git archive applies host checkout conversion too. In particular the
         # Git for Windows global autocrlf default must not rewrite source bytes.
-        from . import logging_support as logs
-        logs.event("workspace", "source.archive", "正在导出固定 Git 提交", detailed=True)
-        archive = git(source, "-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar", source_sha)
+        with logs.operation("workspace", "source.archive", "导出固定 Git 提交"):
+            archive = git(source, "-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar", source_sha)
         from .source_export import export
-        logs.event("workspace", "source.copy", "正在复制导出的源码文件", detailed=True)
-        executable_paths, materialized_links, copied_link_files = export(archive, repo,
-            read_link_blob=lambda name: git(source, "cat-file", "blob", f"{source_sha}:{name}"))
-        logs.event("workspace", "source.git_init", "正在建立独立 Git 快照", detailed=True)
-        git(repo, "init", "-b", f"req/{requirement}")
-        git(repo, "config", "core.autocrlf", "false")
-        git(repo, "config", "core.eol", "lf")
-        git(repo, "config", "user.name", "Agent Workbench Snapshot")
-        git(repo, "config", "user.email", "snapshot@agent-workbench.invalid")
-        git(repo, "add", "--all")
-        if IS_WINDOWS:
-            for name in executable_paths:
-                git(repo, "update-index", "--chmod=+x", "--", name)
-        git(repo, "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", f"Source snapshot {source_sha}")
-        initial = snapshot(repo)
+        with logs.operation("workspace", "source.copy", "复制已提交源码文件"):
+            executable_paths, materialized_links, copied_link_files = export(archive, repo,
+                read_link_blob=lambda name: git(source, "cat-file", "blob", f"{source_sha}:{name}"))
+        with logs.operation("workspace", "source.git_init", "建立独立 Git 快照"):
+            git(repo, "init", "-b", f"req/{requirement}")
+            git(repo, "config", "core.autocrlf", "false")
+            git(repo, "config", "core.eol", "lf")
+            git(repo, "config", "user.name", "Agent Workbench Snapshot")
+            git(repo, "config", "user.email", "snapshot@agent-workbench.invalid")
+            git(repo, "add", "--all")
+            if IS_WINDOWS:
+                index_executable(repo, executable_paths)
+            git(repo, "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", f"Source snapshot {source_sha}")
+        with logs.operation("workspace", "source.baseline", "校验已提交源码基线"):
+            initial = snapshot(repo)
         if include_dirty:
-            actual = {entry["path"] for entry in source_before["files"]}
-            for entry in initial["files"]:
-                if entry["path"] not in actual:
-                    safe_path(repo, entry["path"]).unlink()
-            for name in actual:
-                path = safe_path(repo, name)
-                path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(safe_path(source, name), path)
-            if source_before != inventory(source, untracked=include_untracked):
-                raise WorkbenchError("Source changed while copying; retry from a stable source")
-            if source_sha != git(source, "rev-parse", "HEAD").decode().strip():
-                raise WorkbenchError("Source HEAD changed while copying")
+            with logs.operation("workspace", "source.overlay", "同步变更、新增及删除文件"):
+                baseline = {entry["path"]: entry for entry in initial["files"]}
+                actual = {entry["path"]: entry for entry in source_before["files"]}
+                for name in baseline.keys() - actual.keys(): safe_path(repo, name).unlink()
+                changed = [name for name, entry in actual.items() if baseline.get(name) != entry]
+                for name in changed:
+                    path = safe_path(repo, name)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(safe_path(source, name), path)
+                if IS_WINDOWS:
+                    for runnable in (True, False):
+                        index_executable(repo, [name for name in changed if name in baseline and
+                            actual[name]['executable'] == runnable and baseline[name]['executable'] != runnable], enabled=runnable)
+                logs.event("workspace", "source.overlay_count", "变更覆盖已完成", detailed=True, count=len(changed), total=len(actual))
+                if source_before != inventory(source, untracked=include_untracked):
+                    raise WorkbenchError("Source changed while copying; retry from a stable source")
+                if source_sha != git(source, "rev-parse", "HEAD").decode().strip():
+                    raise WorkbenchError("Source HEAD changed while copying")
         manifest = {
             "schema_version": 1, "requirement": requirement, "project": project,
             "source_commit": source_sha, "source_history": "snapshot_export",
@@ -227,10 +242,12 @@ def create_workspace(source: Path, root: Path, requirement: str, project: str,
         if copied_link_files:
             manifest["copied_link_files"] = copied_link_files
         write_json(temporary / "workspace.json", manifest)
+        with logs.operation("workspace", "source.final_snapshot", "校验独立源码副本"):
+            verified = snapshot(repo)
         temporary.rename(destination)
         logs.event("workspace", "source.ready", "源码导出和独立 Git 快照已完成", detailed=True, count=len(initial['files']))
         return {"workspace": str(destination), "source_commit": source_sha,
-                "snapshot": snapshot(destination / "repo")}
+                "snapshot": verified}
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
         raise

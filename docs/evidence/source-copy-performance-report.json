@@ -1,0 +1,95 @@
+{
+  "status": "PASSED",
+  "benchmark": {
+    "repositories": 3,
+    "files_per_repository": 500,
+    "model_inference": false,
+    "baseline_ref": "e5fba8b7a43c0e17e08cad60179cbc56269047f2",
+    "platform": "linux",
+    "actual_windows_host": false,
+    "variants": {
+      "baseline": {
+        "samples": [
+          {
+            "seconds": 3.1407939649998298,
+            "inventory_calls": 66,
+            "inventory_file_reads": 33132,
+            "copy2_calls": 1506,
+            "git_calls": 141,
+            "snapshot_matches": true,
+            "source_unchanged": true
+          },
+          {
+            "seconds": 3.069955250000021,
+            "inventory_calls": 66,
+            "inventory_file_reads": 33132,
+            "copy2_calls": 1506,
+            "git_calls": 141,
+            "snapshot_matches": true,
+            "source_unchanged": true
+          },
+          {
+            "seconds": 3.0519965009998486,
+            "inventory_calls": 66,
+            "inventory_file_reads": 33132,
+            "copy2_calls": 1506,
+            "git_calls": 141,
+            "snapshot_matches": true,
+            "source_unchanged": true
+          }
+        ],
+        "median_seconds": 3.069955250000021
+      },
+      "current": {
+        "samples": [
+          {
+            "seconds": 1.7520464099998208,
+            "inventory_calls": 33,
+            "inventory_file_reads": 16566,
+            "copy2_calls": 6,
+            "git_calls": 99,
+            "snapshot_matches": true,
+            "source_unchanged": true
+          },
+          {
+            "seconds": 1.777447624999695,
+            "inventory_calls": 33,
+            "inventory_file_reads": 16566,
+            "copy2_calls": 6,
+            "git_calls": 99,
+            "snapshot_matches": true,
+            "source_unchanged": true
+          },
+          {
+            "seconds": 1.70713018799961,
+            "inventory_calls": 33,
+            "inventory_file_reads": 16566,
+            "copy2_calls": 6,
+            "git_calls": 99,
+            "snapshot_matches": true,
+            "source_unchanged": true
+          }
+        ],
+        "median_seconds": 1.7520464099998208
+      }
+    }
+  },
+  "median_reduction_percent": 42.9,
+  "validation": {
+    "full_tests": 402,
+    "passed": 398,
+    "windows_only_skipped": 4,
+    "seconds": 124.139,
+    "new_copy_tests": 8,
+    "frontend_tests_passed": 11,
+    "frontend_build": "PASSED",
+    "real_docker_preflight_checks": 9,
+    "model_inference": false
+  },
+  "source_sha256": {
+    "src/agent_workbench/workspace.py": "3f9d94fc685d7891baf17f5e7a7e66212644c799378fa5f8e32757b7afe90602",
+    "src/agent_workbench/multi_repo.py": "180e4534bfd67feac69403ac73e55c25e52df526ded6b3ad1d4877ccea4348db",
+    "poc/benchmark_source_copy.py": "0febb272deabeef7c31e40758fed4f3ac14c39e0163d3051dcfbf6068e9dc562"
+  },
+  "windows_performance_measured": false
+}

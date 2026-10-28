@@ -130,11 +130,16 @@ def main():
         missing_job=wait(post(missing_endpoint+'/actions',{'action':'preflight'})['id'],expected='FAILED')
         missing_report=get(missing_endpoint)['preflight']
         assert missing_report['agent_cli']['id']==missing['id']
-        assert 'executable file not found' in missing_job['error'] and 'missing-wrapper-fixture' in missing_job['error']
+        # Bash initialization can exit before Docker publishes the control port;
+        # the underlying missing-program error is preserved in startup diagnostics.
+        missing_text=missing_job['error']+'\n'+json.dumps(missing_report['diagnostics'])
+        assert 'not found' in missing_text and 'missing-wrapper-fixture' in missing_text
+        assert missing_report['diagnostics']['exit_code']==127
         assert missing_report['diagnostics']['container_path']=='/opt/awb-preflight-bin'
         assert missing_report['diagnostics']['executable']=='missing-wrapper-fixture'
         assert missing_report['diagnostics']['container_home']=='/home/node'
-        assert missing_report['checks']==[{'name':'agent_cli_service','passed':False}]
+        assert missing_report['status']=='FAILED'
+        assert not any(item['name']=='agent_cli_service' and item['passed'] for item in missing_report['checks'])
         check('missing_executable_reports_actual_program_container_path_and_home_before_service_starts')
         absolute=save_cli('绝对路径封装 CLI',executable='/opt/awb-hidden-cli/team-code')
         absolute_req=post('/requirements',dict(project_id=project['id'],title='镜像 PATH 外的绝对路径 CLI'))
@@ -166,7 +171,8 @@ def main():
             panel.get_by_text('查看 CLI 启动诊断',exact=True).click()
             expect(panel.get_by_text('容器 PATH：/opt/awb-preflight-bin',exact=True)).to_be_visible()
             expect(panel.get_by_text('实际入口程序：missing-wrapper-fixture',exact=True)).to_be_visible()
-            expect(panel.locator('pre')).to_contain_text('executable file not found')
+            expect(panel.locator('pre')).to_contain_text('not found')
+            expect(panel.locator('pre')).to_contain_text('missing-wrapper-fixture')
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             page.screenshot(path=str(root/'missing-mobile.png'),full_page=True)
             check('browser_shows_missing_executable_path_and_startup_error_on_mobile')

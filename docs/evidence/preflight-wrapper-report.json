@@ -16,6 +16,6 @@
     "source_unchanged_and_no_browser_errors_or_model_calls"
   ],
   "completed_checks": 9,
-  "verifier_sha256": "2171fcdd05d77ecb8435ab6cd62ea770e63b01045fcbe73a7d84b4f8f2784a89",
+  "verifier_sha256": "a378e2f7cd67be7825122d6b25c7a9aaed424ed4512f1f0e904116157e7f7191",
   "fixture_sha256": "9c4ae9f2d27ac723ddb6a7441b0953c8119bcabb04c06bb9819391f151eb86bd"
 }
