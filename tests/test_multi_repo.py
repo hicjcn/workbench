@@ -61,6 +61,18 @@ class MultiRepositoryTests(ControlFixture):
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
 
+    def test_root_git_trust_is_limited_to_selected_repositories_and_contexts(self):
+        from agent_workbench.container_shell import git_safe_environment
+        project = self.register()
+        _, workspace = self.prepared_multi(project, selected=[self.names[0]])
+        _, context = self.prepared_multi(project, selected=[self.names[1]])
+        environment = git_safe_environment(workspace, [{"source": context / "repo", "target": "/workspace/context/payment"}])
+        trusted = [environment[f"GIT_CONFIG_VALUE_{index}"] for index in range(int(environment["GIT_CONFIG_COUNT"]))]
+        self.assertEqual(trusted, ["", "/workspace/project", "/workspace/project/" + self.names[0],
+            "/workspace/context/payment", "/workspace/context/payment/" + self.names[1]])
+        self.assertNotIn("/workspace/project/" + self.names[1], trusted)
+        self.assertNotIn("*", trusted)
+
     def test_scan_parent_discovers_independent_nested_repositories_and_common_docs(self):
         value = discover(str(self.parent), self.data)
         self.assertEqual([item['path'] for item in value['repositories']], self.names)

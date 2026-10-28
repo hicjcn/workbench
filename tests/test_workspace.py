@@ -208,6 +208,8 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(args[args.index("--user") + 1], f"0:{container_ids()[1]}")
         self.assertEqual(args[args.index("--cap-drop") + 1], "ALL")
         self.assertEqual(args[args.index("--cap-add") + 1], "DAC_OVERRIDE")
+        self.assertIn("GIT_CONFIG_VALUE_0=", args)
+        self.assertIn("GIT_CONFIG_VALUE_1=/workspace/project", args)
         self.assertIn("--read-only", args)
         self.assertIn("readonly", next(value for value in args if "dst=/workspace/project" in value))
         self.assertEqual(list(args[args.index("fixture-image") + 1:]),

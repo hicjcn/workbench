@@ -1,5 +1,6 @@
 """Load a container's Bash environment without interpreting command arguments."""
 from collections.abc import Sequence
+from pathlib import Path
 
 ROOT_BASHRC = "/root/.bashrc"
 
@@ -22,7 +23,8 @@ declare -A AWB_BOOTSTRAP_ENV=()
 for AWB_BOOTSTRAP_KEY in OPENCODE_SERVER_USERNAME OPENCODE_SERVER_PASSWORD \
     PGHOST PGPORT PGUSER PGDATABASE PGPASSWORD \
     NODE_EXTRA_CA_CERTS SSL_CERT_FILE GIT_SSL_CAINFO \
-    OPENAI_API_KEY OPENROUTER_API_KEY ANTHROPIC_API_KEY; do
+    OPENAI_API_KEY OPENROUTER_API_KEY ANTHROPIC_API_KEY \
+    GIT_CONFIG_COUNT "${!GIT_CONFIG_KEY_@}" "${!GIT_CONFIG_VALUE_@}"; do
     if [[ -v "$AWB_BOOTSTRAP_KEY" ]]; then
         AWB_BOOTSTRAP_ENV["$AWB_BOOTSTRAP_KEY"]="${!AWB_BOOTSTRAP_KEY}"
     fi
@@ -88,3 +90,23 @@ def shell_argv(argv: Sequence[str], *, root: bool = False) -> list[str]:
         raise ValueError("容器命令入口不能为空")
     return ["/bin/bash", "--noprofile", "--norc", "-c", _OUTER,
         "workbench-shell", _INNER, "root" if root else "user", ROOT_BASHRC if root else "", *argv]
+
+
+def git_safe_environment(workspace: Path, context_mounts: Sequence[dict] = ()) -> dict[str, str]:
+    """Trust only exported repositories whose host owner differs from root."""
+    from .multi_repo import layout
+
+    # The empty first entry resets any inherited wildcard trust from the image.
+    directories = [""]
+    for mount in [{"source": workspace / "repo", "target": "/workspace/project"}, *context_mounts]:
+        target = mount["target"]
+        directories.append(target)
+        selected = layout(Path(mount["source"]))
+        if selected:
+            directories.extend(target + "/" + item["path"] for item in selected["repositories"])
+    directories = list(dict.fromkeys(directories))
+    environment = {"GIT_CONFIG_COUNT": str(len(directories))}
+    for index, directory in enumerate(directories):
+        environment[f"GIT_CONFIG_KEY_{index}"] = "safe.directory"
+        environment[f"GIT_CONFIG_VALUE_{index}"] = directory
+    return environment

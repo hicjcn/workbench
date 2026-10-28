@@ -93,6 +93,8 @@ class ContainerShellTests(unittest.TestCase):
         values = {name: "injected-" + name.lower() for name in (
             "OPENCODE_SERVER_USERNAME", "OPENCODE_SERVER_PASSWORD", "PGHOST", "PGPORT", "PGUSER", "PGDATABASE", "PGPASSWORD",
             "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "GIT_SSL_CAINFO", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY")}
+        values.update(GIT_CONFIG_COUNT="2", GIT_CONFIG_KEY_0="safe.directory", GIT_CONFIG_VALUE_0="",
+            GIT_CONFIG_KEY_1="safe.directory", GIT_CONFIG_VALUE_1="/workspace/project")
         self.rc.write_text('case $- in *i*) ;; *) return ;; esac\n'
             + ''.join(f'export {name}=stale-value\n' for name in values)
             + 'export NVM_DIR="$HOME/.nvm"\nexport PATH="/fixture/nvm-bin:$PATH"\n')

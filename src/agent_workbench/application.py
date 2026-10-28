@@ -8,7 +8,7 @@ from . import locking
 from . import dependencies, runtime
 from .platform_support import bind_mount, container_ids, container_user, mount_matches
 from .profiles import Content, command, digest, runtime_options
-from .container_shell import shell_argv
+from .container_shell import git_safe_environment, shell_argv
 from .workspace import WorkbenchError, load_workspace, safe_path, snapshot, write_json
 
 JOURNAL = "application-runtime.json"
@@ -158,7 +158,10 @@ def start(executor, workspace, emit, canceled):
             "--log-driver", "local", "--log-opt", "max-size=1m", "--log-opt", "max-file=1", "--log-opt", "compress=false",
             "--workdir", "/workspace/project", "--mount", bind_mount(workspace / "repo", "/workspace/project", readonly=True),
             "--env", "HOME=/home/node", "--env", "PORT=" + str(configuration["port"])]
-        if run_as_root: args += ["--cap-add", "DAC_OVERRIDE"]
+        if run_as_root:
+            args += ["--cap-add", "DAC_OVERRIDE"]
+            for key, value in git_safe_environment(workspace).items():
+                args += ["--env", key + "=" + value]
         for key, value in labels(root, workspace).items(): args += ["--label", key + "=" + value]
         for mount in options["config_mounts"]:
             args += ["--mount", bind_mount(mount["source"], mount["target"], readonly=True)]

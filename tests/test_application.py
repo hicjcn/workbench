@@ -80,6 +80,8 @@ class ApplicationTests(ControlFixture):
         self.assertEqual(run.kwargs["environment"]["APP_TOKEN"], "application-private")
         self.assertEqual(run.args[run.args.index("--user") + 1], f"0:{application.container_ids()[1]}")
         self.assertEqual(run.args[run.args.index("--cap-add") + 1], "DAC_OVERRIDE")
+        self.assertIn("GIT_CONFIG_VALUE_0=", run.args)
+        self.assertIn("GIT_CONFIG_VALUE_1=/workspace/project", run.args)
         self.assertEqual(run.args[run.args.index("--entrypoint") + 1], "/bin/bash")
         self.assertNotIn("readonly", next(value for value in run.args if "dst=/mnt/data" in value))
         self.assertEqual(application.status(self.workspace)["port_mappings"][0]["host_port"], 20001)

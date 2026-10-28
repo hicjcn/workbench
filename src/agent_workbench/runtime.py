@@ -19,7 +19,7 @@ from . import locking
 from . import logging_support as logs
 from .opencode import OpenCodeClient
 from .platform_support import bind_mount, container_ids, container_user, docker_argv, docker_environment
-from .container_shell import shell_argv
+from .container_shell import git_safe_environment, shell_argv
 from .workspace import WorkbenchError, load_workspace, safe_path, write_json
 
 _inspection_stop = ContextVar("docker_inspection_stop", default=None)
@@ -233,7 +233,10 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
         "--env", "HOME=/home/node", "--env", "OPENCODE_SERVER_USERNAME=workbench",
         "--env", "OPENCODE_SERVER_PASSWORD",
     ]
-    if run_as_root: command += ["--cap-add", "DAC_OVERRIDE"]
+    if run_as_root:
+        command += ["--cap-add", "DAC_OVERRIDE"]
+        for key, value in git_safe_environment(workspace, context_mounts or []).items():
+            command += ["--env", key + "=" + value]
     for name in provider_environment:
         command += ["--env", name]  # Pass the name, never the credential value, in argv.
     for name in dependency_environment or {}: command += ["--env", name]
