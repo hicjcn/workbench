@@ -133,24 +133,35 @@ def common_inventory(repo, names, executable=None):
     return entries
 
 
-def capture(repo, value):
-    from .workspace import snapshot as single_snapshot
-    names = [item['path'] for item in value['repositories']]
-    common_modes = {item['path']: item.get('executable', False) for item in value.get('common_baseline', [])}
-    files = common_inventory(repo, names, common_modes)
+def combine(value, common, snapshots):
+    """Compose the existing public digest format from independently verified trees."""
+    files = list(common)
     repositories = []
     for item in value['repositories']:
-        current = single_snapshot(safe_path(repo, item['path']), single_repository=True)
+        current = snapshots[item['path']]
         repositories.append({'path': item['path'], 'source_commit': item['source_commit'], 'commit_sha': current['commit_sha'],
             'tree_digest': current['tree_digest'], 'file_count': len(current['files']),
             'changed': current['tree_digest'] != item['baseline']['tree_digest']})
         files.extend({**entry, 'path': item['path'] + '/' + entry['path']} for entry in current['files'])
     files.sort(key=lambda item: item['path'])
-    if sum(safe_path(repo, item['path']).stat().st_size for item in files) > LIMIT:
-        raise WorkbenchError("多仓库源码合计超过 100 MiB 限制")
     tree = hashlib.sha256(json.dumps(files, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     heads = [(item['path'], item['commit_sha']) for item in repositories]
     return {'commit_sha': hashlib.sha256(json.dumps(heads).encode()).hexdigest(), 'tree_digest': tree, 'files': files, 'repositories': repositories}
+
+
+def capture(repo, value):
+    from .workspace import inventory
+    names = [item['path'] for item in value['repositories']]
+    common_modes = {item['path']: item.get('executable', False) for item in value.get('common_baseline', [])}
+    common = common_inventory(repo, names, common_modes)
+    snapshots = {}
+    for item in value['repositories']:
+        child = safe_path(repo, item['path'])
+        snapshots[item['path']] = {**inventory(child), 'commit_sha': git(child, 'rev-parse', 'HEAD').decode().strip()}
+    result = combine(value, common, snapshots)
+    if sum(safe_path(repo, item['path']).stat().st_size for item in result['files']) > LIMIT:
+        raise WorkbenchError("多仓库源码合计超过 100 MiB 限制")
+    return result
 
 
 def snapshot(repo, value):
@@ -161,10 +172,12 @@ def snapshot(repo, value):
 
 def create(source, root, requirement, project, *, repositories, shared_files, include_dirty=False, include_untracked=False):
     from .workspace import create_workspace
+    from . import logging_support as logs
     existing = layout(source)
     if existing:
         repositories = [item['path'] for item in existing['repositories']]
-        before = snapshot(source, existing)
+        with logs.operation('workspace', 'source.multi_snapshot', '核对多仓库副本来源'):
+            before = snapshot(source, existing)
         shared_files = [item['path'] for item in common_inventory(source, repositories,
             {item['path']: item.get('executable', False) for item in existing.get('common_baseline', [])})]
     else:
@@ -174,7 +187,8 @@ def create(source, root, requirement, project, *, repositories, shared_files, in
     destination = safe_path(root, f'{requirement}/{project}')
     if destination.exists(): raise WorkbenchError("Workspace already exists; it will not be overwritten")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = Path(tempfile.mkdtemp(prefix=f'.{project}-', dir=destination.parent))
+    temporary_root = tempfile.TemporaryDirectory(prefix=f'.{project}-', dir=destination.parent, ignore_cleanup_errors=True)
+    temporary = Path(temporary_root.name)
     staging = None
     try:
         # Keep the inner Git export out of the deeply nested requirement path.
@@ -184,8 +198,8 @@ def create(source, root, requirement, project, *, repositories, shared_files, in
         value = {'schema_version': 2, 'layout': 'multi-repo/v1', 'requirement': requirement, 'project': project,
             'repo': str(destination / 'repo'), 'source_history': 'independent_snapshot_exports', 'repositories': [],
             'include_dirty': include_dirty, 'include_untracked': include_untracked}
+        copied_snapshots, baselines = {}, {}
         for index, name in enumerate(repositories):
-            from . import logging_support as logs
             logs.event("workspace", "source.repository", "正在复制子仓库", detailed=True, repository=name, count=index+1, total=len(repositories))
             try:
                 copied = create_workspace(safe_path(source, name), Path(staging.name), requirement, f'repository_{index}',
@@ -194,6 +208,7 @@ def create(source, root, requirement, project, *, repositories, shared_files, in
                 raise WorkbenchError(f"复制子仓库 {name} 失败：{error}") from error
             child = Path(copied['workspace'])
             manifest = json.loads((child / 'workspace.json').read_text(encoding='utf-8'))
+            copied_snapshots[name], baselines[name] = copied['snapshot'], manifest['source_baseline']
             if manifest['source_commit'] != source_heads[name]: raise WorkbenchError('来源仓库在准备期间切换了提交，请重试')
             target = safe_path(repo, name); target.parent.mkdir(parents=True, exist_ok=True)
             try: (child / 'repo').rename(target)
@@ -216,29 +231,25 @@ def create(source, root, requirement, project, *, repositories, shared_files, in
         value['common_baseline'] = common_inventory(repo, repositories,
             {item['path']: item.get('executable', False) for item in existing.get('common_baseline', [])} if existing else None)
         write_json(temporary / 'workspace.json', value)
-        value['source_baseline'] = snapshot(repo, value)
-        # The source baseline must be the committed copies, not a dirty overlay.
-        if include_dirty:
-            initial_files = [*value['common_baseline']]
-            for item in value['repositories']:
-                initial_files.extend({**entry, 'path': item['path'] + '/' + entry['path']} for entry in item['baseline']['files'])
-            initial_files.sort(key=lambda item: item['path'])
-            value['source_baseline']['files'] = initial_files
-            value['source_baseline']['tree_digest'] = hashlib.sha256(json.dumps(initial_files, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-            for item, baseline in zip(value['source_baseline']['repositories'], value['repositories']):
-                item.update(tree_digest=baseline['baseline']['tree_digest'], changed=False, file_count=len(baseline['baseline']['files']))
+        # Each private child was already verified before moving it here. Keep its
+        # committed baseline separate from dirty contents without rescanning both.
+        value['source_baseline'] = combine(value, value['common_baseline'], baselines)
         value['source_commit'] = value['source_baseline']['commit_sha']
         write_json(temporary / 'workspace.json', value)
+        with logs.operation('workspace', 'source.verify_copy', '核对已复制的多仓库源码'):
+            observed = capture(repo, value)
+            expected = combine(value, value['common_baseline'], copied_snapshots)
+            if observed != expected: raise WorkbenchError('多仓库副本与已核实的源码不一致')
         if before and snapshot(source, existing) != before: raise WorkbenchError("来源多仓库工作区在复制期间变化")
         if any(git(safe_path(source, name), 'rev-parse', 'HEAD').decode().strip() != sha for name, sha in source_heads.items()):
             raise WorkbenchError('来源仓库在准备期间切换了提交，请重试')
         temporary.rename(destination)
-        return {'workspace': str(destination), 'source_commit': value['source_commit'], 'snapshot': snapshot(destination / 'repo', value)}
-    except BaseException:
-        shutil.rmtree(temporary, ignore_errors=True)
-        raise
+        return {'workspace': str(destination), 'source_commit': value['source_commit'], 'snapshot': observed}
     finally:
-        if staging: staging.cleanup()
+        try:
+            if staging: staging.cleanup()
+        finally:
+            temporary_root.cleanup()
 
 
 def diff(workspace, *, repository=None):

@@ -76,6 +76,8 @@ notepad workbench.toml
 
 日志默认使用精简模式。在已有 `[workbench]` 下设置 `log_mode = "detailed"`，重启后即可查看内部步骤、耗时和等待状态；`log_mode = "concise"` 保留关键进度和结果。也可使用环境变量 `AWB_LOG_MODE` 覆盖。日志包含时间、组件、步骤和任务/需求 ID，页面执行日志显示当前阶段。配置、文件位置与排查方法见[日志模式与执行进度](docs/33-progress-logging.md)。
 
+预检、分析和评审创建独立副本时，会保留已提交基线并只覆盖实际变化的文件；多仓库复用已核实的子仓库基线，Windows 批量处理可执行位。副本创建较慢时，可根据[源码副本性能与阶段计时](docs/34-source-copy-performance.md)定位具体阶段并运行样例对比。
+
 `setup.cmd` 安装虚拟环境依赖、构建页面和基础镜像；未复制配置时会创建默认文件，已有文件不会覆盖。`start.cmd` 在后台启动同一配置的 API 和 Runner，通过认证的就绪检查后打开浏览器。日常操作：
 
 ```powershell
