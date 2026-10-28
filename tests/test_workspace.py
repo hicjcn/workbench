@@ -194,7 +194,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIn("readonly", next(value for value in run.args if "dst=/mnt/data" in value))
 
     def test_root_runtime_initializes_bash_without_relaxing_readonly_mounts(self):
-        from agent_workbench.container_shell import shell_argv
+        from agent_workbench.agent_service import launch_argv
         from agent_workbench.platform_support import container_ids
         workspace = self.create().parent
         def docker(*args, **kwargs):
@@ -212,9 +212,13 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIn("GIT_CONFIG_VALUE_1=/workspace/project", args)
         self.assertIn("--read-only", args)
         self.assertIn("readonly", next(value for value in args if "dst=/workspace/project" in value))
-        self.assertEqual(list(args[args.index("fixture-image") + 1:]),
-            shell_argv(["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"], root=True)[1:])
-        self.assertTrue(json.loads((workspace / "runtime.json").read_text())["run_as_root"])
+        self.assertEqual(args[-1], "fixture-image")
+        state = json.loads((workspace / "runtime.json").read_text())
+        launched = next(call.args for call in calls.call_args_list if call.args[:2] == ("exec", "--detach"))
+        self.assertEqual(list(launched[3:]), launch_argv(
+            ["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"],
+            directory=state["agent_service"]["directory"], root=True))
+        self.assertTrue(state["run_as_root"])
 
     def test_opencode_free_model_overwrites_persisted_config_without_forwarding_credentials(self):
         workspace = self.create().parent

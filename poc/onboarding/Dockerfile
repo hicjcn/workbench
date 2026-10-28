@@ -6,5 +6,6 @@ FROM agent-workbench-m1:local
 RUN node --version && git --version && opencode --version
 LABEL org.agent-workbench.sample-profile="node"
 
-# Keep the inherited non-root user, working directory and OpenCode server command.
+# Keep the inherited non-root user, working directory and container keepalive.
+# Workbench starts the pinned Agent CLI separately after the container starts.
 # Application source and configuration are supplied as independent workspace mounts.

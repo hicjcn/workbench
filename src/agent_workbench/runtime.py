@@ -19,10 +19,15 @@ from . import locking
 from . import logging_support as logs
 from .opencode import OpenCodeClient
 from .platform_support import bind_mount, container_ids, container_user, docker_argv, docker_environment
-from .container_shell import git_safe_environment, shell_argv
+from .container_shell import git_safe_environment
+from . import agent_service
 from .workspace import WorkbenchError, load_workspace, safe_path, write_json
 
 _inspection_stop = ContextVar("docker_inspection_stop", default=None)
+
+
+class AgentServiceStopped(WorkbenchError):
+    """A terminated service cannot become ready by retrying its HTTP endpoint."""
 
 
 @contextmanager
@@ -212,14 +217,14 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     staging.mkdir(exist_ok=True)
     password = secrets.token_urlsafe(32)
     state = {"container": container, "network": network, "password": password,
-             "phase": "PREPARING", "image": image, "run_as_root": run_as_root, "serve_argv": serve_argv}
+             "phase": "PREPARING", "image": image, "run_as_root": run_as_root, "serve_argv": serve_argv,
+             "agent_service": {"directory": "/tmp/awb-agent-" + secrets.token_hex(8)}}
     if port_mappings: state["port_mappings"] = port_mappings
     if agent_cli: state["agent_cli"] = agent_cli
     if context_mounts: state["context_paths"] = [item["target"] for item in context_mounts]
     write_json(workspace / "runtime.json", state, private=True)
     command = [
-        "run", "--detach", "--name", container,
-        "--entrypoint=/bin/bash",
+        "run", "--detach", "--init", "--name", container,
         "--label", "awb.managed=true", "--label", f"awb.workspace={suffix}",
         "--label", "awb.kind=agent",
         "--network", network, "--user", f"0:{container_ids()[1]}" if run_as_root else container_user(),
@@ -257,19 +262,28 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
                     "--env", "NODE_EXTRA_CA_CERTS=/run/proxy-ca.pem",
                     "--env", "SSL_CERT_FILE=/run/proxy-ca.pem",
                     "--env", "GIT_SSL_CAINFO=/run/proxy-ca.pem"]
-    command += [image, *shell_argv(serve_argv, root=run_as_root)[1:]]
+    # Keep the image's ENTRYPOINT/CMD (for example code-server). Agent selection
+    # belongs to the pinned workspace configuration, not to the Dockerfile.
+    command += [image]
     try:
         try:
             docker(*command, environment={**(profile_environment or {}), "OPENCODE_SERVER_PASSWORD": password, **provider_environment, **(dependency_environment or {})})
+            if dependency_network: docker("network", "connect", dependency_network, container)
+            published = docker("port", container, "4096/tcp", check=False)
+            address = published.stdout.strip()
+            if published.returncode or not address.startswith("127.0.0.1:"):
+                details = docker("inspect", container, check=False)
+                observed = json.loads(details.stdout)[0].get("State", {}) if details.returncode == 0 else {}
+                raise WorkbenchError("Agent 控制端口 4096/tcp 未发布到宿主回环地址；"
+                    f"容器状态 {observed.get('Status', 'unknown')}；退出码 {observed.get('ExitCode', 'unknown')}。"
+                    "请检查镜像默认入口是否保持运行及容器启动日志。")
+            docker("exec", "--detach", container,
+                *agent_service.launch_argv(serve_argv, directory=state["agent_service"]["directory"], root=run_as_root))
         except WorkbenchError as error:
             hint = ""
             if "executable file not found" in str(error) or "no such file or directory" in str(error):
                 hint = " 请检查镜像是否提供 /bin/bash、初始化文件是否可读，以及程序是否安装在初始化后的 PATH 中，或使用容器内绝对路径。/root/.nvm 等 root 安装需要启用 root 运行模式；命令参数不会展开 Shell 变量，独立 Agent HOME 仍位于 /home/node。"
             raise WorkbenchError(f"Agent CLI「{agent_cli['name'] if agent_cli else 'OpenCode（内置）'}」启动失败；程序：{serve_argv[0]}；镜像：{image}；实际命令：{shlex.join(serve_argv)}。{error}{hint}") from None
-        if dependency_network: docker("network", "connect", dependency_network, container)
-        address = docker("port", container, "4096/tcp").stdout.strip()
-        if not address.startswith("127.0.0.1:"):
-            raise WorkbenchError("OpenCode port was not bound to loopback")
         state.update({"phase": "STARTED", "base_url": f"http://{address}"})
         write_json(workspace / "runtime.json", state, private=True)
         return {**{key: state[key] for key in ("container", "network", "phase", "base_url", "image")}, "port_mappings": state.get("port_mappings", [])}
@@ -280,15 +294,42 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
         raise
 
 
+def service_status(state, *, details=None, logs=False):
+    """Read the CLI process, independently of a still-running editor process.
+
+    Old journals describe CLI-as-PID-1 containers and keep their original probe
+    behavior until explicitly stopped and restarted.
+    """
+    service = state.get("agent_service")
+    if not service: return {}
+    if details is None:
+        details = json.loads(docker("inspect", state["container"]).stdout)[0]
+    if details.get("State", {}).get("Status") != "running":
+        return {"agent_status": "unavailable", "agent_exit_code": None}
+    result = docker("exec", state["container"],
+        *agent_service.status_argv(service["directory"], logs=logs), check=False, timeout=10)
+    if result.returncode:
+        raise WorkbenchError("无法查询容器内 Agent 服务状态，请检查容器是否仍在运行")
+    return agent_service.parse_status(result.stdout, logs=logs)
+
+
 def probe(workspace: Path) -> dict:
     workspace, _ = load_workspace(workspace)
     state = json.loads((workspace / "runtime.json").read_text(encoding="utf-8"))
     if state.get("phase") != "STARTED":
         raise WorkbenchError("Runtime is not ready for capability probing")
+    details = json.loads(docker("inspect", state["container"]).stdout)[0]
+    service = service_status(state, details=details)
+    if service and service["agent_status"] != "running":
+        cli = state.get("agent_cli") or {"name": "OpenCode（内置）"}
+        # A child can disappear just before its supervisor commits the exit
+        # record. Retry that brief unknown state instead of losing its code.
+        error = WorkbenchError if service["agent_status"] in ("starting", "unknown") else AgentServiceStopped
+        raise error(f"Agent CLI「{cli['name']}」服务未运行（状态 {service['agent_status']}；"
+            f"退出码 {service.get('agent_exit_code')}）；实际命令：{shlex.join(state['serve_argv'])}")
     report = OpenCodeClient(state["base_url"], state["password"]).probe()
     if state.get("agent_cli"):
         report["agent_cli"] = {key: state["agent_cli"][key] for key in ("id", "name", "number", "content_digest")}
-    details = json.loads(docker("inspect", state["container"]).stdout)[0]
     mounts = details["Mounts"]
     report["runtime"] = {
         "image_id": details["Image"], "user": details["Config"]["User"],

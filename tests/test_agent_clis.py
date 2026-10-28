@@ -123,7 +123,7 @@ class AgentCliTests(ControlFixture):
         inherited = json.loads((target/"workspace.json").read_text())
         self.assertEqual(inherited["agent_cli"]["id"], selected["id"]); self.assertNotIn("runtime_profile", inherited)
 
-    def test_runtime_uses_manifest_cli_and_overrides_image_entrypoint(self):
+    def test_runtime_preserves_image_startup_and_launches_manifest_cli_separately(self):
         selected = self.save(); req = self.prepared_with(selected); workspace = Path(req['workspace']['path'])
         def docker(*args, **options):
             if args[:2] == ('network','inspect'):
@@ -132,13 +132,19 @@ class AgentCliTests(ControlFixture):
         with patch('agent_workbench.runtime.docker',side_effect=docker) as calls:
             runtime.start(workspace,'wrapper:fixture',opencode_model=self.settings.model)
         args = next(call.args for call in calls.call_args_list if call.args[0]=='run')
-        from agent_workbench.container_shell import shell_argv
-        self.assertIn('--entrypoint=/bin/bash',args)
-        self.assertNotIn('--entrypoint=',args)
-        self.assertEqual(list(args[args.index('wrapper:fixture')+1:]),shell_argv(agent_clis.command(selected,'serve'))[1:])
-        self.assertEqual(json.loads((workspace/'runtime.json').read_text())['agent_cli']['id'],selected['id'])
+        from agent_workbench.agent_service import launch_argv
+        self.assertFalse(any(arg.startswith('--entrypoint') for arg in args))
+        self.assertEqual(args[-1], 'wrapper:fixture')
+        launched = next(call.args for call in calls.call_args_list if call.args[:2] == ('exec', '--detach'))
+        state = json.loads((workspace/'runtime.json').read_text())
+        self.assertEqual(launched[2], state['container'])
+        self.assertEqual(list(launched[3:]), launch_argv(agent_clis.command(selected, 'serve'), directory=state['agent_service']['directory']))
+        self.assertLess(calls.call_args_list.index(next(call for call in calls.call_args_list if call.args == args)),
+                        calls.call_args_list.index(next(call for call in calls.call_args_list if call.args == launched)))
+        self.assertEqual(state['agent_cli']['id'], selected['id'])
+        self.assertIn('agent_service', state)
 
-    def test_runtime_absolute_cli_path_is_one_entrypoint_argument(self):
+    def test_runtime_absolute_cli_path_is_one_exec_argument(self):
         selected = self.save(content=Content(serve_command='/opt/team/bin/team-code serve --hostname {host} --port {port}').model_dump())
         req = self.prepared_with(selected); workspace = Path(req['workspace']['path'])
         def docker(*args, **options):
@@ -147,22 +153,68 @@ class AgentCliTests(ControlFixture):
         with patch('agent_workbench.runtime.docker',side_effect=docker) as calls:
             runtime.start(workspace,'wrapper:fixture')
         args = next(call.args for call in calls.call_args_list if call.args[0]=='run')
-        from agent_workbench.container_shell import shell_argv
-        self.assertIn('--entrypoint=/bin/bash',args)
-        self.assertEqual(list(args[args.index('wrapper:fixture')+1:]),shell_argv(['/opt/team/bin/team-code','serve','--hostname','0.0.0.0','--port','4096'])[1:])
+        from agent_workbench.agent_service import launch_argv
+        self.assertEqual(args[-1], 'wrapper:fixture')
+        launched = next(call.args for call in calls.call_args_list if call.args[:2] == ('exec', '--detach'))
+        state = json.loads((workspace/'runtime.json').read_text())
+        self.assertEqual(list(launched[3:]), launch_argv(['/opt/team/bin/team-code','serve','--hostname','0.0.0.0','--port','4096'], directory=state['agent_service']['directory']))
+        self.assertEqual(launched.count('/opt/team/bin/team-code'), 1)
 
     def test_missing_cli_error_identifies_pinned_command_and_retains_runtime_journal(self):
         selected = self.save(); req = self.prepared_with(selected); workspace = Path(req['workspace']['path'])
         def docker(*args, **options):
             if args[:2] == ('network','inspect'): return subprocess.CompletedProcess([],1,'','missing')
-            if args[0] == 'run': raise WorkbenchError('exec: "team-code": executable file not found in $PATH')
-            return subprocess.CompletedProcess([],0,'','')
+            if args[:2] == ('exec', '--detach'): raise WorkbenchError('exec: "team-code": executable file not found in $PATH')
+            return subprocess.CompletedProcess([],0,'127.0.0.1:4096\n' if args[0]=='port' else '','')
         with patch('agent_workbench.runtime.docker',side_effect=docker):
             with self.assertRaises(WorkbenchError) as failure: runtime.start(workspace,'wrapper:fixture')
         message = str(failure.exception)
         for expected in ('团队封装','team-code serve','wrapper:fixture','绝对路径','/home/node','executable file not found'):
             self.assertIn(expected,message)
         self.assertEqual(json.loads((workspace/'runtime.json').read_text())['phase'],'NEEDS_RECONCILIATION')
+
+    def test_missing_published_port_reports_container_exit_and_pinned_cli(self):
+        selected = self.save(); req = self.prepared_with(selected); workspace = Path(req['workspace']['path'])
+        def docker(*args, **options):
+            if args[:2] == ('network', 'inspect'):
+                return subprocess.CompletedProcess([], 1, '', 'missing')
+            if args[0] == 'port':
+                return subprocess.CompletedProcess([], 1, '', 'no public port 4096/tcp published')
+            if args[0] == 'inspect':
+                return subprocess.CompletedProcess([], 0, json.dumps([{
+                    'State': {'Status': 'exited', 'Running': False, 'ExitCode': 7, 'Error': 'image startup failed'},
+                    'Config': {},
+                }]), '')
+            if args[0] == 'logs':
+                return subprocess.CompletedProcess([], 0, 'code-server startup failed', '')
+            return subprocess.CompletedProcess([], 0, '', '')
+        with patch('agent_workbench.runtime.docker', side_effect=docker) as calls:
+            with self.assertRaises(WorkbenchError) as failure:
+                runtime.start(workspace, 'wrapper:fixture')
+        message = str(failure.exception)
+        for expected in ('团队封装', 'team-code serve', '4096', 'exited', '7'):
+            self.assertIn(expected, message)
+        self.assertEqual(json.loads((workspace/'runtime.json').read_text())['phase'], 'NEEDS_RECONCILIATION')
+        self.assertFalse(any(call.args[:2] == ('exec', '--detach') for call in calls.call_args_list))
+
+    def test_agent_exit_is_not_masked_by_running_code_server_or_healthy_control_endpoint(self):
+        selected = self.save(); req = self.prepared_with(selected); workspace = Path(req['workspace']['path'])
+        state = {'container': 'fixture-code-server', 'phase': 'STARTED', 'agent_cli': selected,
+                 'serve_argv': agent_clis.command(selected, 'serve'), 'base_url': 'http://127.0.0.1:4096',
+                 'password': 'fixture-password', 'agent_service': {'directory': '/tmp/awb-agent-fixture'}}
+        write_json(workspace/'runtime.json', state, private=True)
+        details = {'State': {'Status': 'running', 'Running': True, 'ExitCode': 0}, 'Config': {}, 'Mounts': []}
+        observed = {'agent_status': 'exited', 'agent_exit_code': 7, 'log_tail': 'wrapper failed to start'}
+        with patch('agent_workbench.runtime.docker', return_value=subprocess.CompletedProcess([], 0, json.dumps([details]), '')), \
+                patch('agent_workbench.runtime.service_status', return_value=observed) as status, \
+                patch('agent_workbench.runtime.OpenCodeClient') as client:
+            client.return_value.probe.return_value = {'health': {'healthy': True}}
+            with self.assertRaises(WorkbenchError) as failure:
+                runtime.probe(workspace)
+        self.assertTrue(status.called)
+        client.return_value.probe.assert_not_called()
+        for expected in ('团队封装', 'team-code serve', '7'):
+            self.assertIn(expected, str(failure.exception))
 
     def test_runtime_rejects_cli_conflicting_with_manifest_before_docker(self):
         selected = self.save(); req = self.prepared_with(selected); workspace = Path(req['workspace']['path'])
