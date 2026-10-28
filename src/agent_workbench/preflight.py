@@ -9,6 +9,7 @@ from .platform_support import is_link
 from . import runtime
 from .execution import Canceled, Unknown
 from .profiles import command, inherit
+from .container_shell import shell_argv
 from .workspace import WorkbenchError, create_workspace, snapshot, write_json
 from . import logging_support as logs
 
@@ -36,7 +37,7 @@ function version(args) { const result = spawnSync(args[0], args.slice(1), {encod
 if (!Array.isArray(config.version_argv) || !config.version_argv.length) throw new Error('Missing configured Agent CLI version command');
 const commands = Object.entries(config.commands).map(([name, argv]) => ({name, argv, available:!argv.length || spawnSync('sh',['-c','command -v "$1"','awb',argv[0]],{encoding:'utf8',timeout:5000,cwd:config.repository_paths?.[name]}).status===0}));
 const mounts = config.mounts.map(target => ({target, readable: (()=>{try { fs.accessSync(target,fs.constants.R_OK); return true;}catch{return false;}})()}));
-console.log(JSON.stringify({node:version(['node','--version']),git:version(['git','--version']),agent_cli:version(config.version_argv),commands,mounts}));
+console.log(JSON.stringify({node:version(['node','--version']),git:version(['git','--version']),agent_cli:version(config.version_argv),commands,mounts,no_database_credentials:!process.env.PGPASSWORD}));
 '''
 
 
@@ -51,8 +52,10 @@ def startup_diagnostics(executor, workspace, *, logs=False):
     diagnostic = {"container_status": observed.get("Status"), "exit_code": observed.get("ExitCode"), "container_error": observed.get("Error", "")}
     config = details.get("Config") or {}
     environment = dict(item.split("=", 1) for item in config.get("Env") or [] if "=" in item)
+    configured = state.get("serve_argv") or [details.get("Path") or ""]
     diagnostic.update(container_path=environment.get("PATH", "")[:4000], container_home=environment.get("HOME", "")[:2000],
-        container_user=config.get("User", "")[:200], executable=(details.get("Path") or "")[:2000])
+        container_user=config.get("User", "")[:200], executable=configured[0][:2000],
+        launcher=(details.get("Path") or "")[:2000])
     if logs:
         output = runtime.docker("logs", "--tail", "40", state["container"], check=False, timeout=10)
         diagnostic["log_tail"] = (output.stdout + "\n" + output.stderr)[-8000:]
@@ -140,7 +143,8 @@ def execute(executor, job, workspace, emit, canceled):
                     config['repository_paths'][key] = '/workspace/project/' + item['path']
         config["version_argv"] = version_argv
         if profile["content"].get("application"): config["commands"]["application"] = command(profile["content"]["application"]["start_command"])
-        result = runtime.docker("exec", state["container"], "node", "-e", CHECK_SCRIPT, json.dumps(config))
+        result = runtime.docker("exec", state["container"],
+            *shell_argv(["node", "-e", CHECK_SCRIPT, json.dumps(config)], root=state.get("run_as_root", False)))
         tools = executor.redact_payload(json.loads(result.stdout), isolated)
         report["tools"] = tools; report["capabilities"] = executor.redact_payload(capabilities, isolated)
         checks = {
@@ -153,7 +157,7 @@ def execute(executor, job, workspace, emit, canceled):
             "command_entries": all(item["available"] for item in tools["commands"]),
             "config_mounts": all(item["readable"] for item in tools["mounts"]),
             "readonly_source": capabilities["runtime"]["source_read_only"],
-            "no_database_access": not any(value.startswith("PGPASSWORD=") for value in details["Config"].get("Env", [])) and not any(name.startswith("awb-data-") for name in details.get("NetworkSettings", {}).get("Networks", {})),
+            "no_database_access": tools.get("no_database_credentials") is True and not any(value.startswith("PGPASSWORD=") for value in details["Config"].get("Env", [])) and not any(name.startswith("awb-data-") for name in details.get("NetworkSettings", {}).get("Networks", {})),
             "source_unchanged": snapshot(workspace / "repo") == original and snapshot(isolated / "repo")["tree_digest"] == original["tree_digest"],
         }
         report["checks"] = [{"name": key, "passed": bool(value)} for key, value in checks.items()]

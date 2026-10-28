@@ -14,6 +14,14 @@ export function RuntimeConfigurationSummary({ detail }: { detail: Detail }) {
   return (
     <>
       <div>
+        <span>运行用户与初始化</span>
+        <code>
+          {content?.run_as_root
+            ? "root · source /root/.bashrc"
+            : "普通用户 · HOME/.bashrc（可读时）"}
+        </code>
+      </div>
+      <div>
         <span>环境变量</span>
         <code>
           {Object.keys(content?.environment ?? {}).join("、") || "未配置"}

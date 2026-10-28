@@ -140,7 +140,8 @@ def execute(executor, job, emit, canceled):
         emit("panorama", {"text": f"准备 {len(bundle)} 个项目的只读源码副本，不接入开发数据库或配置文件"})
         ca = Path(os.environ["CODEX_PROXY_CERT"]) if os.environ.get("CODEX_PROXY_CERT") else None
         limits = {key: profile["content"][key] for key in ("cpus", "memory_mib", "pids_limit")} if profile else {"cpus": 1, "memory_mib": 1536, "pids_limit": 256}
-        executor.start_runtime(primary, image, ca, read_only_source=True, context_mounts=mounts, limits=limits, **options)
+        executor.start_runtime(primary, image, ca, read_only_source=True, context_mounts=mounts, limits=limits,
+            run_as_root=bool(profile and profile["content"].get("run_as_root", False)), **options)
         deadline = time.monotonic() + 90
         while True:
             if canceled.is_set(): raise Canceled("全景分析已取消")
@@ -152,7 +153,9 @@ def execute(executor, job, emit, canceled):
         state = json.loads((primary / "runtime.json").read_text(encoding="utf-8"))
         inspected = json.loads(runtime.docker("inspect", state["container"]).stdout)[0]
         probes = [{"project_id": item["project_id"], "target": item["target"], "samples": [file for file in item["files"] if len(file["path"].encode()) <= 512][:3]} for item in bundle]
-        checked = json.loads(runtime.docker("exec", state["container"], "node", "-e", CHECK_SCRIPT, json.dumps(probes)).stdout)
+        from .container_shell import shell_argv
+        checked = json.loads(runtime.docker("exec", state["container"],
+            *shell_argv(["node", "-e", CHECK_SCRIPT, json.dumps(probes)], root=state.get("run_as_root", False))).stdout)
         expected_targets = {item["target"] for item in bundle} | {"/workspace/project"}
         mounted = {item["Destination"] for item in inspected["Mounts"] if not item["RW"]}
         if not expected_targets.issubset(mounted) or not checked["no_database_credentials"] or any(not p["readonly"] or not p["readable"] or not p["samples_match"] for p in checked["projects"]):

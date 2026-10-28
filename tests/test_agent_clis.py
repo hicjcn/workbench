@@ -132,10 +132,10 @@ class AgentCliTests(ControlFixture):
         with patch('agent_workbench.runtime.docker',side_effect=docker) as calls:
             runtime.start(workspace,'wrapper:fixture',opencode_model=self.settings.model)
         args = next(call.args for call in calls.call_args_list if call.args[0]=='run')
-        self.assertIn('--entrypoint=team-code',args)
-        self.assertNotIn('',args)
-        self.assertNotIn('""',subprocess.list2cmdline(args))
-        self.assertEqual(list(args[args.index('wrapper:fixture')+1:]),agent_clis.command(selected,'serve')[1:])
+        from agent_workbench.container_shell import shell_argv
+        self.assertIn('--entrypoint=/bin/bash',args)
+        self.assertNotIn('--entrypoint=',args)
+        self.assertEqual(list(args[args.index('wrapper:fixture')+1:]),shell_argv(agent_clis.command(selected,'serve'))[1:])
         self.assertEqual(json.loads((workspace/'runtime.json').read_text())['agent_cli']['id'],selected['id'])
 
     def test_runtime_absolute_cli_path_is_one_entrypoint_argument(self):
@@ -147,8 +147,9 @@ class AgentCliTests(ControlFixture):
         with patch('agent_workbench.runtime.docker',side_effect=docker) as calls:
             runtime.start(workspace,'wrapper:fixture')
         args = next(call.args for call in calls.call_args_list if call.args[0]=='run')
-        self.assertIn('--entrypoint=/opt/team/bin/team-code',args)
-        self.assertEqual(list(args[args.index('wrapper:fixture')+1:]),['serve','--hostname','0.0.0.0','--port','4096'])
+        from agent_workbench.container_shell import shell_argv
+        self.assertIn('--entrypoint=/bin/bash',args)
+        self.assertEqual(list(args[args.index('wrapper:fixture')+1:]),shell_argv(['/opt/team/bin/team-code','serve','--hostname','0.0.0.0','--port','4096'])[1:])
 
     def test_missing_cli_error_identifies_pinned_command_and_retains_runtime_journal(self):
         selected = self.save(); req = self.prepared_with(selected); workspace = Path(req['workspace']['path'])
@@ -174,7 +175,7 @@ class AgentCliTests(ControlFixture):
     def test_task_uses_wrapper_command_redacts_custom_credential_and_records_source(self):
         selected = self.save(); req = self.prepared_with(selected); workspace = Path(req["workspace"]["path"])
         config = workspace/"agent-home/.config/opencode"; config.mkdir(parents=True); write_json(config/"opencode.json", runtime.model_config(self.settings.model))
-        write_json(workspace/"runtime.json", {"container": "controlled-fixture", "agent_cli": selected})
+        write_json(workspace/"runtime.json", {"container": "controlled-fixture", "agent_cli": selected, "run_as_root": True})
         sink = io.StringIO(); sink.close = lambda: None
         stream = '\n'.join(json.dumps(item) for item in [{"type":"text","part":{"text":"fixture TEAM-PRIVATE-KEY"}}, {"type":"step_finish","part":{"reason":"stop"}}])+'\n'
         process = Mock(stdin=sink, stdout=io.StringIO(stream), stderr=io.StringIO(""), returncode=0); process.poll.return_value=0
@@ -182,7 +183,9 @@ class AgentCliTests(ControlFixture):
         with patch.dict(os.environ, {"TEAM_API_KEY": "TEAM-PRIVATE-KEY"}), patch("agent_workbench.execution.subprocess.Popen", return_value=process) as started, patch.object(self.runner.executor, "observe", return_value={}):
             result = self.runner.executor.task({"agent_cli": selected}, workspace, lambda k,p: events.append((k,p)), threading.Event(), prompt="private task input", collect_text=True)
         args = started.call_args.args[0]
-        self.assertEqual(args[5], "team-code"); self.assertNotIn("private task input", args); self.assertEqual(sink.getvalue(), "private task input")
+        from agent_workbench.container_shell import shell_argv
+        self.assertEqual(args[5:], shell_argv(agent_clis.command(selected, "run", model=self.settings.model), root=True))
+        self.assertNotIn("private task input", args); self.assertEqual(sink.getvalue(), "private task input")
         self.assertNotIn("TEAM-PRIVATE-KEY", json.dumps(events)); self.assertEqual(result["agent_cli"]["id"], selected["id"])
         self.assertEqual([p for k,p in events if k=="model_completion"][0]["agent_cli_id"], selected["id"])
 

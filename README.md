@@ -214,6 +214,7 @@ docker build -t agent-workbench-node:local poc/onboarding
 
 「项目运行配置」采用宽屏分栏弹窗，还可配置：
 
+- `run_as_root`：勾选“以 root 执行容器命令，并先加载 /root/.bashrc”后，以 root 执行业务命令，适用于 CLI 或 Node/NVM 安装在镜像 `/root` 下的情况。配置界面新建或未设置时默认勾选；未修订的旧配置缺少此字段时仍按普通用户运行。取消勾选则使用原容器用户并加载其可读的 `HOME/.bashrc`。
 - `environment`：如 `{"APP_ENV": "development"}`，传入开发和应用容器，变量值随配置保存。模型/CLI 凭据继续使用本机私有配置或已有进程环境。
 - `port_mappings`：如 `[{"container_port": 3000, "host_port": null, "protocol": "tcp", "service": "agent"}]`。宿主端口留空时自动分配，也可指定；均限制在 `workbench.port_range_start` 至 `port_range_end`（默认 `20000–29999`）内，只绑定本机 `127.0.0.1`。`service` 可选开发容器 `agent` 或已启用的应用服务 `application`。
 - `volume_mounts`：如 `[{"source": "D:\\data\\uploads", "target": "/mnt/uploads", "read_only": false}]`，直接挂载现存文件或目录。默认只读，读写挂载会将修改写回宿主机。原有 `mounts` 仍将普通配置文件复制并固定摘要，以只读方式挂载到 `/run/workbench-config/`。
@@ -241,6 +242,8 @@ docker build -t agent-workbench-node:local poc/onboarding
 
 3. 保存任务超时、可选的精确版本输出及所需凭据**变量名**，设为新工作区默认，或在「项目运行配置」选定具体版本。
 4. 创建新工作区，或停止已有环境后同步最新配置，再执行预检并验证实际任务。管理页面只保存配置，不会自动安装 CLI。
+
+运行镜像需要包含 `/bin/bash`。root 模式在每次业务命令前加载 `/root/.bashrc`，初始化期间使用 `HOME=/root`，执行命令时恢复该需求的独立 `HOME=/home/node`；镜像中的 `/root` 和 NVM 程序不会被 Agent HOME 挂载遮住。CLI 服务与任务、构建/验证、Node 预检和应用检查均使用同一初始化机制，初始化输出不混入业务输出；受控 PostgreSQL 命令保持独立。root 模式下 `/root/.bashrc` 缺失或不可读会明确报错。更改运行用户后需保存新配置版本，并停止、同步已有需求后生效。
 
 当前支持 OpenCode 兼容 HTTP API、认证、标准输入和 JSONL 事件格式。其他协议的 CLI 需要单独适配，详见 [Agent CLI 接入](docs/26-agent-cli.md)。如报 `executable file not found in $PATH`，请查看预检启动诊断中的容器 PATH，并核对程序的容器内路径；处理步骤见[封装 CLI 镜像预检](docs/32-wrapper-cli-preflight.md#镜像找不到-cli-时如何处理)。
 

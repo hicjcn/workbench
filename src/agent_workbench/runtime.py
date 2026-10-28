@@ -18,7 +18,8 @@ import time
 from . import locking
 from . import logging_support as logs
 from .opencode import OpenCodeClient
-from .platform_support import bind_mount, container_user, docker_argv, docker_environment
+from .platform_support import bind_mount, container_ids, container_user, docker_argv, docker_environment
+from .container_shell import git_safe_environment, shell_argv
 from .workspace import WorkbenchError, load_workspace, safe_path, write_json
 
 _inspection_stop = ContextVar("docker_inspection_stop", default=None)
@@ -151,7 +152,8 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
           openrouter_model: str | None = None, opencode_model: str | None = None, read_only_source: bool = False, controller: str | None = None,
           limits: dict | None = None, config_mounts: list | None = None,
           dependency_network: str | None = None, dependency_environment: dict | None = None, context_mounts: list | None = None, agent_cli: dict | None = None,
-          volume_mounts: list | None = None, profile_environment: dict | None = None, port_mappings: list | None = None) -> dict:
+          volume_mounts: list | None = None, profile_environment: dict | None = None, port_mappings: list | None = None,
+          run_as_root: bool = False) -> dict:
     workspace, manifest = load_workspace(workspace)
     fixed_cli = manifest.get("agent_cli")
     if agent_cli is None:
@@ -210,17 +212,17 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     staging.mkdir(exist_ok=True)
     password = secrets.token_urlsafe(32)
     state = {"container": container, "network": network, "password": password,
-             "phase": "PREPARING", "image": image}
+             "phase": "PREPARING", "image": image, "run_as_root": run_as_root, "serve_argv": serve_argv}
     if port_mappings: state["port_mappings"] = port_mappings
     if agent_cli: state["agent_cli"] = agent_cli
     if context_mounts: state["context_paths"] = [item["target"] for item in context_mounts]
     write_json(workspace / "runtime.json", state, private=True)
     command = [
         "run", "--detach", "--name", container,
-        "--entrypoint=" + serve_argv[0],
+        "--entrypoint=/bin/bash",
         "--label", "awb.managed=true", "--label", f"awb.workspace={suffix}",
         "--label", "awb.kind=agent",
-        "--network", network, "--user", container_user(),
+        "--network", network, "--user", f"0:{container_ids()[1]}" if run_as_root else container_user(),
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m",
         "--cpus", str(limits["cpus"]), "--memory", str(limits["memory_mib"]) + "m", "--pids-limit", str(limits["pids_limit"]),
@@ -231,6 +233,10 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
         "--env", "HOME=/home/node", "--env", "OPENCODE_SERVER_USERNAME=workbench",
         "--env", "OPENCODE_SERVER_PASSWORD",
     ]
+    if run_as_root:
+        command += ["--cap-add", "DAC_OVERRIDE"]
+        for key, value in git_safe_environment(workspace, context_mounts or []).items():
+            command += ["--env", key + "=" + value]
     for name in provider_environment:
         command += ["--env", name]  # Pass the name, never the credential value, in argv.
     for name in dependency_environment or {}: command += ["--env", name]
@@ -251,14 +257,14 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
                     "--env", "NODE_EXTRA_CA_CERTS=/run/proxy-ca.pem",
                     "--env", "SSL_CERT_FILE=/run/proxy-ca.pem",
                     "--env", "GIT_SSL_CAINFO=/run/proxy-ca.pem"]
-    command += [image, *serve_argv[1:]]
+    command += [image, *shell_argv(serve_argv, root=run_as_root)[1:]]
     try:
         try:
             docker(*command, environment={**(profile_environment or {}), "OPENCODE_SERVER_PASSWORD": password, **provider_environment, **(dependency_environment or {})})
         except WorkbenchError as error:
             hint = ""
             if "executable file not found" in str(error) or "no such file or directory" in str(error):
-                hint = " 请检查程序是否安装在镜像 PATH 中，或将 CLI 命令改为容器内的绝对路径；命令不会展开 Shell 变量。镜像默认入口不会执行，/home/node 由独立 Agent HOME 覆盖，请将程序安装到 /opt 或 /usr/local/bin 等目录。"
+                hint = " 请检查镜像是否提供 /bin/bash、初始化文件是否可读，以及程序是否安装在初始化后的 PATH 中，或使用容器内绝对路径。/root/.nvm 等 root 安装需要启用 root 运行模式；命令参数不会展开 Shell 变量，独立 Agent HOME 仍位于 /home/node。"
             raise WorkbenchError(f"Agent CLI「{agent_cli['name'] if agent_cli else 'OpenCode（内置）'}」启动失败；程序：{serve_argv[0]}；镜像：{image}；实际命令：{shlex.join(serve_argv)}。{error}{hint}") from None
         if dependency_network: docker("network", "connect", dependency_network, container)
         address = docker("port", container, "4096/tcp").stdout.strip()
