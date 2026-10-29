@@ -13,7 +13,7 @@ from . import store as tables
 from .workspace import WorkbenchError, load_workspace, safe_path, write_json
 
 JOURNAL = "profile-sync.json"
-REPORTS = ("preflight-report.json", "capability-report.json", "application-report.json")
+REPORTS = ("preflight-report.json", "capability-report.json", "application-report.json", "model-catalog.json")
 
 
 def latest(connection, requirement_id):

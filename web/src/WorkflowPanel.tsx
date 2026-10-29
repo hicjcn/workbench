@@ -4,6 +4,7 @@ import { api, labels, timeLabel } from "./api";
 import type { Detail, Job } from "./api";
 import { Modal } from "./Forms";
 import { workflowPhase } from "./requirementSteps";
+import { WorkflowModelFields } from "./WorkflowModelFields";
 
 type Finding = {
   severity: string;
@@ -39,6 +40,7 @@ export type Flow = {
   next_step: string | null;
   nodes: WorkflowNode[];
   config: {
+    development_model?: string;
     review_models: string[];
     verification_argv: string[];
     repository_verification?: { path: string; argv: string[] }[];
@@ -90,6 +92,7 @@ export function WorkflowPanel({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [modelsReady, setModelsReady] = useState(false);
   const [editing, setEditing] = useState<Revision | null>(null);
   const [archive, setArchive] = useState<
     (Flow & { revision: Revision }) | null
@@ -151,12 +154,13 @@ export function WorkflowPanel({
 
   async function start(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!detail.workspace.snapshot) return;
+    if (!detail.workspace.snapshot || !modelsReady) return;
     const values = new FormData(event.currentTarget);
     setBusy(true);
     setError("");
     try {
       await api(endpoint + "/workflow", {
+        development_model: String(values.get("development-model")).trim(),
         review_models: [
           String(values.get("model-a")).trim(),
           String(values.get("model-b")).trim(),
@@ -238,6 +242,7 @@ export function WorkflowPanel({
             disabled={blocked || !detail.workspace.snapshot}
             onClick={() => {
               if (!starting) {
+                setModelsReady(false);
                 setUseRepositoryCommands(
                   Boolean(detail.profile?.content.repository_commands?.length),
                 );
@@ -258,18 +263,7 @@ export function WorkflowPanel({
       </div>
       {starting && phase === "analysis" ? (
         <form onSubmit={start} className="form-stack flow-start">
-          <label>
-            评审模型 1
-            <input
-              name="model-a"
-              required
-              defaultValue="opencode/glm-5.3-flash-free"
-            />
-          </label>
-          <label>
-            评审模型 2
-            <input name="model-b" required defaultValue="opencode/big-pickle" />
-          </label>
+          <WorkflowModelFields key={endpoint} detail={detail} previous={flow?.config} disabled={blocked} onJob={onJob} onChanged={onChanged} onReadyChange={setModelsReady} />
           <label>
             验证命令
             <input
@@ -295,8 +289,7 @@ export function WorkflowPanel({
             </label>
           )}
           <p className="hint">
-            命令在需求容器中执行，支持带引号参数；不支持管道或重定向。评审模型需不同且显式免费，凭据由本机
-            Runner 配置。
+            命令在需求容器中执行，支持带引号参数；不支持管道或重定向。模型候选来自当前固定 CLI，凭据由本机 Runner 配置。
           </p>
           <label>
             本轮原因
@@ -307,7 +300,7 @@ export function WorkflowPanel({
               maxLength={4000}
             />
           </label>
-          <button className="primary" disabled={blocked}>
+          <button className="primary" disabled={blocked || !modelsReady}>
             保存并开启本轮
           </button>
         </form>

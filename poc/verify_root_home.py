@@ -15,7 +15,6 @@ import httpx
 from agent_workbench import resources, runtime
 from agent_workbench.agent_clis import Content as AgentContent
 from agent_workbench.api import create_app
-from agent_workbench.preflight import SUPERPOWERS
 from agent_workbench.profiles import Content as ProfileContent
 from agent_workbench.runner import Runner
 from agent_workbench.settings import Settings
@@ -90,7 +89,6 @@ def main():
         'RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*\n'
         'COPY --chmod=755 team-code /root/.nvm/bin/team-code\n'
         'COPY root.bashrc /root/.bashrc\n'
-        f'LABEL org.agent-workbench.superpowers-commit="{SUPERPOWERS}"\n'
         'CMD ["sleep", "infinity"]\n', encoding='utf-8')
     source = root / 'source'; source.mkdir()
     (source / 'main.txt').write_text('original\n')

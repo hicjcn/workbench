@@ -244,7 +244,9 @@ class Materials:
             rev = public(connection.execute(select(revisions).where(revisions.c.id == row["revision_id"])).mappings().one())
             flow = describe_flow(connection, parent)
             bundle = {"template": "backend-materials-m4/v1", "code_digest": row["basis_digest"], "requirement_revision": rev,
-                "model": flow["config"]["development_model"], "upstream": {node["key"]: node["output"] for node in flow["nodes"] if node["output"]},
+                "model": flow["config"]["development_model"],
+                **({"model_source": "agent_cli"} if flow["config"].get("model_source") == "agent_cli" else {}),
+                "upstream": {node["key"]: node["output"] for node in flow["nodes"] if node["output"]},
                 "materials": {kind: item for kind, item in state["documents"].items() if item},
                 "supervisor": state["supervisor"], "performance": state["performance"], "feedback": state["feedback_history"]}
             payload = {"round_id": row["id"], "step_key": supplied["step_key"], "request": supplied,

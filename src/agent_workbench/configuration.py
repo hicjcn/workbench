@@ -164,7 +164,7 @@ class Configuration:
         agent_cli = document.get("agent_cli", {})
         if not isinstance(agent_cli, dict):
             raise ConfigurationError("agent_cli 必须是配置表")
-        allowed_agent = {"enabled", "name", "executable", "expected_version", "timeout_seconds", "credential_env", "serve_command", "run_command", "version_command"}
+        allowed_agent = {"enabled", "name", "executable", "expected_version", "timeout_seconds", "credential_env", "serve_command", "run_command", "version_command", "list_models_command"}
         if set(agent_cli) - allowed_agent:
             raise ConfigurationError("agent_cli 包含不支持的字段；凭据值请放在 environment 或进程环境中")
         agent_cli = dict(agent_cli)

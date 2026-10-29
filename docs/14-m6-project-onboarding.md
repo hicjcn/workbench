@@ -68,7 +68,7 @@ Runner 首次准备时解析镜像标签为实际 image ID。以后开发、分�
 预检创建独立只读代码副本、配置副本与 Agent 主目录，启动本机 OpenCode 控制服务，检查：
 
 - 实际镜像与固定 ID 一致，OpenCode 为已验证的 `1.19.4`。
-- Superpowers 镜像版本标签为固定提交 `2ce8aa15d05bd57213e6f746f953aafb7ded7a8b`，已配置且能列出 `using-superpowers` 技能。
+- Superpowers 已配置且能列出 `using-superpowers` 技能；不要求镜像携带特定的版本或提交标签。
 - Node/Git 可用，构建和验证命令的入口程序存在，配置文件可读。
 - 源码挂载只读，原工作区与预检副本的代码摘要一致。
 

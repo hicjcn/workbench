@@ -16,6 +16,7 @@ def apply_preset(configuration, settings):
         content = Content(serve_command=values.get("serve_command", program + " serve --hostname {host} --port {port}"),
             run_command=values.get("run_command", program + " run --attach {endpoint} --model {model} --format json"),
             version_command=values.get("version_command", program + " --version"), expected_version=values.get("expected_version", ""),
+            list_models_command=values.get("list_models_command", program + " models"),
             timeout_seconds=values.get("timeout_seconds", 300), credential_env=values.get("credential_env", [])).model_dump()
         desired = Save(name=values.get("name", program), content=content, actor="启动配置", reason="从统一配置预置新工作区默认 CLI", set_default=True)
     except (ValueError, TypeError):

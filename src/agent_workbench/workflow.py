@@ -146,13 +146,17 @@ class Workflow:
             invalidate_materials(connection, requirement_id)
             return public(value)
 
-    def start(self, requirement_id, models, command, reason, expected_digest, *, use_repository_commands=False):
+    def start(self, requirement_id, models, command, reason, expected_digest, *, use_repository_commands=False, development_model=None):
         if not reason.strip():
             raise Conflict("请填写开启本轮的原因")
         if len(set(models)) != len(models) or not 2 <= len(models) <= 4:
             raise Conflict("请选择 2 至 4 个不同的评审模型")
-        for model in [self.model, *models]:
-            (runtime.openrouter_config if model.startswith("openrouter/") else runtime.opencode_free_config)(model)
+        primary_model = development_model if development_model is not None else self.model
+        if development_model is None:
+            for model in [primary_model, *models]:
+                (runtime.openrouter_config if model.startswith("openrouter/") else runtime.opencode_free_config)(model)
+        else:
+            for model in [primary_model, *models]: runtime.validate_agent_model(model)
         try:
             argv = shlex.split(command)
         except ValueError:
@@ -166,6 +170,13 @@ class Workflow:
             observed = json.loads(ws["snapshot_json"]) if ws["snapshot_json"] else None
             if not observed or observed["tree_digest"] != expected_digest:
                 raise Conflict("请先创建工作区并刷新代码快照")
+            catalog_basis = {}
+            if development_model is not None:
+                from pathlib import Path
+                from .model_catalog import require_models
+                catalog = require_models(Path(ws["path"]), [primary_model, *models])
+                catalog_basis = {"model_source": "agent_cli", "model_catalog": {
+                    key: catalog[key] for key in ("agent_cli_id", "agent_cli_digest", "image", "checked_at")}}
             repository_verification = []
             if use_repository_commands:
                 from .profiles import binding, repository_plans
@@ -183,8 +194,9 @@ class Workflow:
             invalidate_materials(connection, requirement_id)
             value = dict(id=identifier("flow"), requirement_id=requirement_id, revision_id=rev["id"],
                 is_current=True, state="ACTIVE", basis_digest=expected_digest,
-                config_json=encoded({"template": "backend-development-m3/v1", "development_model": self.model,
+                config_json=encoded({"template": "backend-development-m3/v1", "development_model": primary_model,
                     "review_models": models, "verification_argv": argv,
+                    **catalog_basis,
                     **({"repository_verification": repository_verification} if use_repository_commands else {})}), reason=reason, created_at=time.time())
             connection.execute(insert(flows).values(**value))
             return public(value)

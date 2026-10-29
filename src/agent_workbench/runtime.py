@@ -132,8 +132,24 @@ def opencode_free_config(model: str) -> dict:
     }
 
 
-def model_config(model: str, read_only: bool = False, context_paths: list | None = None) -> dict:
-    config = openrouter_config(model) if model.startswith("openrouter/") else opencode_free_config(model)
+def validate_agent_model(model: str) -> str:
+    """Validate a model ID already selected from the pinned CLI's own catalog."""
+    if not isinstance(model, str) or len(model) > 240 or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._:/+-]*", model):
+        raise WorkbenchError("请选择 Agent CLI 模型列表中的有效 provider/model 标识")
+    return model
+
+
+def agent_model_config(model: str) -> dict:
+    validate_agent_model(model)
+    provider, model_id = model.split("/", 1)
+    return {"plugin": ["/opt/superpowers"], "permission": "allow",
+        "enabled_providers": [provider], "model": model, "small_model": model,
+        "provider": {provider: {"whitelist": [model_id]}}}
+
+
+def model_config(model: str, read_only: bool = False, context_paths: list | None = None, *, agent_cli_model: bool = False) -> dict:
+    config = agent_model_config(model) if agent_cli_model else openrouter_config(model) if model.startswith("openrouter/") else opencode_free_config(model)
     if read_only:
         config["permission"] = {"*": "deny", "read": "allow", "glob": "allow", "grep": "allow", "list": "allow"}
         if context_paths:
@@ -175,7 +191,8 @@ def root_state_mounts(workspace: Path, explicit_mounts: list | None = None) -> l
 
 @exclusive_workspace
 def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
-          openrouter_model: str | None = None, opencode_model: str | None = None, read_only_source: bool = False, controller: str | None = None,
+          openrouter_model: str | None = None, opencode_model: str | None = None, agent_model: str | None = None,
+          read_only_source: bool = False, controller: str | None = None,
           limits: dict | None = None, config_mounts: list | None = None,
           dependency_network: str | None = None, dependency_environment: dict | None = None, context_mounts: list | None = None, agent_cli: dict | None = None,
           volume_mounts: list | None = None, profile_environment: dict | None = None, port_mappings: list | None = None,
@@ -198,8 +215,12 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
         serve_argv = ["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"]
     for name in cli_content["credential_env"]:
         if name in os.environ: provider_environment[name] = os.environ[name]
-    if openrouter_model is not None and opencode_model is not None:
+    if sum(item is not None for item in (openrouter_model, opencode_model, agent_model)) > 1:
         raise WorkbenchError("Select only one verification provider")
+    if agent_model is not None:
+        configuration = model_config(agent_model, agent_cli_model=True)
+        if agent_model.startswith("openrouter/") and os.environ.get("OPENROUTER_API_KEY", "").strip():
+            provider_environment["OPENROUTER_API_KEY"] = os.environ["OPENROUTER_API_KEY"]
     if opencode_model is not None:
         configuration = opencode_free_config(opencode_model)
     if openrouter_model is not None:
@@ -210,9 +231,10 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
             provider_environment["OPENROUTER_API_KEY"] = os.environ["OPENROUTER_API_KEY"]
     if read_only_source:
         if not start_agent: raise WorkbenchError("强制启动仅适用于开发工作区")
-        if not (openrouter_model or opencode_model):
+        if not (openrouter_model or opencode_model or agent_model):
             raise WorkbenchError("Read-only roles require an explicit model")
-        configuration = model_config(openrouter_model or opencode_model, True, [item["target"] for item in context_mounts or []])
+        configuration = model_config(agent_model or openrouter_model or opencode_model, True,
+            [item["target"] for item in context_mounts or []], agent_cli_model=agent_model is not None)
     elif context_mounts: raise WorkbenchError("多项目上下文仅用于只读角色")
     suffix = hashlib.sha256(str(workspace).encode()).hexdigest()[:10]
     limits = limits or {"cpus": 1, "memory_mib": 1536, "pids_limit": 256}
@@ -221,6 +243,10 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     network = f"awb-req-{requirement_suffix}"
     if (workspace / "runtime.json").exists():
         raise WorkbenchError("Runtime state already exists; stop the recorded runtime before starting another")
+    if not manifest.get("runtime_profile"):
+        # Legacy image tags can change between starts; their old model catalogs
+        # must be discovered again in the newly created container.
+        safe_path(workspace, "model-catalog.json").unlink(missing_ok=True)
     # Persisted Agent state is untrusted input when interpreted on the host.
     home = safe_path(workspace, "agent-home")
     config = safe_path(workspace, "agent-home/.config/opencode")
@@ -235,7 +261,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
         if labels.get("awb.managed") != "true":
             raise WorkbenchError("Network name belongs to an unmanaged resource")
     config.mkdir(parents=True, exist_ok=True)
-    if not config_file.exists() or openrouter_model is not None or opencode_model is not None:
+    if not config_file.exists() or any(item is not None for item in (openrouter_model, opencode_model, agent_model)):
         # Reapply the selected model restrictions even when Agent state was persisted.
         write_json(config_file, configuration)
     staging.mkdir(exist_ok=True)
@@ -243,6 +269,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     state = {"container": container, "network": network, "password": password,
              "phase": "PREPARING", "image": image, "run_as_root": run_as_root,
              "container_home": container_home(run_as_root), "serve_argv": serve_argv}
+    if agent_model is not None: state.update(model_source="agent_cli", model=agent_model)
     if start_agent: state["agent_service"] = {"directory": "/tmp/awb-agent-" + secrets.token_hex(8)}
     if port_mappings: state["port_mappings"] = port_mappings
     if agent_cli: state["agent_cli"] = agent_cli

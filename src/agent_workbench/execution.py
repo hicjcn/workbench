@@ -159,6 +159,8 @@ class Executor:
             try:
                 return self._execute(job, workspace, emit, canceled)
             except Canceled:
+                if job["action"] == "list_models":
+                    raise
                 try:
                     from .resources import stop_workspace
                     stop_workspace(self.settings.data_dir, workspace)
@@ -198,9 +200,12 @@ class Executor:
         if action == "sync_profile":
             from .profile_sync import execute as sync_profile
             return sync_profile(self, job, workspace, emit, canceled)
-        if action in ("start", "force_start", "task", "workflow", "materials", "preflight"):
+        if action in ("start", "force_start", "task", "workflow", "materials", "preflight", "list_models"):
             from .agent_clis import verify_workspace
             verify_workspace(workspace, job.get("agent_cli"))
+        if action == "list_models":
+            from .model_catalog import execute
+            return execute(self, job, workspace, emit, canceled)
         if action == "preflight":
             from .preflight import execute
             return execute(self, job, workspace, emit, canceled)
@@ -293,9 +298,10 @@ class Executor:
             raise WorkbenchError("请先启动运行环境")
         state = json.loads(state_path.read_text(encoding="utf-8"))
         model = model or self.settings.model
-        if model.startswith("openrouter/"):
+        cli_selected_model = state.get("model_source") == "agent_cli"
+        if model.startswith("openrouter/") and not cli_selected_model:
             openrouter_catalog_model(model)
-        expected = runtime.model_config(model, read_only, state.get("context_paths"))
+        expected = runtime.model_config(model, read_only, state.get("context_paths"), agent_cli_model=cli_selected_model)
         configuration = safe_path(workspace, "agent-home/.config/opencode/opencode.json")
         if not runtime.matches_model_config(json.loads(configuration.read_text(encoding="utf-8")), expected):
             raise WorkbenchError("运行环境模型配置已变化，请停止并重新启动环境")

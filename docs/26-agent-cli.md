@@ -5,7 +5,7 @@
 ## 页面使用
 
 1. 在「Docker 镜像」准备已安装封装程序的镜像。CLI 管理只保存配置，不安装程序，也不会直接在宿主机执行命令。
-2. 打开「Agent CLI 配置」→「添加封装 CLI」，填写名称、容器中的程序名或路径。页面会填充默认的 `serve`、`run`、`--version` 命令；封装更改了参数时可分别编辑。
+2. 打开「Agent CLI 配置」→「添加封装 CLI」，填写名称、容器中的程序名或路径。页面会填充默认的 `serve`、`run`、`--version` 和 `models` 命令；封装更改了参数时可分别编辑。
 3. 设置任务超时和可选的精确版本输出。凭据只填写变量名，由 Runner 的既有进程环境按名称传入容器；不在网页、命令参数、SQLite 或备份中保存实际密钥值。
 4. 保存后可「设为新工作区默认」。项目也可在「项目运行配置」选择特定 CLI 配置版本，覆盖全局默认。
 5. 创建新需求工作区，在「容器管理」执行环境预检，再启动并验证实际任务。需求和容器界面显示所选配置及其是否已经固定。
@@ -20,6 +20,7 @@
 服务：team-code serve --hostname {host} --port {port}
 任务：team-code run --attach {endpoint} --model {model} --format json
 版本：team-code --version
+模型列表：team-code models
 ```
 
 如果封装只处理任务，可将服务命令保留为原生 OpenCode：
@@ -39,10 +40,10 @@
 ## 兼容契约
 
 - 服务保留 OpenCode 的回环控制 API、健康/配置/技能探测、创建/中止/删除会话能力，并使用 `OPENCODE_SERVER_USERNAME` / `OPENCODE_SERVER_PASSWORD` 认证。
-- 继续从隔离 HOME 下的 OpenCode 配置读取既有模型/provider 白名单、插件及只读角色权限。不会因为更换 CLI 放松既有免费模型选择规则，也不会更换实际模型。
+- 继续从工作区的固定 OpenCode 配置读取模型/provider 白名单、插件及只读角色权限。新流程轮次可从 CLI 列表选择并固定模型；历史轮次保留原有规则，详见[CLI 模型选择](35-cli-model-selection.md)。
 - 任务命令从标准输入读取提示词，输出 OpenCode JSONL 事件：正文为 `type=text` / `part.text`，正常完成含 `type=step_finish` / `part.reason=stop`。错误事件或非零退出都失败；只有退出码 0 没有结束事件则保持待核实，不自动重试。
 - 只读分析、模型评审、文档生成和联合分析继承原工作区 CLI 配置，使用独立 Agent HOME 和只读源码挂载，不连接开发数据库。预检、单项目分析、模型评审和文档生成继承固定运行配置中的自定义卷，并遵循每个卷的 `read_only` 设置，允许配置为读写的 CLI 日志、缓存或登录状态目录正常写入。联合分析使用第一个候选项目的 CLI/镜像，不继承项目配置挂载。
-- 预检使用配置中的版本命令；预期版本为空时只要求命令成功且有版本输出。固定镜像、Node/Git、命令入口、配置只读挂载、现有锁定 Superpowers 及控制接口检查仍然保留。
+- 预检使用配置中的版本命令；预期版本为空时只要求命令成功且有版本输出。固定镜像、Node/Git、命令入口、配置只读挂载、Superpowers 技能发现及控制接口检查仍然保留；Superpowers 不再校验固定版本或提交标签。
 
 预检不要求镜像中额外安装名为 `opencode` 的程序：所选封装 CLI 的服务与版本命令可直接使用自定义程序名。版本输出支持 stdout 或 stderr。启动容器时保留镜像自身的 `ENTRYPOINT` 和 `CMD`，例如只启动 code-server；容器启动后，工作台通过 `docker exec` 启动当前需求固定的 CLI 服务，再等待兼容控制接口就绪。Dockerfile 不需要启动 Agent CLI，也不应预先占用 `4096/tcp`。
 

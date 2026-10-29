@@ -30,7 +30,8 @@ class PreflightTests(ControlFixture):
         self.isolated = None
 
     def run_preflight(self, *, version='team/1.0', probe_failure=False, exited=False, start_failure=False, inspection_failure=False,
-                      root_mode=False, implicit_database_credentials=False, agent_exited=False):
+                      root_mode=False, implicit_database_credentials=False, agent_exited=False,
+                      superpowers_revision=None, superpowers_configured=True, skill_names=None):
         def start(isolated, image, *_args, **options):
             self.isolated = isolated
             manifest = json.loads((isolated / 'workspace.json').read_text())
@@ -46,7 +47,7 @@ class PreflightTests(ControlFixture):
             if args[0] == 'inspect':
                 if inspection_failure: raise WorkbenchError('inspection failed TEAM-PRIVATE-MARKER')
                 return SimpleNamespace(returncode=0, stderr='', stdout=json.dumps([{'Image':'sha256:wrapper',
-                    'Path':'team-code','Config':{'Labels':{'org.agent-workbench.superpowers-commit':preflight.SUPERPOWERS},
+                    'Path':'team-code','Config':{'Labels':{'org.agent-workbench.superpowers-commit':superpowers_revision} if superpowers_revision else {},
                         'Env':['PATH=/opt/team/bin:/usr/bin','HOME=/home/node','TEAM_API_KEY=TEAM-PRIVATE-MARKER','UNRELATED=DO-NOT-COPY-THIS'], 'User':'1000:1000'},
                     'NetworkSettings':{'Networks':{}}, 'State':{'Status':'exited' if exited else 'running','ExitCode':2 if exited else 0}}]))
             if args[0] == 'logs':
@@ -66,7 +67,8 @@ class PreflightTests(ControlFixture):
             return SimpleNamespace(stdout=json.dumps({'node':{'ok':True},'git':{'ok':True},'agent_cli':{'ok':True,'value':version},'commands':[],'mounts':[], 'no_database_credentials':not implicit_database_credentials}))
         def stop(isolated):
             (isolated / 'runtime.json').unlink()
-        capabilities = {'health':{'healthy':True},'superpowers_configured':True,'skill_names':['using-superpowers'],'runtime':{'source_read_only':True}}
+        capabilities = {'health':{'healthy':True},'superpowers_configured':superpowers_configured,
+            'skill_names':['using-superpowers'] if skill_names is None else skill_names,'runtime':{'source_read_only':True}}
         self.action(self.req,'preflight')
         fake_time = SimpleNamespace(time=lambda:123.0, monotonic=Mock(side_effect=[0,1] if probe_failure=='retry' or agent_exited else [0,100]), sleep=Mock())
         probe_effect = [WorkbenchError('control not ready'),capabilities] if probe_failure=='retry' else WorkbenchError('control not ready') if probe_failure else None
@@ -90,6 +92,23 @@ class PreflightTests(ControlFixture):
         names = {item['name'] for item in report['checks']}
         self.assertTrue({'agent_cli_version','agent_cli_service'} <= names)
         self.assertNotIn('opencode_version', names)
+
+    def test_superpowers_revision_is_not_an_environment_gate(self):
+        for revision in (None, 'another-installed-superpowers-version'):
+            with self.subTest(revision=revision):
+                detail = self.run_preflight(superpowers_revision=revision)
+                self.assertEqual(detail['jobs'][0]['status'], 'SUCCEEDED')
+                checks = {item['name']:item['passed'] for item in detail['preflight']['checks']}
+                self.assertNotIn('superpowers_revision', checks)
+                self.assertTrue(checks['superpowers_loaded'])
+
+    def test_superpowers_plugin_and_discoverable_skill_are_still_required(self):
+        for configured, skills in ((False, ['using-superpowers']), (True, [])):
+            with self.subTest(configured=configured, skills=skills):
+                detail = self.run_preflight(superpowers_configured=configured, skill_names=skills)
+                self.assertEqual(detail['jobs'][0]['status'], 'FAILED')
+                checks = {item['name']:item['passed'] for item in detail['preflight']['checks']}
+                self.assertFalse(checks['superpowers_loaded'])
 
     def test_wrapper_version_mismatch_still_blocks_preflight(self):
         detail = self.run_preflight(version='wrong/2.0')
