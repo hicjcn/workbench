@@ -248,7 +248,7 @@ export default function App() {
           <span>自审通过</span>
         </div>
         <div className="model-note">
-          <span>当前模型</span>
+          <span>默认模型</span>
           <code>{model || "读取配置中"}</code>
         </div>
       </div>

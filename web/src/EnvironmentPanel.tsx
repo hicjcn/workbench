@@ -208,7 +208,7 @@ const checkLabels: Record<string, string> = {
   opencode_version: "Agent CLI 版本符合配置",
   agent_cli_version: "所选 Agent CLI 版本符合配置",
   agent_cli_service: "所选 Agent CLI 兼容控制服务可用",
-  superpowers_revision: "Superpowers 版本匹配",
+  superpowers_revision: "Superpowers 版本匹配（历史检查）",
   superpowers_loaded: "Superpowers 技能已加载",
   node_and_git: "Node 与 Git 可用",
   command_entries: "构建与验证命令入口存在",

@@ -46,6 +46,7 @@ stop_managed_environments = true
 enabled = false
 name = "Team OpenCode"
 executable = "team-code"
+# list_models_command = "team-code models"
 expected_version = ""
 timeout_seconds = 300
 credential_env = []

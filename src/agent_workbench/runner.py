@@ -115,7 +115,7 @@ class Runner:
                 result = {"delivery_observations": getattr(failure, "observations", []), "delivery_stopped": getattr(failure, "stopped", False)}
             else:
                 try:
-                    environment = None if job["action"].startswith("app_") and status == "FAILED" else "STOPPED" if status == "CANCELED" else "ERROR"
+                    environment = None if (job["action"] == "list_models" and status in ("FAILED", "CANCELED")) or (job["action"].startswith("app_") and status == "FAILED") else "STOPPED" if status == "CANCELED" else "ERROR"
                     if status == "FAILED":
                         from .runtime import describe_debug_runtime
                         if describe_debug_runtime(workspace): environment = "DEBUG_RUNNING"

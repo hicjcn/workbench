@@ -13,9 +13,6 @@ from .container_shell import shell_argv
 from .workspace import WorkbenchError, create_workspace, snapshot, write_json
 from . import logging_support as logs
 
-SUPERPOWERS = "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b"
-
-
 def read_report(workspace):
     path = workspace / "preflight-report.json"
     if not path.exists(): return None
@@ -135,7 +132,6 @@ def execute(executor, job, workspace, emit, canceled):
         state = json.loads((isolated / "runtime.json").read_text(encoding="utf-8"))
         logs.progress(emit, "preflight.tools", "Agent CLI 服务已就绪，正在检查版本、开发工具与挂载")
         details = json.loads(runtime.docker("inspect", state["container"]).stdout)[0]
-        labels = details["Config"].get("Labels") or {}
         config = {"commands": {"build": command(profile["content"]["build_command"]), "verify": command(profile["content"]["verification_command"])},
             "mounts": [item["target"] for item in profile["content"]["mounts"]]}
         from .multi_repo import layout
@@ -159,7 +155,6 @@ def execute(executor, job, workspace, emit, canceled):
             "image_id": details["Image"] == fixed["image_id"],
             "agent_cli_service": bool(capabilities["health"].get("healthy")),
             "agent_cli_version": tools["agent_cli"]["ok"] and bool(tools["agent_cli"]["value"]) and (not cli_content["expected_version"] or tools["agent_cli"]["value"] == cli_content["expected_version"]),
-            "superpowers_revision": labels.get("org.agent-workbench.superpowers-commit") == SUPERPOWERS,
             "superpowers_loaded": capabilities.get("superpowers_configured") and "using-superpowers" in capabilities.get("skill_names", []),
             "node_and_git": tools["node"]["ok"] and tools["git"]["ok"],
             "command_entries": all(item["available"] for item in tools["commands"]),

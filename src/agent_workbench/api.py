@@ -61,7 +61,7 @@ class RequirementInput(Input):
 
 
 class ActionInput(Input):
-    action: Literal["prepare", "start", "force_start", "stop", "refresh", "task", "reconcile", "preflight", "sync_profile", "build", "verify", "app_start", "app_stop", "app_check", "app_logs"]
+    action: Literal["prepare", "start", "force_start", "stop", "refresh", "list_models", "task", "reconcile", "preflight", "sync_profile", "build", "verify", "app_start", "app_stop", "app_check", "app_logs"]
     prompt: str = Field(default="", max_length=32000)
 
 
@@ -113,6 +113,7 @@ class RevisionInput(Input):
 
 
 class WorkflowStart(Input):
+    development_model: str | None = Field(default=None, min_length=1, max_length=240)
     review_models: list[str] = Field(min_length=2, max_length=4)
     verification_command: str = Field(default="", max_length=2000)
     use_repository_commands: bool = False
@@ -371,6 +372,12 @@ def create_app(settings: Settings, store: Store | None = None):
             "jobs": database.job_history(requirement_id),
             "reviews": database.list(tables.reviews, tables.reviews.c.requirement_id == requirement_id)}
 
+    @app.get("/api/v1/requirements/{requirement_id}/models", dependencies=[Depends(user)])
+    def models(requirement_id: str):
+        workspace = database.get(tables.workspaces, requirement_id)
+        from .model_catalog import read
+        return read(Path(workspace["path"]))
+
     @app.post("/api/v1/requirements/{requirement_id}/actions", status_code=202, dependencies=[Depends(user)])
     def action(requirement_id: str, value: ActionInput, idempotency_key: str | None = Header(default=None, max_length=100)):
         database.expire()
@@ -417,7 +424,7 @@ def create_app(settings: Settings, store: Store | None = None):
     @app.post("/api/v1/requirements/{requirement_id}/workflow", status_code=201, dependencies=[Depends(user)])
     def start_workflow(requirement_id: str, value: WorkflowStart):
         return workflow.start(requirement_id, value.review_models, value.verification_command, value.reason, value.digest,
-            use_repository_commands=value.use_repository_commands)
+            use_repository_commands=value.use_repository_commands, development_model=value.development_model)
 
     @app.post("/api/v1/requirements/{requirement_id}/workflow/steps", status_code=202, dependencies=[Depends(user)])
     def run_step(requirement_id: str, value: WorkflowStep, idempotency_key: str | None = Header(default=None, max_length=100)):

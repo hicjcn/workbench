@@ -51,6 +51,15 @@ export type Job = {
     workflow_output?: CommandOutput;
   } | null;
 };
+export type ModelCatalog = {
+  status: "NOT_LOADED" | "READY" | "EMPTY" | "FAILED";
+  models: { id: string; label?: string }[];
+  agent_cli_id?: string;
+  agent_cli_digest?: string;
+  image?: string;
+  checked_at?: number;
+  error?: string;
+};
 export type CommandOutput = {
   repositories?: {
     path: string;
@@ -166,6 +175,7 @@ export const labels: Record<string, string> = {
   prepare: "创建工作区",
   start: "启动环境",
   force_start: "强制启动环境（排障）",
+  list_models: "读取 CLI 模型列表",
   stop: "停止环境",
   refresh: "刷新代码差异",
   task: "Agent 任务",

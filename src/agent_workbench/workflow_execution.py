@@ -13,7 +13,7 @@ from . import logging_support as logs
 from .platform_support import docker_argv, docker_environment
 from .execution import Canceled, Unknown
 from .workflow_reports import Analysis, Development, Review, parse_report
-from .workspace import WorkbenchError, create_workspace, snapshot
+from .workspace import WorkbenchError, create_workspace, safe_path, snapshot
 
 
 def prompt_for(payload):
@@ -45,12 +45,50 @@ def execute_step(executor, job, workspace, emit, canceled):
         output = verify_command(executor, job, workspace, emit, canceled)
         return {**executor.observe(workspace), "workflow_output": output}
     if key == "development":
+        if payload["bundle"]["config"].get("model_source") == "agent_cli":
+            ensure_development_runtime(executor, job, workspace, emit, canceled,
+                payload["bundle"]["config"]["development_model"])
         result = executor.task(job, workspace, emit, canceled, model=payload["bundle"]["config"]["development_model"],
                                prompt=prompt_for(payload), collect_text=True)
         report = parse_report(key, result.pop("agent_text"))
         return {**result, "workflow_output": report}
     model = payload["bundle"]["config"]["development_model"] if key == "analysis" else payload["bundle"]["config"]["review_models"][int(key.removeprefix("model_review_"))]
     return readonly_agent(executor, job, workspace, emit, canceled, model, prompt_for(payload), lambda text: parse_report(key, text))
+
+
+def ensure_development_runtime(executor, job, workspace, emit, canceled, model):
+    """Apply the round's selected model to an already started development runtime."""
+    runtime.validate_agent_model(model)
+    journal = safe_path(workspace, "runtime.json")
+    if not journal.exists():
+        raise WorkbenchError("请先启动开发环境，再运行本轮开发步骤")
+    state = json.loads(journal.read_text(encoding="utf-8"))
+    if state.get("phase") != "STARTED":
+        raise WorkbenchError("开发环境尚未正常启动，请先停止排障环境并正常启动")
+    if state.get("model_source") == "agent_cli" and state.get("model") == model:
+        return
+    if canceled.is_set(): raise Canceled("模型切换已取消")
+    logs.progress(emit, "workflow.model_switch", "正在按本轮选择重启 Agent 服务环境", model=model)
+    try:
+        runtime.stop(workspace)
+    except (WorkbenchError, subprocess.TimeoutExpired):
+        raise Unknown("旧 Agent 环境停止尚未核实，不能切换模型；请停止并核实") from None
+    if canceled.is_set(): raise Canceled("模型切换已取消")
+    ca = Path(os.environ["CODEX_PROXY_CERT"]) if os.environ.get("CODEX_PROXY_CERT") else None
+    executor.start_runtime(workspace, job["project"]["image"], ca, agent_model=model)
+    deadline = time.monotonic() + 90
+    while True:
+        if canceled.is_set(): raise Canceled("模型切换已取消")
+        try:
+            if runtime.probe(workspace)["health"].get("healthy"):
+                return
+        except runtime.AgentServiceStopped:
+            raise
+        except WorkbenchError:
+            pass
+        if time.monotonic() > deadline:
+            raise WorkbenchError("本轮模型的 Agent 服务启动超时，请检查固定 CLI 与运行配置")
+        time.sleep(0.5)
 
 
 def readonly_agent(executor, job, workspace, emit, canceled, model, prompt, parse):
@@ -65,7 +103,10 @@ def readonly_agent(executor, job, workspace, emit, canceled, model, prompt, pars
     if created["snapshot"]["tree_digest"] != payload["bundle"]["code_digest"]:
         raise WorkbenchError("只读副本与固定快照不一致")
     try:
-        options = {"openrouter_model": model} if model.startswith("openrouter/") else {"opencode_model": model}
+        if payload["bundle"].get("model_source") == "agent_cli" or payload["bundle"].get("config", {}).get("model_source") == "agent_cli":
+            options = {"agent_model": model}
+        else:
+            options = {"openrouter_model": model} if model.startswith("openrouter/") else {"opencode_model": model}
         ca = Path(os.environ["CODEX_PROXY_CERT"]) if os.environ.get("CODEX_PROXY_CERT") else None
         logs.progress(emit, "readonly.start", "正在启动只读 Agent 环境")
         executor.start_runtime(isolated, job["project"]["image"], ca, read_only_source=True, **options)

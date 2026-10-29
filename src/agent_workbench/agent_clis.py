@@ -37,6 +37,7 @@ class Content(BaseModel):
     serve_command: str = Field(default="opencode serve --hostname {host} --port {port}", min_length=1, max_length=4000)
     run_command: str = Field(default="opencode run --attach {endpoint} --model {model} --format json", min_length=1, max_length=4000)
     version_command: str = Field(default="opencode --version", min_length=1, max_length=2000)
+    list_models_command: str | None = Field(default=None, max_length=4000)
     expected_version: str = Field(default="", max_length=200)
     timeout_seconds: int = Field(default=300, ge=1, le=3600)
     credential_env: list[str] = Field(default_factory=list, max_length=16)
@@ -46,6 +47,8 @@ class Content(BaseModel):
         argv(self.serve_command, placeholders=("host", "port"))
         argv(self.run_command, placeholders=("endpoint", "model"))
         argv(self.version_command)
+        if self.list_models_command is not None:
+            argv(self.list_models_command)
         if "{model}" not in self.run_command or "{endpoint}" not in self.run_command:
             raise ValueError("任务命令必须显式传递 {model} 和 {endpoint}，提示词固定通过标准输入传递")
         return self
@@ -80,7 +83,9 @@ def digest(content): return hashlib.sha256(encoded(content).encode()).hexdigest(
 
 
 def builtin():
-    content = Content(expected_version="1.19.4").model_dump()
+    # The built-in v1 identity predates model discovery; preserve its digest so
+    # prepared workspaces keep their immutable binding after an upgrade.
+    content = Content(expected_version="1.19.4").model_dump(exclude={"list_models_command"})
     return {"id": BUILTIN, "family": BUILTIN, "number": 1, "name": "OpenCode（内置）", "content": content,
         "content_digest": digest(content), "actor": "系统", "reason": "保留既有 OpenCode 行为", "created_at": 0, "builtin": True}
 
@@ -121,8 +126,7 @@ def pin(connection, requirement_id):
 
 def configure(workspace, selected):
     if not selected: return
-    content = Content.model_validate(selected["content"]).model_dump()
-    if digest(content) != selected["content_digest"]: raise WorkbenchError("Agent CLI 配置摘要不一致")
+    checked(selected)
     fixed = {key: selected[key] for key in ("id", "name", "number", "content", "content_digest")}
     path = workspace / "workspace.json"; manifest = json.loads(path.read_text(encoding="utf-8"))
     if manifest.get("agent_cli") and manifest["agent_cli"] != fixed: raise WorkbenchError("工作区 Agent CLI 已固定，不能静默切换")
@@ -149,14 +153,18 @@ def verify_workspace(workspace, selected=None):
 def checked(selected):
     selected = selected or builtin()
     content = Content.model_validate(selected["content"]).model_dump()
-    if digest(content) != selected["content_digest"]: raise WorkbenchError("Agent CLI 配置摘要不符")
+    # Validate the stored document, before applying defaults added in newer code.
+    if digest(selected["content"]) != selected["content_digest"]: raise WorkbenchError("Agent CLI 配置摘要不符")
     return content
 
 
 def command(selected, kind, *, model=None):
     content = checked(selected)
-    allowed = {"serve": ("host", "port"), "run": ("endpoint", "model"), "version": ()}[kind]
-    parts = argv(content[kind + "_command"], placeholders=allowed)
+    allowed = {"serve": ("host", "port"), "run": ("endpoint", "model"), "version": (), "list_models": ()}[kind]
+    value = content[kind + "_command"]
+    if kind == "list_models" and value is None:
+        value = shlex.join([argv(content["version_command"])[0], "models"])
+    parts = argv(value, placeholders=allowed)
     replacements = {"host": "0.0.0.0", "port": "4096", "endpoint": "http://127.0.0.1:4096", "model": model or ""}
     return [replace(part, replacements, allowed) for part in parts]
 

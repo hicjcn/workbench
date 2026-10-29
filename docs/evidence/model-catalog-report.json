@@ -1,0 +1,19 @@
+{
+  "status": "PASSED",
+  "real_docker": true,
+  "real_api_and_runner": true,
+  "real_browser": true,
+  "model_inference": false,
+  "real_user_credentials": false,
+  "task_output": "CONTROLLED_FIXTURE_ONLY",
+  "checks": [
+    "image_without_superpowers_commit_label_passes_with_required_skill_available",
+    "browser_reads_real_cli_lines_deduplicates_models_and_saves_three_dropdown_choices_with_distinct_reviews",
+    "new_round_retains_only_catalog_choices_and_browser_has_no_errors_or_mobile_overflow",
+    "readonly_analysis_and_development_use_selected_nonlegacy_model_and_pinned_runtime_configuration",
+    "both_distinct_review_models_execute_through_their_actual_cli_model_arguments",
+    "json_refresh_empty_list_and_failed_refresh_preserve_runtime_without_stale_or_private_output",
+    "cli_catalog_can_be_read_in_diagnostic_container_without_starting_agent_or_inference"
+  ],
+  "completed_checks": 7
+}
