@@ -181,17 +181,27 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(result["port_mappings"], [mapping])
         self.assertNotIn("private-value", (workspace / "runtime.json").read_text())
 
-    def test_readonly_runtime_forces_external_mounts_readonly(self):
+    def test_readonly_runtime_respects_external_mount_permissions(self):
         workspace = self.create().parent
+        config = self.root / "cli.json"; config.write_text("{}")
+        context = "/workspace/candidates/prj_" + "a" * 32
         def docker(*args, **kwargs):
             if args[:2] == ("network", "inspect"):
                 return subprocess.CompletedProcess([], 1, "", "missing")
             return subprocess.CompletedProcess([], 0, "127.0.0.1:4096\n" if args[0] == "port" else "", "")
         with patch.object(runtime, "docker", side_effect=docker) as calls:
             runtime.start(workspace, "fixture-image", read_only_source=True, opencode_model="opencode/glm-5.3-flash-free",
-                volume_mounts=[{"source": str(self.source), "target": "/mnt/data", "read_only": False}])
+                config_mounts=[{"source": str(config), "target": "/run/workbench-config/cli.json"}],
+                context_mounts=[{"source": str(self.source), "target": context}],
+                volume_mounts=[{"source": str(self.source), "target": "/var/log/team-code", "read_only": False},
+                    {"source": str(self.source), "target": "/mnt/explicit-ro", "read_only": True},
+                    {"source": str(self.source), "target": "/mnt/default"}])
         run = next(call for call in calls.call_args_list if call.args[0] == "run")
-        self.assertIn("readonly", next(value for value in run.args if "dst=/mnt/data" in value))
+        mounts = [run.args[index + 1] for index, argument in enumerate(run.args) if argument == "--mount"]
+        self.assertNotIn("readonly", next(value for value in mounts if "dst=/var/log/team-code" in value).split(","))
+        for target in ("/mnt/explicit-ro", "/mnt/default", "/workspace/project", "/run/workbench-config/cli.json", context):
+            with self.subTest(target=target):
+                self.assertIn("readonly", next(value for value in mounts if "dst=" + target in value).split(","))
 
     def test_root_runtime_initializes_bash_without_relaxing_readonly_mounts(self):
         from agent_workbench.agent_service import launch_argv
