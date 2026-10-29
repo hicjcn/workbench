@@ -69,7 +69,7 @@ class RootHomeRuntimeTests(ControlFixture):
         self.assertTrue(any("dst=/root/.cache/opencode/auth,readonly" in value for value in bindings))
         self.assertTrue((workspace / "agent-home/.config/opencode/opencode.json").is_file())
 
-    def test_readonly_role_retains_readonly_source_and_credential_mounts(self):
+    def test_readonly_role_keeps_source_readonly_and_respects_writable_credentials(self):
         directory = self.root / "credentials"
         directory.mkdir()
         detail = self.prepared()
@@ -82,7 +82,8 @@ class RootHomeRuntimeTests(ControlFixture):
                 volume_mounts=[{"source": str(directory), "target": "/root/.team-login", "read_only": False}])
         run = next(call.args for call in docker.call_args_list if call.args[0] == "run")
         self.assertTrue(any("dst=/workspace/project,readonly" in argument for argument in run))
-        self.assertTrue(any("dst=/root/.team-login,readonly" in argument for argument in run))
+        credentials = next(argument for argument in run if "dst=/root/.team-login" in argument)
+        self.assertNotIn("readonly", credentials)
         configuration = json.loads((workspace / "agent-home/.config/opencode/opencode.json").read_text())
         self.assertEqual(configuration["permission"]["*"], "deny")
 

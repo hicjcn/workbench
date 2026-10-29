@@ -307,7 +307,7 @@ def start(workspace: Path, image: str, proxy_ca: Path | None = None, *,
     for mount in managed_root_mounts:
         command += ["--mount", bind_mount(mount["source"], mount["target"])]
     for mount in volume_mounts or []:
-        command += ["--mount", bind_mount(mount["source"], mount["target"], readonly=read_only_source or mount.get("read_only", True))]
+        command += ["--mount", bind_mount(mount["source"], mount["target"], readonly=mount.get("read_only", True))]
     for mount in context_mounts or []:
         command += ["--mount", bind_mount(mount["source"], mount["target"], readonly=True)]
     # Docker's configured proxy environment remains in effect. Mount session CA only at runtime.
